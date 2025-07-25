@@ -73,18 +73,17 @@ process.on('unhandledRejection', (reason, promise) => {
     const { testDbConnection } = await import("./db");
     const dbConnected = await testDbConnection();
     
-    // Setup session store based on database type
-    const DATABASE_URL = process.env.DATABASE_URL || 'sqlite:./healthai.db';
-    if (DATABASE_URL.startsWith('postgresql://') && dbConnected) {
+    // Setup PostgreSQL session store
+    if (dbConnected) {
       const { pool } = await import("./db");
       const PgSession = connectPgSimple(session);
       sessionConfig.store = new PgSession({
-        pool: pool || undefined,
+        pool,
         tableName: 'session'
       });
       log("Using PostgreSQL session store");
     } else {
-      log("Using memory session store (SQLite fallback)");
+      log("Using memory session store (database connection failed)");
     }
     
     app.use(session(sessionConfig));
