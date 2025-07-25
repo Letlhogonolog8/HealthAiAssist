@@ -4,6 +4,7 @@ npm-debug.log
 .gitignore
 README.md
 .env
+.env.local
 .nyc_output
 coverage
 .vscode
@@ -11,9 +12,11 @@ coverage
 *.log
 dist
 build
-.DS_Store
-Thumbs.db
-venv
-__pycache__
-*.pyc
-.pytest_cache
+.next
+out
+dataset/models
+*.h5
+*.pkl
+*.joblib
+uploads
+temp

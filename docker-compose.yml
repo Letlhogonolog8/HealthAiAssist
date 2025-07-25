@@ -1,30 +1,30 @@
 version: '3.8'
 
 services:
-  app:
+  healthai:
     build: .
     ports:
       - "5000:5000"
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=postgresql://healthai:password@db:5432/healthai_db
-      - SESSION_SECRET=healthai-prod-2025-secure-random-key-xyz789
+      - DATABASE_URL=sqlite:./healthai.db
+      - SESSION_SECRET=your-secure-session-secret-here
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-    depends_on:
-      - db
     volumes:
-      - ./uploads:/app/uploads
+      - ./data:/app/data
+    restart: unless-stopped
 
-  db:
+  postgres:
     image: postgres:15-alpine
     environment:
       - POSTGRES_DB=healthai_db
       - POSTGRES_USER=healthai
-      - POSTGRES_PASSWORD=password
+      - POSTGRES_PASSWORD=healthai_password
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    restart: unless-stopped
 
 volumes:
   postgres_data:
