@@ -43,9 +43,9 @@ RUN adduser -S healthai -u 1001
 RUN chown -R healthai:nodejs /app
 USER healthai
 
-EXPOSE 5000
+EXPOSE 8080
 
 ENV NODE_ENV=production
-ENV PORT=5000
+ENV PORT=8080
 
 CMD ["node", "dist/server/index.js"]
