@@ -12,7 +12,7 @@ COPY requirements.txt ./
 
 # Install dependencies
 RUN npm ci --only=production
-RUN pip3 install -r requirements.txt
+RUN pip3 install -r requirements.txt --break-system-packages
 
 # Copy source code
 COPY . .
