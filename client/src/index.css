@@ -1,0 +1,229 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 0 0% 100%; /* #ffffff white */
+  --foreground: 222 84% 5%; /* #0f172a slate-900 */
+  --muted: 210 40% 96%; /* #f1f5f9 slate-100 */
+  --muted-foreground: 215 16% 47%; /* #64748b slate-500 */
+  --popover: 0 0% 100%; /* #ffffff white */
+  --popover-foreground: 222 84% 5%; /* #0f172a slate-900 */
+  --card: 0 0% 100%; /* #ffffff white */
+  --card-foreground: 222 84% 5%; /* #0f172a slate-900 */
+  --border: 214 32% 91%; /* #e2e8f0 slate-200 */
+  --input: 214 32% 91%; /* #e2e8f0 slate-200 */
+  --primary: 221 83% 53%; /* #2563eb blue-600 */
+  --primary-foreground: 210 40% 98%; /* #f8fafc slate-50 */
+  --secondary: 210 40% 96%; /* #f1f5f9 slate-100 */
+  --secondary-foreground: 222 84% 5%; /* #0f172a slate-900 */
+  --accent: 210 40% 96%; /* #f1f5f9 slate-100 */
+  --accent-foreground: 222 84% 5%; /* #0f172a slate-900 */
+  --destructive: 0 84% 60%; /* #ef4444 red-500 */
+  --destructive-foreground: 210 40% 98%; /* #f8fafc slate-50 */
+  --ring: 221 83% 53%; /* #2563eb blue-600 */
+  --radius: 0.5rem;
+  
+  /* Custom medical colors */
+  --medical-blue-50: 214 100% 97%; /* #eff6ff */
+  --medical-blue-100: 214 95% 93%; /* #dbeafe */
+  --medical-blue-200: 213 97% 87%; /* #bfdbfe */
+  --medical-blue-300: 212 96% 78%; /* #93c5fd */
+  --medical-blue-400: 213 94% 68%; /* #60a5fa */
+  --medical-blue-500: 217 91% 60%; /* #3b82f6 */
+  --medical-blue-600: 221 83% 53%; /* #2563eb */
+  --medical-blue-700: 224 76% 48%; /* #1d4ed8 */
+  --medical-blue-800: 226 71% 40%; /* #1e40af */
+  --medical-blue-900: 224 64% 33%; /* #1e3a8a */
+  
+  --medical-teal-500: 188 78% 41%; /* #0891b2 */
+  --medical-teal-600: 187 80% 34%; /* #0e7490 */
+}
+
+/* Custom scrollbar styles */
+.scrollbar-thin {
+  scrollbar-width: thin;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 3px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+  .mobile-optimized {
+    padding: 0.75rem;
+  }
+  
+  .mobile-card {
+    margin: 0.5rem 0;
+    padding: 1rem;
+  }
+  
+  .mobile-text {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+  
+  .mobile-button {
+    padding: 0.75rem 1rem;
+    font-size: 1rem;
+    width: 100%;
+    margin: 0.25rem 0;
+  }
+  
+  .mobile-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+  
+  .mobile-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: hsl(var(--background));
+    border-top: 1px solid hsl(var(--border));
+    z-index: 50;
+    padding: 0.5rem;
+  }
+  
+  .mobile-content {
+    padding-bottom: 4rem;
+  }
+}
+
+/* Touch-friendly elements */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Mobile camera support */
+@media (max-width: 768px) {
+  video {
+    width: 100% !important;
+    height: auto !important;
+    max-height: 70vh;
+    object-fit: cover;
+  }
+  
+  /* Landscape mode adjustments */
+  @media (orientation: landscape) and (max-height: 600px) {
+    video {
+      max-height: 85vh;
+    }
+  }
+  
+  /* Portrait mode adjustments */
+  @media (orientation: portrait) {
+    video {
+      min-height: 300px;
+      max-height: 60vh;
+    }
+  }
+}
+
+/* Camera overlay improvements for mobile */
+@media (pointer: coarse) {
+  .camera-overlay {
+    font-size: 0.875rem;
+    padding: 0.75rem;
+  }
+  
+  .camera-controls {
+    backdrop-filter: blur(8px);
+    background: rgba(0, 0, 0, 0.8);
+  }
+}
+
+/* Viewport meta for mobile */
+@viewport {
+  width: device-width;
+  initial-scale: 1;
+  user-scalable: yes;
+}
+
+.dark {
+  --background: 222 84% 5%; /* #0f172a slate-900 */
+  --foreground: 210 40% 98%; /* #f8fafc slate-50 */
+  --muted: 217 32% 17%; /* #1e293b slate-800 */
+  --muted-foreground: 215 20% 65%; /* #94a3b8 slate-400 */
+  --popover: 222 84% 5%; /* #0f172a slate-900 */
+  --popover-foreground: 210 40% 98%; /* #f8fafc slate-50 */
+  --card: 217 32% 17%; /* #1e293b slate-800 */
+  --card-foreground: 210 40% 98%; /* #f8fafc slate-50 */
+  --border: 215 28% 17%; /* #334155 slate-700 */
+  --input: 215 28% 17%; /* #334155 slate-700 */
+  --primary: 207 90% 54%; /* #2563eb blue-600 */
+  --primary-foreground: 210 40% 98%; /* #f8fafc slate-50 */
+  --secondary: 217 32% 17%; /* #1e293b slate-800 */
+  --secondary-foreground: 210 40% 98%; /* #f8fafc slate-50 */
+  --accent: 217 32% 17%; /* #1e293b slate-800 */
+  --accent-foreground: 210 40% 98%; /* #f8fafc slate-50 */
+  --destructive: 0 63% 31%; /* #dc2626 red-600 */
+  --destructive-foreground: 210 40% 98%; /* #f8fafc slate-50 */
+  --ring: 215 20% 65%; /* #94a3b8 slate-400 */
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@layer utilities {
+  .medical-blue-50 { color: hsl(var(--medical-blue-50)); }
+  .medical-blue-100 { color: hsl(var(--medical-blue-100)); }
+  .medical-blue-200 { color: hsl(var(--medical-blue-200)); }
+  .medical-blue-300 { color: hsl(var(--medical-blue-300)); }
+  .medical-blue-400 { color: hsl(var(--medical-blue-400)); }
+  .medical-blue-500 { color: hsl(var(--medical-blue-500)); }
+  .medical-blue-600 { color: hsl(var(--medical-blue-600)); }
+  .medical-blue-700 { color: hsl(var(--medical-blue-700)); }
+  .medical-blue-800 { color: hsl(var(--medical-blue-800)); }
+  .medical-blue-900 { color: hsl(var(--medical-blue-900)); }
+  
+  .bg-medical-blue-50 { background-color: hsl(var(--medical-blue-50)); }
+  .bg-medical-blue-100 { background-color: hsl(var(--medical-blue-100)); }
+  .bg-medical-blue-200 { background-color: hsl(var(--medical-blue-200)); }
+  .bg-medical-blue-300 { background-color: hsl(var(--medical-blue-300)); }
+  .bg-medical-blue-400 { background-color: hsl(var(--medical-blue-400)); }
+  .bg-medical-blue-500 { background-color: hsl(var(--medical-blue-500)); }
+  .bg-medical-blue-600 { background-color: hsl(var(--medical-blue-600)); }
+  .bg-medical-blue-700 { background-color: hsl(var(--medical-blue-700)); }
+  .bg-medical-blue-800 { background-color: hsl(var(--medical-blue-800)); }
+  .bg-medical-blue-900 { background-color: hsl(var(--medical-blue-900)); }
+  
+  .medical-teal-500 { color: hsl(var(--medical-teal-500)); }
+  .medical-teal-600 { color: hsl(var(--medical-teal-600)); }
+  .bg-medical-teal-500 { background-color: hsl(var(--medical-teal-500)); }
+  .bg-medical-teal-600 { background-color: hsl(var(--medical-teal-600)); }
+  
+  .border-medical-blue-500 { border-color: hsl(var(--medical-blue-500)); }
+  .border-medical-blue-600 { border-color: hsl(var(--medical-blue-600)); }
+  .border-medical-blue-700 { border-color: hsl(var(--medical-blue-700)); }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "MedAI - Cancer Detection Platform",
+  "short_name": "MedAI",
+  "description": "Advanced AI-powered medical imaging analysis for cancer detection",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#1d4ed8",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "categories": ["medical", "health", "utilities"],
+  "lang": "en",
+  "dir": "ltr"
+}
