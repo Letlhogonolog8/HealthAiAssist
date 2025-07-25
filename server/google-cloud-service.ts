@@ -63,9 +63,8 @@ export async function analyzeImageWithGoogleCloud(imageBuffer: Buffer): Promise<
 
   try {
     // Perform label detection only to avoid authentication issues
-    const [labelResult] = await visionClient.labelDetection({ 
-      image: { content: imageBuffer },
-      maxResults: 10
+    const [labelResult] = await visionClient.labelDetection({
+      image: { content: imageBuffer }
     });
 
     const labels = labelResult.labelAnnotations?.map(label => ({

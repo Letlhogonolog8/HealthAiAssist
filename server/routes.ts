@@ -54,8 +54,14 @@ async function performSkinCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisR
   const { skinCancerService } = await import('./skin-cancer-service');
   
   try {
+    // Ensure uploads directory exists
+    const uploadsDir = path.join(process.cwd(), 'uploads');
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+    
     // Save image temporarily for analysis
-    const tempImagePath = path.join(process.cwd(), 'uploads', `temp_skin_${randomUUID()}.jpg`);
+    const tempImagePath = path.join(uploadsDir, `temp_skin_${randomUUID()}.jpg`);
     fs.writeFileSync(tempImagePath, imageBuffer);
     
     // Analyze with ResNet50V2 model

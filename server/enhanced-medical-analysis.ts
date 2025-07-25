@@ -1,5 +1,4 @@
 import * as tf from '@tensorflow/tfjs-node';
-import { createCanvas, loadImage } from 'canvas';
 import sharp from 'sharp';
 
 interface EnhancedAnalysisResult {

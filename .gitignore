@@ -1,39 +1,77 @@
 # Dependencies
 node_modules/
-venv/
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
 
-# Environment files
+# Environment variables
 .env
 .env.local
-
-# Database
-*.db
-*.sqlite
-
-# Large model files
-dataset/data/*.h5
-dataset/data/*.pkl
-dataset/train/
-dataset/test/
+.env.development.local
+.env.test.local
+.env.production.local
 
 # Build outputs
 dist/
 build/
+.next/
+out/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
 
 # Logs
+logs
 *.log
-logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# OS files
-.DS_Store
-Thumbs.db
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
 
-# IDE files
+# Coverage directory used by tools like istanbul
+coverage/
+.nyc_output
+
+# IDE
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
 
-# Python cache
-*.pyc
-*.pyo
-*.pyd
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+
+# Model files (too large for git)
+dataset/models/
+*.h5
+*.pkl
+*.joblib
+
+# Uploads
+uploads/
+temp/

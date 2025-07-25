@@ -416,7 +416,7 @@ export default function AdminDashboard({ user }: { user: any }) {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <MetricCard 
               title="Total Users" 
-              value={userMetrics?.admins + userMetrics?.doctors + userMetrics?.radiologists + userMetrics?.patients || 0} 
+              value={(userMetrics?.admins || 0) + (userMetrics?.doctors || 0) + (userMetrics?.radiologists || 0) + (userMetrics?.patients || 0)} 
               subtitle={`+${userMetrics?.newUsersToday || 0} today`}
               icon={<Users className="h-5 w-5" />} 
               color="blue"
