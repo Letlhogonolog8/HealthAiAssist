@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { getWebSocketUrl, isWebSocketSupported } from '@/lib/websocket-utils';
 
 interface WebSocketMessage {
   type: string;
@@ -39,33 +40,12 @@ export function useWebSocket({
 
   const connect = () => {
     try {
-      // Skip WebSocket in deployment if not available
-      if (typeof WebSocket === 'undefined' || !user) {
+      // Skip WebSocket if not supported or no user
+      if (!isWebSocketSupported() || !user) {
         return;
       }
 
-      // Validate host before constructing URL
-      if (!window.location.host || window.location.host.includes('undefined') || window.location.host.includes('localhost:undefined')) {
-        return;
-      }
-
-      // Replace localhost with server IP for mobile access
-      let host = window.location.host;
-      const serverIp = import.meta.env.VITE_SERVER_IP || '192.168.0.113';
-      if (host.includes('localhost')) {
-        host = host.replace('localhost', serverIp); // Replace with your server IP
-      }
-
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${protocol}//${host}/ws`;
-      
-      // Validate URL before creating WebSocket
-      try {
-        new URL(wsUrl);
-      } catch (urlError) {
-        console.error('Invalid WebSocket URL:', wsUrl);
-        return;
-      }
+      const wsUrl = getWebSocketUrl();
       
       wsRef.current = new WebSocket(wsUrl);
 
@@ -74,11 +54,17 @@ export function useWebSocket({
         console.log('WebSocket connected');
         metricsRef.current.reconnectAttempts = 0; // Reset reconnect attempts on successful connection
         
-        // Send user connection info
+        // Send user authentication info
         if (user) {
           const msg = {
-            type: 'user_connected',
-            user: user
+            type: 'user_authenticate',
+            data: {
+              id: user.id,
+              username: user.username,
+              role: user.role,
+              fullName: user.fullName,
+              email: user.email
+            }
           };
           wsRef.current?.send(JSON.stringify(msg));
           metricsRef.current.messagesSent++;
@@ -89,7 +75,9 @@ export function useWebSocket({
           if (wsRef.current?.readyState === WebSocket.OPEN && user) {
             const heartbeatMsg = {
               type: 'heartbeat',
-              userId: user.id
+              data: {
+                userId: user.id
+              }
             };
             wsRef.current.send(JSON.stringify(heartbeatMsg));
             metricsRef.current.messagesSent++;
@@ -103,21 +91,39 @@ export function useWebSocket({
           const message: WebSocketMessage = JSON.parse(event.data);
           
           switch (message.type) {
-            case 'new_activity':
-              onActivity?.(message.activity);
+            case 'activity_update':
+              onActivity?.(message.data);
               break;
               
             case 'scan_update':
-              onScanUpdate?.(message.scan);
+              onScanUpdate?.(message.data);
               break;
               
             case 'user_status_update':
-              onUserStatusUpdate?.(message.user);
+              onUserStatusUpdate?.(message.data?.user);
               break;
               
             case 'online_users':
-              setOnlineUsers(message.users);
-              onOnlineUsers?.(message.users);
+              const users = message.data?.users || [];
+              setOnlineUsers(users);
+              onOnlineUsers?.(users);
+              break;
+              
+            case 'authentication_success':
+              console.log('WebSocket authentication successful');
+              break;
+              
+            case 'connection_established':
+              console.log('WebSocket connection established');
+              break;
+              
+            case 'heartbeat':
+            case 'heartbeat_ack':
+              // Handle heartbeat responses
+              break;
+              
+            case 'error':
+              console.error('WebSocket error:', message.data?.message);
               break;
               
             default:

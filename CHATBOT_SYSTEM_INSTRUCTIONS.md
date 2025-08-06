@@ -295,7 +295,7 @@ The chatbot can analyze health concerns and provide:
 
 ### Environment Variables
 ```bash
-OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_API_KEY=${OPENAI_API_KEY}
 NODE_ENV=production
 DATABASE_URL=postgresql://user:pass@host:5432/db
 SESSION_SECRET=your-secure-secret
@@ -388,7 +388,7 @@ NODE_ENV=development npm run dev
 # Windows System Environment Variables
 Win + R → sysdm.cpl → Environment Variables
 Variable: OPENAI_API_KEY
-Value: your_openai_api_key_here
+Value: ${OPENAI_API_KEY}
 ```
 
 ### 2. Test API Connection

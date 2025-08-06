@@ -115,7 +115,13 @@ export default function FloatingChatbot({ user, onActionClick }: FloatingChatbot
     try {
       const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmAaBDWH0PXIcisF');
       audio.volume = 0.2;
-      audio.play().catch(() => {}); // Ignore errors if audio can't play
+      audio.preload = 'auto';
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(() => {
+          // Silently handle play interruption
+        });
+      }
     } catch (error) {
       // Audio not supported, ignore
     }
@@ -181,7 +187,10 @@ export default function FloatingChatbot({ user, onActionClick }: FloatingChatbot
 
       if (!isOpen) {
         setUnreadCount(prev => prev + 1);
-        playNotificationSound();
+        // Only play sound if chat is closed and user interaction has occurred
+        if (document.hasFocus()) {
+          playNotificationSound();
+        }
       }
       setLastSeen(new Date());
     } catch (error) {
@@ -201,8 +210,14 @@ export default function FloatingChatbot({ user, onActionClick }: FloatingChatbot
   };
 
   const handleActionClick = (action: { type: string; label: string; data?: any }) => {
-    // Handle appointment scheduling
+    // Handle appointment scheduling with redirect
     if (action.type === 'schedule_appointment') {
+      if (action.data?.redirect) {
+        // Redirect to appointments page
+        window.location.href = action.data.redirect;
+        return;
+      }
+      
       const doctorType = action.data?.doctorType || 'general';
       fetchAvailableSlots(doctorType);
       setShowScheduler(true);

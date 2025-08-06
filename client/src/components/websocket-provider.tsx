@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { getWebSocketUrl, isWebSocketSupported } from '@/lib/websocket-utils';
 
 interface WebSocketContextType {
   isConnected: boolean;
@@ -26,30 +27,29 @@ export function WebSocketProvider({ children, user }: WebSocketProviderProps) {
   const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
 
   const connect = () => {
-    // Skip WebSocket in environments where it's not available
-    if (typeof WebSocket === 'undefined' || !user) {
+    // Skip WebSocket if not supported or no user
+    if (!isWebSocketSupported() || !user) {
       return;
     }
 
     try {
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${protocol}//${window.location.host}/ws`;
-      
-      // Validate URL structure
-      if (!window.location.host || window.location.host.includes('undefined')) {
-        console.log('Invalid host for WebSocket connection, skipping');
-        return;
-      }
+      const wsUrl = getWebSocketUrl();
 
       wsRef.current = new WebSocket(wsUrl);
 
       wsRef.current.onopen = () => {
         setIsConnected(true);
         
-        // Send user connection info
+        // Send user authentication info
         wsRef.current?.send(JSON.stringify({
-          type: 'user_connected',
-          user: user
+          type: 'user_authenticate',
+          data: {
+            id: user.id,
+            username: user.username,
+            role: user.role,
+            fullName: user.fullName,
+            email: user.email
+          }
         }));
       };
 
@@ -59,7 +59,16 @@ export function WebSocketProvider({ children, user }: WebSocketProviderProps) {
           
           switch (message.type) {
             case 'online_users':
-              setOnlineUsers(message.users || []);
+              setOnlineUsers(message.data?.users || []);
+              break;
+            case 'authentication_success':
+              console.log('WebSocket authentication successful');
+              break;
+            case 'connection_established':
+              console.log('WebSocket connection established');
+              break;
+            case 'error':
+              console.error('WebSocket error:', message.data?.message);
               break;
             default:
               // Handle other message types as needed

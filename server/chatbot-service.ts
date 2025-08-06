@@ -61,6 +61,7 @@ IMPORTANT GUIDELINES:
 - Provide accurate information about cancer types, screening, and prevention
 - Help users understand the MedAI platform features and capabilities
 - Suggest appropriate next steps (appointments, scans, consultations)
+- Do not provide staff member lists or personal information for security reasons
 
 CAPABILITIES:
 - Answer questions about cancer types (breast, lung, skin, colon, prostate)
@@ -85,8 +86,10 @@ Always respond in a caring, professional tone while being informative and helpfu
 
       // Use fallback if OpenAI is not available
       if (!openai) {
-        return this.generateFallbackResponse(messages[messages.length - 1]?.content || '', userRole);
+        return await this.generateFallbackResponse(messages[messages.length - 1]?.content || '', userRole);
       }
+
+
 
       // Get user context if available
       let userContext = "";
@@ -126,15 +129,25 @@ Always respond in a caring, professional tone while being informative and helpfu
 
       const response = completion.choices[0].message;
       
+      // Check if response mentions appointment scheduling
+      const responseContent = response.content || "I'm here to help with your health questions and guide you through MedAI's features. How can I assist you today?";
+      const isAppointmentRelated = responseContent.toLowerCase().includes('appointment') || 
+                                  responseContent.toLowerCase().includes('schedule') ||
+                                  messages.some(msg => msg.content.toLowerCase().includes('appointment') || 
+                                                      msg.content.toLowerCase().includes('schedule'));
+      
       return {
-        message: response.content || "I'm here to help with your health questions and guide you through MedAI's features. How can I assist you today?",
+        message: responseContent,
         suggestions: [
+          "📅 Schedule an appointment",
           "What cancer screening do I need?",
-          "How do I schedule an appointment?",
           "Explain my scan results",
           "Cancer prevention tips"
         ],
-        actions: [
+        actions: isAppointmentRelated ? [
+          { type: 'schedule_appointment', label: '📅 Schedule Now', data: { redirect: '/appointments' } },
+          { type: 'book_scan', label: 'Start Cancer Detection' }
+        ] : [
           { type: 'schedule_appointment', label: 'Schedule Appointment' },
           { type: 'book_scan', label: 'Start Cancer Detection' }
         ]
@@ -144,9 +157,11 @@ Always respond in a caring, professional tone while being informative and helpfu
       console.error('Chatbot API error:', error);
       const lastMessage = messages[messages.length - 1]?.content || 'help';
       console.log('Using fallback response for:', lastMessage);
-      return this.generateFallbackResponse(lastMessage, userRole);
+      return await this.generateFallbackResponse(lastMessage, userRole);
     }
   }
+
+
 
   private async getUserContext(userId: number): Promise<string> {
     try {
@@ -284,7 +299,7 @@ Remember: This is guidance only, not medical diagnosis.`;
   }
 
   // Fallback response generator for when OpenAI API is unavailable
-  private generateFallbackResponse(userMessage: string, userRole: string = 'patient'): ChatbotResponse {
+  private async generateFallbackResponse(userMessage: string, userRole: string = 'patient'): Promise<ChatbotResponse> {
     const lowerMessage = userMessage.toLowerCase();
     
     // Cancer screening questions
@@ -306,15 +321,15 @@ Remember: This is guidance only, not medical diagnosis.`;
     // Appointment scheduling
     if (lowerMessage.includes('appointment') || lowerMessage.includes('schedule') || lowerMessage.includes('book')) {
       return {
-        message: "I can help you schedule an appointment with our healthcare providers. We offer:\n\n• General consultations\n• Cancer screening appointments\n• Follow-up visits\n• Specialist referrals\n• Urgent care consultations\n\nWould you like to schedule an appointment now?",
+        message: "📅 **How to Schedule an Appointment:**\n\n**Steps to Book:**\n1. **Login** to your patient account\n2. **Navigate** to the \"Appointments\" section\n3. **Fill out the form** with:\n   • Patient ID\n   • Appointment Date\n   • Appointment Time\n   • Appointment Type (consultation, follow-up, etc.)\n   • Doctor Name (from available medical professionals)\n   • Reason for visit\n4. **Submit** your appointment request\n\n**Available Medical Professionals:**\n• Doctors - General consultations\n• Radiologists - Medical imaging specialists\n\n**Note:** You must be logged in as a patient to book appointments.",
         suggestions: [
-          "Schedule routine checkup",
-          "Book cancer screening",
-          "Emergency consultation",
-          "Specialist referral"
+          "Go to Appointments page",
+          "View available doctors",
+          "Help with login",
+          "What info do I need?"
         ],
         actions: [
-          { type: 'schedule_appointment', label: 'Schedule Appointment', data: {} }
+          { type: 'schedule_appointment', label: '📅 Book Appointment', data: { redirect: '/appointments' } }
         ]
       };
     }
@@ -349,6 +364,17 @@ Remember: This is guidance only, not medical diagnosis.`;
       };
     }
 
+    // Staff/team questions - restricted for security
+    if (lowerMessage.includes('staff') || lowerMessage.includes('team') || lowerMessage.includes('doctor') || lowerMessage.includes('member')) {
+      return {
+        message: "For security and privacy reasons, I cannot provide staff member lists. However, I can help you schedule an appointment with our healthcare professionals. Our team includes specialists in oncology, radiology, and general medicine.",
+        actions: [
+          { type: 'schedule_appointment', label: 'Schedule Appointment', data: {} }
+        ],
+        suggestions: ["Schedule appointment", "Available services", "Contact information"]
+      };
+    }
+
     // Platform help
     if (lowerMessage.includes('help') || lowerMessage.includes('how') || lowerMessage.includes('use')) {
       return {
@@ -365,18 +391,38 @@ Remember: This is guidance only, not medical diagnosis.`;
       };
     }
 
+    // Check if user is asking about appointments in any message
+    const isAppointmentQuery = lowerMessage.includes('appointment') || 
+                              lowerMessage.includes('schedule') ||
+                              lowerMessage.includes('book');
+    
+    if (isAppointmentQuery) {
+      return {
+        message: "📅 **How to Schedule an Appointment:**\n\n**Steps to Book:**\n1. **Login** to your patient account\n2. **Navigate** to the \"Appointments\" section\n3. **Fill out the form** with:\n   • Patient ID\n   • Appointment Date\n   • Appointment Time\n   • Appointment Type (consultation, follow-up, etc.)\n   • Doctor Name (from available medical professionals)\n   • Reason for visit\n4. **Submit** your appointment request\n\n**Available Medical Professionals:**\n• Doctors - General consultations\n• Radiologists - Medical imaging specialists\n\n**Note:** You must be logged in as a patient to book appointments.",
+        suggestions: [
+          "Go to Appointments page",
+          "View available doctors",
+          "Help with login",
+          "What info do I need?"
+        ],
+        actions: [
+          { type: 'schedule_appointment', label: '📅 Book Appointment', data: { redirect: '/appointments' } }
+        ]
+      };
+    }
+    
     // Default response
     return {
-      message: `Hello! I'm your MedAI Assistant. While our AI is temporarily unavailable, I can still help you with:\n\n• Cancer screening information\n• Appointment scheduling\n• Understanding scan results\n• Health prevention tips\n• Platform navigation\n\nWhat would you like to know about?`,
+      message: `Hello! I'm your MedAI Assistant. I can help you with:\n\n• **📅 Appointment Scheduling** - Book consultations with doctors\n• Cancer screening information\n• Understanding scan results\n• Health prevention tips\n• Platform navigation\n\nWhat would you like to do today?`,
       suggestions: [
-        "Cancer screening guidelines",
-        "Schedule an appointment", 
+        "📅 Schedule an appointment",
+        "Cancer screening guidelines", 
         "Explain my scan results",
         "Cancer prevention tips",
         "How to use MedAI platform"
       ],
       actions: [
-        { type: 'schedule_appointment', label: 'Schedule Appointment', data: {} },
+        { type: 'schedule_appointment', label: '📅 Schedule Appointment', data: { redirect: '/appointments' } },
         { type: 'book_scan', label: 'Start Cancer Detection', data: {} }
       ]
     };

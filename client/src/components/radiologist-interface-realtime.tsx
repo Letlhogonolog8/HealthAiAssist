@@ -11,6 +11,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useWebSocketRealTime } from "@/hooks/useWebSocketRealTime";
+import { ScanDetailsModal } from './ScanDetailsModal';
+import { AnalysisResultsDisplay } from './AnalysisResultsDisplay';
 import { 
   Brain, 
   Microscope, 
@@ -77,7 +79,7 @@ interface AIAnalysisResult {
   };
 }
 
-export default function RadiologistInterfaceRealTime({ user }: { user: User }) {
+export default function RadiologistInterfaceRealTime({ user, setActiveTab }: { user: User; setActiveTab?: (tab: string) => void }) {
   const [selectedScan, setSelectedScan] = useState<ScanAnalysis | null>(null);
   const [analysisNotes, setAnalysisNotes] = useState("");
   const [filterPriority, setFilterPriority] = useState<string>("all");

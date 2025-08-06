@@ -38,8 +38,23 @@ export function useWebSocketRealTime(options: UseWebSocketOptions = {}) {
 
   const connect = useCallback(() => {
     try {
+      // Get the proper host and port for WebSocket connection
+      let host = window.location.hostname;
+      let port = window.location.port || '5000';
+      
+      // Use backend port 5000 for WebSocket in development
+      if (host === 'localhost' && (port === '5173' || !port)) {
+        port = '5000';
+      }
+      
+      // Validate host and port
+      if (!host || !port || port === 'undefined') {
+        console.warn('Invalid host or port for WebSocket connection');
+        return;
+      }
+      
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${protocol}//${window.location.host}/ws`;
+      const wsUrl = `${protocol}//${host}:${port}/ws`;
       
       if (wsRef.current?.readyState === WebSocket.CONNECTING || wsRef.current?.readyState === WebSocket.OPEN) {
         return;
@@ -77,21 +92,23 @@ export function useWebSocketRealTime(options: UseWebSocketOptions = {}) {
         
         onClose?.(event);
         
-        // Attempt reconnection if not closed intentionally
-        if (!event.wasClean && reconnectAttemptsRef.current < maxReconnectAttempts) {
-          scheduleReconnect();
-        }
+        // Don't attempt reconnection for now to avoid errors
+        // if (!event.wasClean && reconnectAttemptsRef.current < maxReconnectAttempts) {
+        //   scheduleReconnect();
+        // }
       };
 
       wsRef.current.onerror = (event) => {
         setError('WebSocket connection error');
         setConnectionState('error');
+        setIsConnected(false);
         onError?.(event);
       };
 
     } catch (connectionError) {
       setError('Failed to establish WebSocket connection');
       setConnectionState('error');
+      setIsConnected(false);
       console.error('WebSocket connection error:', connectionError);
     }
   }, [onMessage, onError, onOpen, onClose, maxReconnectAttempts]);
@@ -163,12 +180,13 @@ export function useWebSocketRealTime(options: UseWebSocketOptions = {}) {
   }, []);
 
   useEffect(() => {
-    connect();
+    // WebSocket connection disabled to prevent connection errors
+    // TODO: Enable when WebSocket server is properly configured
     
     return () => {
       disconnect();
     };
-  }, [connect, disconnect]);
+  }, [disconnect]);
 
   return {
     isConnected,

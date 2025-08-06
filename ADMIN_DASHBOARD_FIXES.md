@@ -30,7 +30,7 @@
 ## How to Verify the Fixes
 
 1. Run the application with `npm run dev`
-2. Log in as an administrator (username: admin, password: admin123)
+2. Log in as an administrator using your configured admin credentials
 3. Navigate to the Administrator Dashboard
 4. Verify that the "Total Users" card shows the correct number of users
 5. Click on the "User Analytics" tab in the dashboard to see the breakdown by role

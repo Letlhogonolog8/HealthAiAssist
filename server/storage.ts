@@ -1,6 +1,6 @@
-import { users, medicalScans, medicalTerms, appointments, type User, type InsertUser, type MedicalScan, type InsertScan, type MedicalTerm, type InsertTerm, type Appointment, type InsertAppointment } from "@shared/schema";
+import { users, medicalScans, medicalTerms, appointments, chatMessages, type User, type InsertUser, type MedicalScan, type InsertScan, type MedicalTerm, type InsertTerm, type Appointment, type InsertAppointment } from "@shared/schema";
 import { getDb } from "./db";
-import { eq, ilike, or } from "drizzle-orm";
+import { eq, ilike, or, and } from "drizzle-orm";
 
 const db = getDb();
 
@@ -70,8 +70,13 @@ export interface IStorage {
 
 export class DatabaseStorage implements IStorage {
   async getUser(id: number): Promise<User | undefined> {
-    const [user] = await (db as any).select().from(users).where(eq(users.id, id));
-    return user || undefined;
+    try {
+      const [user] = await (db as any).select().from(users).where(eq(users.id, id));
+      return user || undefined;
+    } catch (error) {
+      console.error('Error fetching user:', error);
+      return undefined;
+    }
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
@@ -201,11 +206,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateScan(id: number, updates: Partial<MedicalScan>): Promise<MedicalScan | undefined> {
-    const [scan] = await (db as any).update(medicalScans)
-      .set(updates)
-      .where(eq(medicalScans.id, id))
-      .returning();
-    return scan || undefined;
+    try {
+      const [scan] = await (db as any).update(medicalScans)
+        .set({
+          ...updates,
+          updatedAt: new Date()
+        })
+        .where(eq(medicalScans.id, id))
+        .returning();
+      return scan || undefined;
+    } catch (error) {
+      console.error('Error updating scan:', error);
+      return undefined;
+    }
   }
 
   async deleteScan(id: number): Promise<boolean> {
@@ -269,7 +282,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateAppointmentStatus(id: number, action: string, notes?: string): Promise<any> {
-    const status = action === 'approve' ? 'confirmed' : action === 'reject' ? 'cancelled' : action;
+    const statusMap: Record<string, string> = {
+      'accept': 'confirmed',
+      'approve': 'confirmed', 
+      'decline': 'cancelled',
+      'reject': 'cancelled',
+      'complete': 'completed',
+      'cancel': 'cancelled'
+    };
+    const status = statusMap[action] || action;
     return this.updateAppointment(id, { status, notes });
   }
 
@@ -299,7 +320,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getDoctorAppointments(doctorId: number): Promise<any[]> {
-    return await (db as any).select().from(appointments).where(eq(appointments.doctorId, doctorId));
+    try {
+      const doctorAppointments = await (db as any).select().from(appointments).where(eq(appointments.doctorId, doctorId));
+      return doctorAppointments;
+    } catch (error) {
+      console.error('Error fetching doctor appointments:', error);
+      return [];
+    }
   }
 
   async getDoctorPatients(doctorId: number): Promise<any[]> {
@@ -343,11 +370,54 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getChatMessages(userId: number, participantId: number): Promise<any[]> {
-    return [];
+    try {
+      const messages = await (db as any)
+        .select({
+          id: chatMessages.id,
+          senderId: chatMessages.senderId,
+          receiverId: chatMessages.receiverId,
+          message: chatMessages.message,
+          messageType: chatMessages.messageType,
+          status: chatMessages.status,
+          timestamp: chatMessages.createdAt,
+          readAt: chatMessages.readAt,
+          senderName: users.fullName
+        })
+        .from(chatMessages)
+        .leftJoin(users, eq(chatMessages.senderId, users.id))
+        .where(
+          or(
+            and(eq(chatMessages.senderId, userId), eq(chatMessages.receiverId, participantId)),
+            and(eq(chatMessages.senderId, participantId), eq(chatMessages.receiverId, userId))
+          )
+        )
+        .orderBy(chatMessages.createdAt);
+      
+      return messages;
+    } catch (error) {
+      console.error('Error fetching chat messages:', error);
+      return [];
+    }
   }
 
-  async createChatMessage(message: any): Promise<any> {
-    return message;
+  async createChatMessage(messageData: any): Promise<any> {
+    try {
+      const [message] = await (db as any)
+        .insert(chatMessages)
+        .values({
+          senderId: messageData.senderId,
+          receiverId: messageData.receiverId,
+          message: messageData.message,
+          messageType: messageData.messageType || 'text',
+          status: messageData.status || 'sent'
+        })
+        .returning();
+      
+      return message;
+    } catch (error) {
+      console.error('Error creating chat message:', error);
+      throw error;
+    }
   }
 
   async markMessagesAsRead(senderId: number, receiverId: number): Promise<void> {

@@ -121,36 +121,46 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* Viewer Controls */}
-      <Card>
-        <CardHeader className="pb-3">
+      <Card className="shadow-lg border-0 bg-gradient-to-r from-blue-50 to-indigo-50">
+        <CardHeader className="pb-4">
           <CardTitle className="flex items-center justify-between">
-            <span className="flex items-center gap-2">
-              <Eye className="w-5 h-5" />
-              HAI Medical Image Viewer
+            <span className="flex items-center gap-3">
+              <div className="p-2 bg-blue-600 rounded-lg">
+                <Eye className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-gray-800">Medical Image Viewer</h2>
+                <p className="text-sm text-blue-600 font-medium">AI-Powered Analysis Platform</p>
+              </div>
             </span>
             {analysisResult && (
-              <Badge 
-                variant={analysisResult.hasCancer ? "destructive" : "default"}
-                className={`${getRiskColor(analysisResult.riskLevel)} border-2`}
-              >
-                {analysisResult.hasCancer ? "Abnormal" : "Normal"} - {analysisResult.confidence.toFixed(1)}%
-              </Badge>
+              <div className="flex flex-col items-end gap-2">
+                <Badge 
+                  variant={analysisResult.hasCancer ? "destructive" : "default"}
+                  className={`${getRiskColor(analysisResult.riskLevel)} border-2 text-sm px-3 py-1`}
+                >
+                  {analysisResult.hasCancer ? "Abnormal" : "Normal"}
+                </Badge>
+                <span className="text-sm font-semibold text-gray-600">
+                  Confidence: {analysisResult.confidence.toFixed(1)}%
+                </span>
+              </div>
             )}
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-wrap gap-2 mb-4">
-            <Button variant="outline" size="sm" onClick={handleZoomIn}>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+            <Button variant="outline" size="sm" onClick={handleZoomIn} className="hover:bg-green-50 hover:border-green-300">
               <ZoomIn className="w-4 h-4 mr-1" />
               Zoom In
             </Button>
-            <Button variant="outline" size="sm" onClick={handleZoomOut}>
+            <Button variant="outline" size="sm" onClick={handleZoomOut} className="hover:bg-red-50 hover:border-red-300">
               <ZoomOut className="w-4 h-4 mr-1" />
               Zoom Out
             </Button>
-            <Button variant="outline" size="sm" onClick={handleRotate}>
+            <Button variant="outline" size="sm" onClick={handleRotate} className="hover:bg-purple-50 hover:border-purple-300">
               <RotateCw className="w-4 h-4 mr-1" />
               Rotate
             </Button>
@@ -158,14 +168,15 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
               variant="outline" 
               size="sm" 
               onClick={() => setShowEnhancements(!showEnhancements)}
+              className={`hover:bg-blue-50 hover:border-blue-300 ${showEnhancements ? 'bg-blue-100 border-blue-400' : ''}`}
             >
               <Settings className="w-4 h-4 mr-1" />
               Enhance
             </Button>
-            <Button variant="outline" size="sm" onClick={handleReset}>
+            <Button variant="outline" size="sm" onClick={handleReset} className="hover:bg-gray-50 hover:border-gray-300">
               Reset View
             </Button>
-            <Button variant="outline" size="sm" onClick={handleDownload}>
+            <Button variant="outline" size="sm" onClick={handleDownload} className="hover:bg-indigo-50 hover:border-indigo-300">
               <Download className="w-4 h-4 mr-1" />
               Download
             </Button>
@@ -173,11 +184,13 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
 
           {/* Enhancement Controls */}
           {showEnhancements && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 p-4 bg-gray-50 rounded-lg">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <ZoomIn className="w-4 h-4" />
-                  <label className="text-sm font-medium">Zoom: {zoom}%</label>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-4 p-6 bg-gradient-to-r from-slate-50 to-gray-50 rounded-xl border border-gray-200 shadow-inner">
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-1 bg-green-100 rounded">
+                    <ZoomIn className="w-4 h-4 text-green-600" />
+                  </div>
+                  <label className="text-sm font-semibold text-gray-700">Zoom: {zoom}%</label>
                 </div>
                 <Slider
                   value={[zoom]}
@@ -188,10 +201,12 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
                   className="w-full"
                 />
               </div>
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Sun className="w-4 h-4" />
-                  <label className="text-sm font-medium">Brightness: {brightness}%</label>
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-1 bg-yellow-100 rounded">
+                    <Sun className="w-4 h-4 text-yellow-600" />
+                  </div>
+                  <label className="text-sm font-semibold text-gray-700">Brightness: {brightness}%</label>
                 </div>
                 <Slider
                   value={[brightness]}
@@ -202,10 +217,12 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
                   className="w-full"
                 />
               </div>
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Contrast className="w-4 h-4" />
-                  <label className="text-sm font-medium">Contrast: {contrast}%</label>
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-1 bg-purple-100 rounded">
+                    <Contrast className="w-4 h-4 text-purple-600" />
+                  </div>
+                  <label className="text-sm font-semibold text-gray-700">Contrast: {contrast}%</label>
                 </div>
                 <Slider
                   value={[contrast]}
@@ -222,11 +239,11 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
       </Card>
 
       {/* Image Viewer */}
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden shadow-xl border-0">
         <CardContent className="p-0">
           <div
             ref={containerRef}
-            className="relative w-full h-96 bg-black overflow-hidden cursor-move"
+            className="relative w-full h-[500px] bg-gradient-to-br from-gray-900 to-black overflow-hidden cursor-move border-4 border-gray-200 rounded-lg"
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
@@ -247,23 +264,42 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
               draggable={false}
             />
             
-            {/* Zoom indicator */}
-            <div className="absolute top-4 left-4 bg-black bg-opacity-75 text-white px-2 py-1 rounded text-sm">
-              {zoom}%
+            {/* Enhanced Zoom indicator */}
+            <div className="absolute top-4 left-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-3 py-2 rounded-lg shadow-lg border border-blue-400">
+              <div className="flex items-center gap-2">
+                <ZoomIn className="w-4 h-4" />
+                <span className="font-semibold">{zoom}%</span>
+              </div>
             </div>
 
-            {/* Analysis overlay */}
+            {/* Enhanced Analysis overlay */}
             {analysisResult && (
-              <div className="absolute top-4 right-4 bg-black bg-opacity-75 text-white p-3 rounded max-w-xs">
-                <div className="text-sm font-medium mb-2">AI Analysis Results</div>
-                <div className="space-y-1 text-xs">
-                  <div>Risk Level: <span className={`font-medium ${
-                    analysisResult.riskLevel === 'high' ? 'text-red-400' :
-                    analysisResult.riskLevel === 'medium' ? 'text-yellow-400' :
-                    'text-green-400'
-                  }`}>{analysisResult.riskLevel.toUpperCase()}</span></div>
-                  <div>Confidence: {analysisResult.confidence.toFixed(1)}%</div>
-                  <div>Status: {analysisResult.hasCancer ? 'Abnormal findings' : 'Normal scan'}</div>
+              <div className="absolute top-4 right-4 bg-gradient-to-br from-slate-800 to-gray-900 text-white p-4 rounded-xl shadow-2xl border border-gray-600 max-w-sm backdrop-blur-sm">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="p-1 bg-blue-500 rounded">
+                    <Brain className="w-4 h-4" />
+                  </div>
+                  <span className="text-sm font-bold">AI Analysis Results</span>
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between items-center">
+                    <span>Risk Level:</span>
+                    <Badge className={`${getRiskColor(analysisResult.riskLevel)} text-xs`}>
+                      {analysisResult.riskLevel.toUpperCase()}
+                    </Badge>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>Confidence:</span>
+                    <span className="font-bold text-blue-300">{analysisResult.confidence.toFixed(1)}%</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span>Status:</span>
+                    <span className={`font-medium ${
+                      analysisResult.hasCancer ? 'text-red-300' : 'text-green-300'
+                    }`}>
+                      {analysisResult.hasCancer ? 'Abnormal' : 'Normal'}
+                    </span>
+                  </div>
                 </div>
               </div>
             )}
@@ -277,25 +313,43 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
         </CardContent>
       </Card>
 
-      {/* Image Information */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-            <div>
-              <span className="text-gray-500">File Name:</span>
-              <p className="font-medium truncate">{imageFile.name}</p>
+      {/* Enhanced Image Information */}
+      <Card className="shadow-lg border-0 bg-gradient-to-r from-gray-50 to-slate-50">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-gray-800">
+            <FileText className="w-5 h-5 text-blue-600" />
+            Image Information
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="p-4 bg-white rounded-lg shadow-sm border border-gray-200">
+              <div className="flex items-center gap-2 mb-2">
+                <FileText className="w-4 h-4 text-blue-500" />
+                <span className="text-sm font-semibold text-gray-600">File Name</span>
+              </div>
+              <p className="font-bold text-gray-800 truncate" title={imageFile.name}>{imageFile.name}</p>
             </div>
-            <div>
-              <span className="text-gray-500">File Size:</span>
-              <p className="font-medium">{(imageFile.size / 1024 / 1024).toFixed(2)} MB</p>
+            <div className="p-4 bg-white rounded-lg shadow-sm border border-gray-200">
+              <div className="flex items-center gap-2 mb-2">
+                <Activity className="w-4 h-4 text-green-500" />
+                <span className="text-sm font-semibold text-gray-600">File Size</span>
+              </div>
+              <p className="font-bold text-gray-800">{(imageFile.size / 1024 / 1024).toFixed(2)} MB</p>
             </div>
-            <div>
-              <span className="text-gray-500">File Type:</span>
-              <p className="font-medium">{imageFile.type}</p>
+            <div className="p-4 bg-white rounded-lg shadow-sm border border-gray-200">
+              <div className="flex items-center gap-2 mb-2">
+                <Settings className="w-4 h-4 text-purple-500" />
+                <span className="text-sm font-semibold text-gray-600">File Type</span>
+              </div>
+              <p className="font-bold text-gray-800">{imageFile.type}</p>
             </div>
-            <div>
-              <span className="text-gray-500">Last Modified:</span>
-              <p className="font-medium">{new Date(imageFile.lastModified).toLocaleDateString()}</p>
+            <div className="p-4 bg-white rounded-lg shadow-sm border border-gray-200">
+              <div className="flex items-center gap-2 mb-2">
+                <Clock className="w-4 h-4 text-orange-500" />
+                <span className="text-sm font-semibold text-gray-600">Last Modified</span>
+              </div>
+              <p className="font-bold text-gray-800">{new Date(imageFile.lastModified).toLocaleDateString()}</p>
             </div>
           </div>
         </CardContent>

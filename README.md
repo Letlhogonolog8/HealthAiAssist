@@ -16,6 +16,16 @@ A comprehensive AI-powered healthcare platform for multi-modal cancer detection 
    git clone <repository-url>
    cd HealthAiAssist
    npm install
+   ```
+
+2. **Setup Python Virtual Environment (Recommended)**
+   ```bash
+   # Windows
+   setup-venv.bat
+   
+   # Or manually:
+   python -m venv venv
+   venv\Scripts\activate
    pip install -r requirements.txt
    ```
 
@@ -85,6 +95,7 @@ A comprehensive AI-powered healthcare platform for multi-modal cancer detection 
 - **Security**: Session-based authentication
 - **Real-time Updates**: WebSocket support
 - **Responsive Design**: Mobile-friendly interface
+- **Calendar Integration**: Google Calendar conflict checking
 
 ## 🛠️ Troubleshooting
 
@@ -156,8 +167,19 @@ HealthAiAssist/
 DATABASE_URL=postgresql://user:pass@host:5432/db
 SESSION_SECRET=your-secure-secret
 OPENAI_API_KEY=your-openai-key  # Set in System Environment Variables
+GOOGLE_CALENDAR_CREDENTIALS=your-service-account-json  # Optional
+GOOGLE_CALENDAR_ID=your-calendar-id@group.calendar.google.com  # Optional
 NODE_ENV=production
 ```
+
+### Google Calendar Integration (Optional)
+
+To prevent appointment conflicts with external calendar events:
+
+1. Follow the setup guide in `docs/google-calendar-setup.md`
+2. Configure Google Calendar credentials in environment variables
+3. The system will automatically check for conflicts when booking appointments
+4. If not configured, appointments work normally without external calendar checking
 
 ## 🤝 Contributing
 

@@ -167,16 +167,18 @@ export default function MedicalProfessionalScheduler({ user, onAppointmentBooked
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Calendar className="w-5 h-5" />
-            Medical Professional Scheduler
+      <Card className="bg-gradient-to-br from-orange-50 to-amber-100 border-2 border-orange-300 shadow-xl">
+        <CardHeader className="bg-gradient-to-r from-orange-600 to-amber-600 text-white rounded-t-lg">
+          <CardTitle className="flex items-center gap-3 text-xl">
+            <div className="w-8 h-8 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
+              <Calendar className="w-5 h-5" />
+            </div>
+            Medical Professional Scheduler - Enhanced
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-6">
           <Tabs value={selectedTab} onValueChange={setSelectedTab}>
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-2 bg-white border-2 border-blue-200 shadow-lg">
               <TabsTrigger value="doctors" className="flex items-center gap-2">
                 <Stethoscope className="w-4 h-4" />
                 Doctors ({doctors.length})
@@ -315,11 +317,16 @@ export default function MedicalProfessionalScheduler({ user, onAppointmentBooked
 
                   {/* Book Appointment Button */}
                   {selectedDate && selectedTime && appointmentType && (
-                    <div className="bg-white p-4 rounded-lg border border-green-300">
+                    <div className="bg-gradient-to-r from-green-50 to-emerald-100 p-6 rounded-xl border-2 border-green-300 shadow-lg">
                       <div className="flex items-center justify-between">
                         <div>
-                          <h4 className="font-semibold text-green-800">Ready to Book</h4>
-                          <p className="text-sm text-green-700">
+                          <h4 className="font-bold text-green-800 text-lg flex items-center gap-2">
+                            <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
+                              <CheckCircle className="w-4 h-4 text-white" />
+                            </div>
+                            Ready to Book
+                          </h4>
+                          <p className="text-sm text-green-700 font-medium mt-2">
                             {appointmentType} with {selectedProfessional.name}
                             <br />
                             {new Date(selectedDate).toLocaleDateString()} at {selectedTime}
@@ -328,10 +335,19 @@ export default function MedicalProfessionalScheduler({ user, onAppointmentBooked
                         <Button 
                           onClick={handleBookAppointment}
                           disabled={bookAppointmentMutation.isPending}
-                          className="bg-green-600 hover:bg-green-700"
+                          className="bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white font-semibold py-3 px-6 shadow-lg transition-all duration-200 transform hover:scale-105"
                         >
-                          <CheckCircle className="w-4 h-4 mr-2" />
-                          {bookAppointmentMutation.isPending ? 'Booking...' : 'Book Appointment'}
+                          {bookAppointmentMutation.isPending ? (
+                            <>
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                              Booking...
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle className="w-4 h-4 mr-2" />
+                              Book Appointment
+                            </>
+                          )}
                         </Button>
                       </div>
                     </div>

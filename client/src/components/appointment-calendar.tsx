@@ -337,7 +337,7 @@ export default function AppointmentCalendar({
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
                 {calendarDays
                   .find(day => day.date.toDateString() === selectedDate.toDateString())
-                  ?.availableSlots.map((slot, index) => (
+                  ?.availableSlots.filter(slot => slot.available !== false).map((slot, index) => (
                     <Button
                       key={index}
                       variant={selectedTime === slot.time ? "default" : "outline"}
@@ -458,50 +458,85 @@ export default function AppointmentCalendar({
 
       {/* Confirmation Dialog */}
       <Dialog open={showConfirmation} onOpenChange={setShowConfirmation}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Stethoscope className="w-5 h-5" />
-              {mode === 'book' ? 'Confirm New Appointment' : 'Confirm Appointment Reschedule'}
+            <DialogTitle className="flex items-center gap-2 text-lg">
+              <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                <Stethoscope className="w-4 h-4 text-blue-600" />
+              </div>
+              {mode === 'book' ? 'Schedule New Appointment' : 'Reschedule Appointment'}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            {mode === 'reschedule' && appointment && (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <AlertCircle className="w-4 h-4 text-yellow-600" />
-                  <span className="font-medium text-yellow-800">Current Appointment</span>
+          
+          <div className="space-y-6">
+            {/* Appointment Summary */}
+            <div className="bg-gradient-to-r from-blue-50 to-green-50 rounded-lg p-4 border border-blue-200">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm">
+                  <CalendarIcon className="w-5 h-5 text-blue-600" />
                 </div>
-                <p className="text-sm text-yellow-700">
-                  {appointment?.type} with Dr. {appointment?.doctor}
-                  <br />
+                <div className="flex-1">
+                  <h3 className="font-semibold text-gray-900 mb-1">
+                    {mode === 'book' ? selectedAppointmentType : appointment?.type}
+                  </h3>
+                  <div className="space-y-1 text-sm text-gray-600">
+                    <div className="flex items-center gap-2">
+                      <User className="w-4 h-4" />
+                      <span>Dr. {selectedDoctor || appointment?.doctor}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <CalendarIcon className="w-4 h-4" />
+                      <span>{selectedDate?.toLocaleDateString('en-US', { 
+                        weekday: 'long', 
+                        year: 'numeric', 
+                        month: 'long', 
+                        day: 'numeric' 
+                      })}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4" />
+                      <span>{selectedTime}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Previous Appointment Info for Reschedule */}
+            {mode === 'reschedule' && appointment && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600" />
+                  <span className="text-sm font-medium text-amber-800">Previous Appointment</span>
+                </div>
+                <p className="text-xs text-amber-700">
                   {new Date(appointment?.date).toLocaleDateString()} at {appointment?.time}
                 </p>
               </div>
             )}
-            
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Check className="w-4 h-4 text-green-600" />
-                <span className="font-medium text-green-800">
-                  {mode === 'book' ? 'New Appointment' : 'Rescheduled Appointment'}
-                </span>
-              </div>
-              <p className="text-sm text-green-700">
-                {mode === 'book' ? selectedAppointmentType : appointment?.type} with Dr. {selectedDoctor || appointment?.doctor}
-                <br />
-                {selectedDate?.toLocaleDateString()} at {selectedTime}
-              </p>
+
+            {/* Important Notes */}
+            <div className="bg-gray-50 rounded-lg p-3">
+              <h4 className="text-sm font-medium text-gray-900 mb-2">Important Notes:</h4>
+              <ul className="text-xs text-gray-600 space-y-1">
+                <li>• Please arrive 15 minutes early</li>
+                <li>• Bring a valid ID and insurance card</li>
+                <li>• You'll receive a confirmation email</li>
+                {mode === 'book' && selectedAppointmentType?.includes('Screening') && (
+                  <li>• Fasting may be required - check your email</li>
+                )}
+              </ul>
             </div>
             
-            <div className="flex gap-3">
+            {/* Action Buttons */}
+            <div className="flex gap-3 pt-2">
               <Button 
                 onClick={mode === 'book' ? confirmBooking : confirmReschedule}
                 disabled={mode === 'book' ? bookAppointmentMutation.isPending : rescheduleAppointmentMutation.isPending}
-                className="flex-1"
+                className="flex-1 bg-blue-600 hover:bg-blue-700"
               >
                 {mode === 'book' 
-                  ? (bookAppointmentMutation.isPending ? 'Booking...' : 'Confirm Booking')
+                  ? (bookAppointmentMutation.isPending ? 'Scheduling...' : 'Schedule Appointment')
                   : (rescheduleAppointmentMutation.isPending ? 'Rescheduling...' : 'Confirm Reschedule')
                 }
               </Button>
@@ -509,6 +544,7 @@ export default function AppointmentCalendar({
                 variant="outline" 
                 onClick={() => setShowConfirmation(false)}
                 className="flex-1"
+                disabled={mode === 'book' ? bookAppointmentMutation.isPending : rescheduleAppointmentMutation.isPending}
               >
                 Cancel
               </Button>

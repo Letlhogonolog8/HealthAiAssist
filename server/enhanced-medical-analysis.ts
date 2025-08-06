@@ -1,4 +1,10 @@
-import * as tf from '@tensorflow/tfjs-node';
+// TensorFlow import - conditional to avoid startup errors
+let tf: any = null;
+try {
+  tf = require('@tensorflow/tfjs-node');
+} catch (error) {
+  console.warn('TensorFlow.js not available - ML features will be disabled:', error.message);
+}
 import sharp from 'sharp';
 
 interface EnhancedAnalysisResult {
@@ -37,6 +43,21 @@ export async function performEnhancedMedicalAnalysis(
   scanType: string,
   patientData?: any
 ): Promise<EnhancedAnalysisResult> {
+  
+  // Check if TensorFlow is available
+  if (!tf) {
+    return {
+      confidence: 0.5,
+      findings: [`${scanType} analysis unavailable - TensorFlow.js not loaded`],
+      riskAssessment: 'Unable to assess - ML features disabled',
+      recommendations: ['Please install TensorFlow.js properly to enable AI analysis'],
+      metadata: {
+        analysisTime: Date.now(),
+        modelVersion: 'N/A',
+        quality: 'unknown'
+      }
+    };
+  }
   
   const preprocessedImage = await preprocessMedicalImage(imageBuffer);
   

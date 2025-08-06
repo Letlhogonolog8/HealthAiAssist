@@ -531,10 +531,15 @@ export default function ScheduleDermatologistDialog({ scanResult, urgency }: Sch
         </Button>
       </DialogTrigger>
       
-      <DialogContent className="max-w-4xl h-[85vh] flex flex-col">
-        <DialogHeader className="flex-shrink-0 pb-4">
-          <DialogTitle>Schedule Dermatologist Consultation</DialogTitle>
-          <DialogDescription>
+      <DialogContent className="max-w-4xl h-[85vh] flex flex-col bg-gradient-to-br from-blue-50 to-indigo-100 border-2 border-blue-300 shadow-xl" data-enhanced="v2">
+        <DialogHeader className="flex-shrink-0 pb-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-t-lg -m-6 mb-6 p-6">
+          <DialogTitle className="flex items-center gap-3 text-xl">
+            <div className="w-8 h-8 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
+              <CalendarIcon className="w-5 h-5" />
+            </div>
+            Schedule Dermatologist Consultation - Enhanced
+          </DialogTitle>
+          <DialogDescription className="text-blue-100 font-medium">
             Based on your skin analysis results, we recommend scheduling a consultation with a dermatologist.
           </DialogDescription>
         </DialogHeader>

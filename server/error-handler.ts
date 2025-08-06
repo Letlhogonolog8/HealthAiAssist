@@ -6,93 +6,83 @@ export interface AppError extends Error {
 }
 
 export class DatabaseError extends Error {
-  constructor(message: string, public originalError?: any) {
+  statusCode = 500;
+  isOperational = true;
+
+  constructor(message: string) {
     super(message);
     this.name = 'DatabaseError';
   }
 }
 
-export class AuthenticationError extends Error {
-  constructor(message: string = 'Authentication failed') {
-    super(message);
-    this.name = 'AuthenticationError';
-  }
-}
-
 export class ValidationError extends Error {
+  statusCode = 400;
+  isOperational = true;
+
   constructor(message: string) {
     super(message);
     this.name = 'ValidationError';
   }
 }
 
-export function createError(message: string, statusCode: number = 500): AppError {
-  const error: AppError = new Error(message);
-  error.statusCode = statusCode;
-  error.isOperational = true;
-  return error;
+export class AuthenticationError extends Error {
+  statusCode = 401;
+  isOperational = true;
+
+  constructor(message: string = 'Authentication required') {
+    super(message);
+    this.name = 'AuthenticationError';
+  }
 }
 
-export function globalErrorHandler(
-  err: AppError,
+export class AuthorizationError extends Error {
+  statusCode = 403;
+  isOperational = true;
+
+  constructor(message: string = 'Insufficient permissions') {
+    super(message);
+    this.name = 'AuthorizationError';
+  }
+}
+
+export const errorHandler = (
+  error: AppError,
   req: Request,
   res: Response,
   next: NextFunction
-) {
+) => {
+  const statusCode = error.statusCode || 500;
+  const message = error.message || 'Internal Server Error';
+
   // Log error details
-  console.error(`[${new Date().toISOString()}] Error:`, {
-    message: err.message,
-    stack: err.stack,
+  console.error(`[${new Date().toISOString()}] ${error.name || 'Error'}:`, {
+    message: error.message,
+    stack: error.stack,
     url: req.url,
     method: req.method,
-    ip: req.ip,
-    userAgent: req.get('User-Agent')
+    statusCode
   });
 
-  // Set default error values
-  const statusCode = err.statusCode || 500;
-  const message = err.isOperational ? err.message : 'Internal server error';
-
-  // Handle specific error types
-  if (err.name === 'DatabaseError') {
-    return res.status(503).json({
-      error: 'Database service temporarily unavailable',
-      code: 'DB_CONNECTION_ERROR'
-    });
-  }
-
-  if (err.name === 'AuthenticationError') {
-    return res.status(401).json({
-      error: 'Authentication required',
-      code: 'AUTH_REQUIRED'
-    });
-  }
-
-  if (err.name === 'ValidationError') {
-    return res.status(400).json({
-      error: message,
-      code: 'VALIDATION_ERROR'
-    });
-  }
-
-  // Default error response
+  // Don't expose internal errors in production
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  
   res.status(statusCode).json({
     error: message,
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+    ...(isDevelopment && { 
+      stack: error.stack,
+      details: error 
+    })
   });
-}
+};
 
-export function asyncHandler(fn: Function) {
+export const asyncHandler = (fn: Function) => {
   return (req: Request, res: Response, next: NextFunction) => {
     Promise.resolve(fn(req, res, next)).catch(next);
   };
-}
+};
 
-export function healthCheck(req: Request, res: Response) {
-  res.status(200).json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    memory: process.memoryUsage()
-  });
-}
+export const notFoundHandler = (req: Request, res: Response, next: NextFunction) => {
+  const error = new Error(`Route ${req.originalUrl} not found`) as AppError;
+  error.statusCode = 404;
+  next(error);
+};

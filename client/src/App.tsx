@@ -1,27 +1,35 @@
 import { useState, useEffect } from "react";
-import { Switch, Route } from "wouter";
+import { Switch, Route, useLocation } from "wouter";
 import { OptimizedQueryProvider } from "./components/optimized-query-client";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { ThemeProvider } from "@/components/theme-provider";
+import { ThemeProvider } from "@/contexts/theme-context";
 import Home from "@/pages/home";
 import About from "@/pages/about";
 import NotFound from "@/pages/not-found";
+import ChatPage from "@/pages/chat";
 import DashboardLayout from "@/components/dashboard-layout";
 import ForgotPassword from "@/components/forgot-password";
 import AppErrorBoundary from "@/components/app-error-boundary";
 
 function Router({ user, onLogin, onLogout }: { user: any; onLogin: (user: any) => void; onLogout: () => void }) {
-  // If user is logged in, show dashboard instead of public pages
-  if (user) {
-    return <DashboardLayout user={user} onLogout={onLogout} />;
-  }
-
   return (
     <Switch>
-      <Route path="/" component={() => <Home onLoginSuccess={onLogin} userId={user?.id} />} />
+      <Route path="/chat">
+        {user ? <ChatPage /> : <Home onLoginSuccess={onLogin} userId={user?.id} />}
+      </Route>
+      <Route path="/" component={() => {
+        // If user is logged in, show dashboard instead of public pages
+        if (user) {
+          return <DashboardLayout user={user} onLogout={onLogout} />;
+        }
+        return <Home onLoginSuccess={onLogin} userId={user?.id} />;
+      }} />
       <Route path="/about" component={() => <About onLoginSuccess={onLogin} />} />
-      <Route path="/forgot-password" component={() => <ForgotPassword onBack={() => window.location.href = '/'} />} />
+      <Route path="/forgot-password" component={() => {
+        const [, setLocation] = useLocation();
+        return <ForgotPassword onBack={() => setLocation('/')} />;
+      }} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -32,26 +40,27 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Check if user is already logged in on app start
-    const checkAuth = async () => {
+    // Check for existing session on app start
+    const checkSession = async () => {
       try {
-        const response = await fetch("/api/auth/me");
+        const response = await fetch('/api/auth/me', { credentials: 'include' });
         if (response.ok) {
           const userData = await response.json();
           setUser(userData);
         }
       } catch (error) {
-        console.log("No active session");
+        console.log('No existing session');
       } finally {
         setIsLoading(false);
       }
     };
-
-    checkAuth();
+    checkSession();
   }, []);
 
   const handleLogin = (userData: any) => {
     setUser(userData);
+    // Store user in sessionStorage for persistence
+    sessionStorage.setItem('user', JSON.stringify(userData));
   };
 
   const handleLogout = async () => {
@@ -61,6 +70,7 @@ function App() {
       console.log("Logout error:", error);
     } finally {
       setUser(null);
+      sessionStorage.removeItem('user');
     }
   };
 
@@ -76,7 +86,7 @@ function App() {
   }
 
   return (
-    <ThemeProvider defaultTheme="system" storageKey="healthai-theme">
+    <ThemeProvider>
       <AppErrorBoundary>
         <OptimizedQueryProvider>
           <TooltipProvider>

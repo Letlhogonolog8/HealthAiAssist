@@ -12,14 +12,12 @@ export default function MobileQRAccess() {
   // Get the current URL and construct the mobile-friendly URL
   const currentHost = window.location.host;
   // Replace localhost with server IP for mobile access using environment variable
-  const serverIp = import.meta.env.VITE_SERVER_IP || '192.168.0.154';
+  const serverIp = import.meta.env.VITE_SERVER_IP || '192.168.0.152';
   const adjustedHost = currentHost.includes('localhost') ? currentHost.replace('localhost', serverIp) : currentHost;
-  const mobileUrl = `http://${adjustedHost}:5000`;
+  const mobileUrl = `http://${adjustedHost}`;
   
-  // Fix double port issue in QR code URL
-  const qrCodeData = mobileUrl.replace(/:5000:5000$/, ':5000');
-  // Update QR code URL to use the updated mobileUrl with correct IP
-  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrCodeData)}&bgcolor=ffffff&color=1d4ed8&margin=10`;
+  // Generate QR code URL with the correct mobile URL
+  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(mobileUrl)}&bgcolor=ffffff&color=1d4ed8&margin=10`;
   
   const copyToClipboard = async () => {
     try {

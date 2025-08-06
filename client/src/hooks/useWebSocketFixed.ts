@@ -39,8 +39,23 @@ export function useWebSocketFixed(options: UseWebSocketOptions = {}) {
         socketRef.current.close();
       }
 
+      // Get the proper host and port for WebSocket connection
+      let host = window.location.hostname;
+      let port = window.location.port;
+      
+      // Use backend port 5000 for WebSocket in development
+      if (host === 'localhost' && port === '5173') {
+        port = '5000';
+      }
+      
+      // Validate host and port
+      if (!host || port === 'undefined' || window.location.host.includes('undefined')) {
+        console.warn('Invalid host or port for WebSocket connection');
+        return;
+      }
+      
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${protocol}//${window.location.host}/ws`;
+      const wsUrl = `${protocol}//${host}:${port}/ws`;
       
       const socket = new WebSocket(wsUrl);
       socketRef.current = socket;

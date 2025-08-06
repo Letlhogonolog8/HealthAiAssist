@@ -10,12 +10,14 @@ export const medicalModels = {
   },
   
   lung: {
-    name: 'LungAI-Pro',
+    name: 'ResNet50V2-LungCancer',
     accuracy: 0.91,
     sensitivity: 0.89,
     specificity: 0.93,
-    features: ['nodule_detection', 'texture_analysis', 'shape_characterization'],
-    preprocessing: ['lung_segmentation', 'vessel_suppression', 'intensity_normalization']
+    features: ['deep_feature_extraction', 'nodule_detection', 'texture_analysis', 'shape_characterization'],
+    preprocessing: ['resnet_preprocessing', 'normalization', 'augmentation'],
+    modelPath: 'dataset/lung_cancer_MRI_dataset/resnet50v2_lung_cancer_model.h5',
+    confidenceThreshold: 70.0
   },
   
   colon: {

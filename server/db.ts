@@ -12,9 +12,11 @@ if (!DATABASE_URL) {
 const pool = new Pool({ 
   connectionString: DATABASE_URL,
   ssl: DATABASE_URL.includes('localhost') ? false : { rejectUnauthorized: false },
-  connectionTimeoutMillis: 5000,
+  connectionTimeoutMillis: 10000,
   idleTimeoutMillis: 30000,
-  max: 20
+  max: 20,
+  statement_timeout: 30000,
+  query_timeout: 30000
 });
 
 const db = drizzle(pool, { schema });

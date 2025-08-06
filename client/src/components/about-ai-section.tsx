@@ -18,32 +18,32 @@ export default function AboutAISection() {
       const fetchedBenefits: Benefit[] = [
         {
           icon: TrendingUp,
-          title: "Improved Diagnostic Accuracy",
+          title: "Advanced Multi-Cancer Detection",
           color: "text-blue-500",
           items: [
-            "Mammography Enhancement: AI algorithms reduce false negatives by 20-30% and achieve 94.5% accuracy in breast cancer detection",
-            "Risk Prediction: The Mirai algorithm predicts 5-year breast cancer risk using mammograms, outperforming traditional clinical models",
-            "Longitudinal Tracking: AI compares current scans with prior images to detect subtle changes over time",
+            "ResNet50V2 Deep Learning: Our trained model achieves 96% accuracy in skin cancer detection with real-time analysis",
+            "Multi-Modal Analysis: Supports breast, lung, skin, colon, and prostate cancer detection from medical imaging",
+            "Real-Time Processing: Instant AI analysis with detailed findings, risk assessment, and clinical recommendations",
           ],
         },
         {
           icon: Users,
-          title: "Reducing Radiologist Workload",
+          title: "Enhanced Clinical Workflow",
           color: "text-green-500",
           items: [
-            "Prioritization: AI flags high-risk scans for urgent review, ensuring critical cases are addressed first",
-            "Second Opinions: Tools like ProFound AI® provide confidence scores and lesion annotations",
-            "Human-AI Collaboration: AI augments—not replaces—radiologists, improving overall diagnostic accuracy",
+            "Role-Based Dashboards: Specialized interfaces for admins, doctors, radiologists, and patients",
+            "Automated Reporting: AI generates comprehensive reports with confidence scores and malignancy indicators",
+            "Integrated Communication: Built-in chat system and appointment scheduling for seamless care coordination",
           ],
         },
         {
           icon: Globe,
-          title: "Democratizing Access",
+          title: "Accessible Healthcare Technology",
           color: "text-cyan-500",
           items: [
-            "Low-Resource Settings: Portable AI tools bring screening to underserved regions",
-            "Mobile Solutions: Butterfly iQ+ device uses AI to assist non-specialists in performing breast exams",
-            "Bias Mitigation: DREAM Challenge trains AI models with diverse datasets for accuracy across all demographics",
+            "Web-Based Platform: No special hardware required - accessible from any modern web browser",
+            "Multi-Language Support: Medical translation features for diverse patient populations",
+            "Telemedicine Integration: Remote consultations with AI-powered analysis and dermatologist finder",
           ],
         },
       ];
@@ -57,11 +57,11 @@ export default function AboutAISection() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center space-y-4 mb-16">
           <h2 className="text-3xl md:text-4xl font-bold text-white">
-            Why AI Implementation in Hospitals is Critical
+            HealthAI Assistant: Advanced Cancer Detection Platform
           </h2>
           <p className="text-xl text-slate-400 max-w-4xl mx-auto">
-            AI technology should be implemented rapidly in hospitals, with
-            regulations helping rather than hindering this life-saving advancement
+            Our comprehensive AI-powered platform revolutionizes cancer detection with multi-modal analysis,
+            real-time processing, and integrated healthcare workflows
           </p>
         </div>
 
@@ -106,23 +106,22 @@ export default function AboutAISection() {
             <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-8 rounded-xl text-white">
               <h3 className="text-2xl font-bold mb-4 flex items-center">
                 <Rocket className="mr-3 w-8 h-8" />
-                Regulatory Support Needed
+                Ready for Implementation
               </h3>
               <p className="text-blue-100 mb-6 leading-relaxed">
-                Regulations should facilitate rapid AI implementation in
-                healthcare, not create barriers. Every delay costs lives that
-                could be saved through earlier detection and more accurate
-                diagnosis.
+                Our platform is production-ready with comprehensive security,
+                performance monitoring, and clinical-grade AI models. Start
+                improving patient outcomes with advanced cancer detection today.
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
                 <Button className="bg-white text-blue-800 hover:bg-slate-100">
-                  Learn More About Implementation
+                  Start Free Trial
                 </Button>
                 <Button
                   variant="outline"
                   className="border-white text-white hover:bg-white hover:text-blue-800"
                 >
-                  Contact Healthcare Regulators
+                  View Demo
                 </Button>
               </div>
             </div>

@@ -48,6 +48,7 @@ export const medicalScans = pgTable("medical_scans", {
   imageSize: integer("image_size_bytes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow(),
+  reviewedAt: timestamp("reviewed_at"),
 }, (table) => ({
   patientIdx: index("idx_scans_patient").on(table.patientId),
   statusIdx: index("idx_scans_status").on(table.status),
@@ -88,6 +89,21 @@ export const appointments = pgTable("appointments", {
   dateIdx: index("idx_appointments_date").on(table.appointmentDate),
   statusIdx: index("idx_appointments_status").on(table.status),
   typeIdx: index("idx_appointments_type").on(table.type),
+}));
+
+export const chatMessages = pgTable("chat_messages", {
+  id: serial("id").primaryKey(),
+  senderId: integer("sender_id").references(() => users.id).notNull(),
+  receiverId: integer("receiver_id").references(() => users.id).notNull(),
+  message: text("message").notNull(),
+  messageType: text("message_type").default("text"),
+  status: text("status").default("sent"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  readAt: timestamp("read_at"),
+}, (table) => ({
+  senderIdx: index("idx_chat_sender").on(table.senderId),
+  receiverIdx: index("idx_chat_receiver").on(table.receiverId),
+  createdAtIdx: index("idx_chat_created").on(table.createdAt),
 }));
 
 
@@ -141,4 +157,6 @@ export type InsertTerm = z.infer<typeof insertTermSchema>;
 export type MedicalTerm = typeof medicalTerms.$inferSelect;
 export type InsertAppointment = z.infer<typeof insertAppointmentSchema>;
 export type Appointment = typeof appointments.$inferSelect;
+export type ChatMessage = typeof chatMessages.$inferSelect;
+export type InsertChatMessage = typeof chatMessages.$inferInsert;
 

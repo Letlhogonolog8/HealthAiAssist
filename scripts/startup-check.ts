@@ -114,7 +114,7 @@ class StartupChecker {
       const requirementsPath = path.join(process.cwd(), 'requirements.txt');
       if (fs.existsSync(requirementsPath)) {
         try {
-          await execAsync('pip list | grep tensorflow');
+          await execAsync('pip list | findstr tensorflow');
           this.results.push({
             name: 'Python Dependencies',
             status: 'pass',
@@ -172,7 +172,7 @@ class StartupChecker {
   }
 
   private async checkModelFiles(): Promise<void> {
-    const modelPath = path.join(process.cwd(), 'dataset', 'data', 'skin_cancer_efficientnet_model.h5');
+    const modelPath = path.join(process.cwd(), 'dataset', 'data', 'resnet50v2_skin_cancer_model.h5');
     
     if (!fs.existsSync(modelPath)) {
       this.results.push({
@@ -193,9 +193,10 @@ class StartupChecker {
     try {
       const { createServer } = await import('http');
       const server = createServer();
+      const port = parseInt(process.env.PORT || '5000', 10);
       
       await new Promise<void>((resolve, reject) => {
-        server.listen(5000, () => {
+        server.listen(port, () => {
           server.close();
           resolve();
         });
@@ -205,13 +206,14 @@ class StartupChecker {
       this.results.push({
         name: 'Port Availability',
         status: 'pass',
-        message: 'Port 5000 is available'
+        message: `Port ${port} is available`
       });
     } catch {
+      const port = parseInt(process.env.PORT || '5000', 10);
       this.results.push({
         name: 'Port Availability',
         status: 'warning',
-        message: 'Port 5000 may be in use'
+        message: `Port ${port} may be in use`
       });
     }
   }

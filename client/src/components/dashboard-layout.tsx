@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from '@tanstack/react-query';
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
@@ -30,15 +30,19 @@ import MedicalTranslator from "./medical-translator";
 import AmbientSoundTherapy from "./ambient-sound-therapy";
 import AIScanSimulator from "./ai-scan-simulator-fixed";
 import MedicalVisualization3D from "./3d-medical-visualization";
-import GoogleAIScanner from "./google-ai-scanner-fixed";
-import PatientPortalOptimized from "./patient-portal-enhanced-fixed";
+import GoogleAIScanner from "./google-ai-scanner";
+import PatientPortalFinal from "./patient-portal-final";
+import AppointmentScheduler from "./appointment-scheduler";
+import SimpleAppointmentBooking from "./simple-appointment-booking";
 
 import PatientManagement from "./patient-management";
-import AdminDashboard from "./admin-dashboard-fixed";
-import AdminStaffManagement from "./admin-staff-management";
-import AdminUserManagement from "./admin-user-management";
+import AdminDashboard from "./admin-dashboard";
+
 import RadiologistDashboard from "./radiologist-dashboard";
-import DoctorDashboard from "./doctor-dashboard-clean";
+import DoctorPortal from "./doctor-portal";
+import DoctorReports from "./doctor-reports";
+import DoctorPatients from "./doctor-patients";
+import { DoctorAppointmentSection } from "./doctor-appointment-section";
 import CancerDetection from "@/pages/cancer-detection";
 import EnhancedChatbot from "./enhanced-chatbot";
 import BloodTestAnalyzer from "./blood-test-analyzer";
@@ -46,6 +50,7 @@ import CancerRiskQuestionnaire from "./cancer-risk-questionnaire";
 import LungCancerAnalyzer from "./lung-cancer-analyzer";
 import MedicalImageViewer from "./medical-image-viewer";
 import RealTimeSkinScanner from "./real-time-skin-scanner";
+import ChatNotifications from "./chat-notifications";
 
 interface DashboardLayoutProps {
   user: any;
@@ -66,19 +71,19 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
       icon: Brain,
       title: "Radiologist Interface",
       color: "bg-purple-600",
-      tabs: ["overview", "scans", "ai-analysis", "google-ai", "translator", "therapy", "lung-analyzer"]
+      tabs: ["overview", "scans", "appointments", "google-ai"]
     },
     doctor: {
       icon: Stethoscope,
       title: "Doctor Portal",
       color: "bg-blue-600",
-      tabs: ["overview", "patients", "reports", "google-ai", "translator", "therapy", "blood-tests", "questionnaire", "lung-analyzer", "image-viewer", "skin-scanner"]
+      tabs: ["overview", "patients", "reports", "appointments", "schedule", "google-ai", "debug"]
     },
     patient: {
       icon: User,
       title: "Patient Portal",
       color: "bg-green-600",
-      tabs: ["overview", "results", "appointments", "therapy", "blood-tests", "questionnaire", "skin-scanner"]
+      tabs: ["overview", "scan", "results", "appointments", "therapy", "blood-tests", "questionnaire", "skin-scanner"]
     }
   };
 
@@ -161,7 +166,7 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
       patient: [
         { label: "Completed Scans", key: "completedScans", icon: Activity, color: "text-green-400" },
         { label: "Pending Results", key: "pendingResults", icon: Clock, color: "text-orange-400" },
-        { label: "Next Appointment", key: "nextAppointment", icon: Calendar, color: "text-blue-400" },
+        { label: "Health Insights", key: "healthInsights", icon: Brain, color: "text-blue-400" },
         { label: "Health Score", key: "healthScore", icon: Heart, color: "text-green-400" }
       ]
     };
@@ -214,8 +219,8 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
               value = `${value}m`;
             } else if (stat.key === 'aiAccuracy' || stat.key === 'aiConfidence') {
               value = `${value}%`;
-            } else if (stat.key === 'nextAppointment') {
-              value = value || 'None scheduled';
+            } else if (stat.key === 'healthInsights') {
+              value = value || 'Available';
             }
             
             return (
@@ -420,28 +425,25 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                 {user.role === 'patient' && (
                   <>
                     <Button 
-                      className="w-full justify-start bg-green-600 hover:bg-green-700"
-                      onClick={() => setActiveTab('appointments')}
-                    >
-                      <Calendar className="w-4 h-4 mr-2" />
-                      Book Appointment
-                    </Button>
-                    <Button 
                       className="w-full justify-start bg-blue-600 hover:bg-blue-700"
                       onClick={() => setActiveTab('results')}
                     >
                       <FileText className="w-4 h-4 mr-2" />
                       View Results
                     </Button>
+                    <Button 
+                      className="w-full justify-start bg-purple-600 hover:bg-purple-700"
+                      onClick={() => {
+                        console.log('Chat button clicked, navigating to /chat');
+                        window.location.href = '/chat';
+                      }}
+                    >
+                      <MessageSquare className="w-4 h-4 mr-2" />
+                      Chat with Doctor
+                    </Button>
                   </>
                 )}
-                <Button 
-                  className="w-full justify-start bg-purple-600 hover:bg-purple-700"
-                  onClick={() => setActiveTab('translator')}
-                >
-                  <FileText className="w-4 h-4 mr-2" />
-                  Medical Translator
-                </Button>
+
               </div>
             </CardContent>
           </Card>
@@ -466,9 +468,9 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
           </div>
           <div className="flex items-center space-x-4">
             <ThemeToggle />
-            <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white">
-              <Bell className="w-5 h-5" />
-            </Button>
+            {(user.role === 'doctor' || user.role === 'radiologist') && (
+              <ChatNotifications user={user} onChatOpen={() => window.location.href = '/chat'} />
+            )}
             <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white">
               <Settings className="w-5 h-5" />
             </Button>
@@ -488,93 +490,240 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
       {/* Main Content */}
       <main className="p-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="bg-gradient-to-r from-slate-800 to-slate-900 border border-slate-600 rounded-lg p-1 shadow-lg">
-            {(config.tabs || []).map(tab => {
-              const tabIcons = {
-                'overview': <BarChart3 className="w-4 h-4" />,
-                'cancer-detection': <Brain className="w-4 h-4" />,
-                'google-ai': <Brain className="w-4 h-4" />,
-                'translator': <FileText className="w-4 h-4" />,
-                'therapy': <Heart className="w-4 h-4" />,
-                'simulator': <Activity className="w-4 h-4" />,
-                'visualization': <TrendingUp className="w-4 h-4" />,
-                'patients': <Users className="w-4 h-4" />,
-                'analytics': <BarChart3 className="w-4 h-4" />,
-                'results': <FileText className="w-4 h-4" />,
-                'appointments': <Calendar className="w-4 h-4" />,
-                'debug': <Settings className="w-4 h-4" />,
-                'blood-tests': <Activity className="w-4 h-4" />,
-                'questionnaire': <FileText className="w-4 h-4" />,
-                'lung-analyzer': <Activity className="w-4 h-4" />,
-                'image-viewer': <Eye className="w-4 h-4" />,
-                'skin-scanner': <Eye className="w-4 h-4" />,
-                'scans': <Activity className="w-4 h-4" />,
-                'ai-analysis': <Brain className="w-4 h-4" />,
-                'reports': <FileText className="w-4 h-4" />,
-                'users': <Users className="w-4 h-4" />,
-                'system': <Settings className="w-4 h-4" />
-              };
+            <TabsList className="bg-gradient-to-r from-slate-800 to-slate-900 border border-slate-600 rounded-lg p-1 shadow-lg">
+              {(config.tabs || []).map(tab => {
+                const tabIcons = {
+                  'overview': <BarChart3 className="w-4 h-4" />,
+                  'cancer-detection': <Brain className="w-4 h-4" />,
+                  'google-ai': <Brain className="w-4 h-4" />,
+                  'translator': <FileText className="w-4 h-4" />,
+                  'therapy': <Heart className="w-4 h-4" />,
+                  'simulator': <Activity className="w-4 h-4" />,
+                  'visualization': <TrendingUp className="w-4 h-4" />,
+                  'patients': <Users className="w-4 h-4" />,
+                  'analytics': <BarChart3 className="w-4 h-4" />,
+                  'results': <FileText className="w-4 h-4" />,
+                  'appointments': <Calendar className="w-4 h-4" />,
+                  'schedule': <Clock className="w-4 h-4" />,
+                  'debug': <Settings className="w-4 h-4" />,
+                  'blood-tests': <Activity className="w-4 h-4" />,
+                  'questionnaire': <FileText className="w-4 h-4" />,
+                  'lung-analyzer': <Activity className="w-4 h-4" />,
+                  'image-viewer': <Eye className="w-4 h-4" />,
+                  'skin-scanner': <Eye className="w-4 h-4" />,
+                  'scans': <Activity className="w-4 h-4" />,
+
+                  'reports': <FileText className="w-4 h-4" />,
+                  'users': <Users className="w-4 h-4" />,
+                  'system': <Settings className="w-4 h-4" />
+                };
+                
+                const tabLabels = {
+                  'overview': 'Overview',
+                  'cancer-detection': 'Cancer Detection',
+                  'google-ai': 'Google AI',
+                  'translator': 'Translator',
+                  'therapy': 'Therapy',
+                  'simulator': 'Simulator',
+                  'visualization': 'Visualization',
+                  'patients': 'Patients',
+                  'analytics': 'Analytics',
+                  'results': 'Results',
+                  'appointments': 'Appointments',
+                  'schedule': 'Schedule',
+                  'debug': 'Debug',
+                  'blood-tests': 'Blood Tests',
+                  'questionnaire': 'Risk Assessment',
+                  'lung-analyzer': 'Lung Analysis',
+                  'image-viewer': 'Image Viewer',
+                  'skin-scanner': 'Skin Scanner',
+                  'scans': 'Scans',
+
+                  'reports': 'Reports',
+                  'users': 'Users',
+                  'system': 'System'
+                };
+                
+                return (
+                  <TabsTrigger 
+                    key={tab} 
+                    value={tab}
+                    className="relative flex items-center gap-2 px-4 py-3 rounded-md font-medium transition-all duration-300 data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-600 data-[state=active]:to-purple-600 data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:scale-105 hover:bg-slate-700 text-slate-300 hover:text-white"
+                  >
+                    <span className="flex items-center gap-2">
+                      {tabIcons[tab as keyof typeof tabIcons] || <FileText className="w-4 h-4" />}
+                      <span className="hidden sm:inline">{tabLabels[tab as keyof typeof tabLabels] || tab.replace('-', ' ')}</span>
+                    </span>
+                    {tab === 'google-ai' && (
+                      <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full animate-pulse shadow-lg"></div>
+                    )}
+                  </TabsTrigger>
+                );
+              })}
+            </TabsList>
+
+            <>
+              <TabsContent value="overview">
+                {user.role === 'admin' ? (
+                  <AdminDashboard user={user} />
+                ) : user.role === 'doctor' ? (
+                  <DoctorPortal user={user} setActiveTab={setActiveTab} />
+                ) : user.role === 'radiologist' ? (
+                  <RadiologistDashboard user={user} setActiveTab={setActiveTab} />
+                ) : null}
+              </TabsContent>
+
+              {config.tabs.includes("translator") && (
+                <TabsContent value="translator">
+                  <MedicalTranslator />
+                </TabsContent>
+              )}
+            </>
+
+          {/* Patient-specific tabs */}
+          {user.role === 'patient' && (
+            <>
+              <TabsContent value="overview">
+                <div className="space-y-6">
+                  {/* Health Summary Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <Card className="bg-slate-800 border-slate-600">
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-slate-400 text-sm">Health Score</p>
+                            <p className="text-2xl font-bold text-green-400">85%</p>
+                          </div>
+                          <Heart className="w-8 h-8 text-green-400" />
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-slate-800 border-slate-600">
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-slate-400 text-sm">Total Scans</p>
+                            <p className="text-2xl font-bold text-blue-400">2</p>
+                          </div>
+                          <Brain className="w-8 h-8 text-blue-400" />
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-slate-800 border-slate-600">
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-slate-400 text-sm">Next Appointment</p>
+                            <p className="text-sm font-bold text-purple-400">Tomorrow 2PM</p>
+                          </div>
+                          <Calendar className="w-8 h-8 text-purple-400" />
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-slate-800 border-slate-600">
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-slate-400 text-sm">Last Scan</p>
+                            <p className="text-sm font-bold text-orange-400">2 days ago</p>
+                          </div>
+                          <Activity className="w-8 h-8 text-orange-400" />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {/* Quick Actions */}
+                  <Card className="bg-slate-800 border-slate-600">
+                    <CardHeader>
+                      <CardTitle className="text-white">Quick Actions</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <Button 
+                          onClick={() => setActiveTab('scan')}
+                          className="bg-blue-600 hover:bg-blue-700 h-16 flex flex-col gap-2"
+                        >
+                          <Brain className="w-6 h-6" />
+                          <span>New Scan</span>
+                        </Button>
+                        <Button 
+                          onClick={() => setActiveTab('appointments')}
+                          className="bg-purple-600 hover:bg-purple-700 h-16 flex flex-col gap-2"
+                        >
+                          <Calendar className="w-6 h-6" />
+                          <span>Book Appointment</span>
+                        </Button>
+                        <Button 
+                          onClick={() => setActiveTab('results')}
+                          className="bg-green-600 hover:bg-green-700 h-16 flex flex-col gap-2"
+                        >
+                          <FileText className="w-6 h-6" />
+                          <span>View Results</span>
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Recent Activity */}
+                  <Card className="bg-slate-800 border-slate-600">
+                    <CardHeader>
+                      <CardTitle className="text-white flex items-center gap-2">
+                        <Activity className="w-5 h-5" />
+                        Recent Activity
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        <div className="flex items-center space-x-3 p-3 bg-slate-700 rounded-lg">
+                          <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                          <span className="text-slate-300 flex-1">Breast Cancer Scan completed - No abnormalities detected</span>
+                          <span className="text-slate-500 text-sm">2d ago</span>
+                        </div>
+                        <div className="flex items-center space-x-3 p-3 bg-slate-700 rounded-lg">
+                          <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
+                          <span className="text-slate-300 flex-1">Appointment scheduled with Dr. Smith</span>
+                          <span className="text-slate-500 text-sm">3d ago</span>
+                        </div>
+                        <div className="flex items-center space-x-3 p-3 bg-slate-700 rounded-lg">
+                          <div className="w-2 h-2 bg-purple-400 rounded-full"></div>
+                          <span className="text-slate-300 flex-1">Lung CT Scan completed - Normal findings</span>
+                          <span className="text-slate-500 text-sm">1w ago</span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </TabsContent>
               
-              const tabLabels = {
-                'overview': 'Overview',
-                'cancer-detection': 'Cancer Detection',
-                'google-ai': 'Google AI',
-                'translator': 'Translator',
-                'therapy': 'Therapy',
-                'simulator': 'Simulator',
-                'visualization': 'Visualization',
-                'patients': 'Patients',
-                'analytics': 'Analytics',
-                'results': 'Results',
-                'appointments': 'Appointments',
-                'debug': 'Debug',
-                'blood-tests': 'Blood Tests',
-                'questionnaire': 'Risk Assessment',
-                'lung-analyzer': 'Lung Analysis',
-                'image-viewer': 'Image Viewer',
-                'skin-scanner': 'Skin Scanner',
-                'scans': 'Scans',
-                'ai-analysis': 'AI Analysis',
-                'reports': 'Reports',
-                'users': 'Users',
-                'system': 'System'
-              };
-              
-              return (
-                <TabsTrigger 
-                  key={tab} 
-                  value={tab}
-                  className="relative flex items-center gap-2 px-4 py-3 rounded-md font-medium transition-all duration-300 data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-600 data-[state=active]:to-purple-600 data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:scale-105 hover:bg-slate-700 text-slate-300 hover:text-white"
-                >
-                  <span className="flex items-center gap-2">
-                    {tabIcons[tab as keyof typeof tabIcons] || <FileText className="w-4 h-4" />}
-                    <span className="hidden sm:inline">{tabLabels[tab as keyof typeof tabLabels] || tab.replace('-', ' ')}</span>
-                  </span>
-                  {tab === 'google-ai' && (
-                    <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full animate-pulse shadow-lg"></div>
-                  )}
-                </TabsTrigger>
-              );
-            })}
-          </TabsList>
+              {config.tabs.includes("scan") && (
+                <TabsContent value="scan">
+                  <Card className="bg-slate-800 border-slate-600">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-white">
+                        <Brain className="w-5 h-5" />
+                        AI Medical Scanner
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <GoogleAIScanner />
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              )}
 
-          <TabsContent value="overview">
-            {renderOverview()}
-          </TabsContent>
+              {config.tabs.includes("results") && (
+                <TabsContent value="results">
+                  <PatientPortalFinal user={user} />
+                </TabsContent>
+              )}
 
-          {config.tabs.includes("appointments") && user.role === 'patient' && (
-            <TabsContent value="appointments">
-              <div className="bg-blue-50 rounded-lg p-6">
-                <h2 className="text-2xl font-bold mb-6 text-blue-900">Appointment Management</h2>
-                <PatientPortalOptimized user={user} />
-              </div>
-            </TabsContent>
-          )}
-
-          {config.tabs.includes("translator") && (
-            <TabsContent value="translator">
-              <MedicalTranslator />
-            </TabsContent>
+              {config.tabs.includes("appointments") && (
+                <TabsContent value="appointments">
+                  <AppointmentScheduler user={user} />
+                </TabsContent>
+              )}
+            </>
           )}
 
           {config.tabs.includes("therapy") && (
@@ -583,274 +732,295 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
             </TabsContent>
           )}
 
-          {config.tabs.includes("scans") && (
-            <TabsContent value="scans">
-              <div className="space-y-6">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <AIScanSimulator />
-                  <MedicalVisualization3D />
-                </div>
-              </div>
-            </TabsContent>
-          )}
-
-          {config.tabs.includes("cancer-detection") && (
-            <TabsContent value="cancer-detection">
-              <CancerDetection />
-            </TabsContent>
-          )}
-
-          {config.tabs.includes("google-ai") && (
-            <TabsContent value="google-ai">
-              <GoogleAIScanner />
-            </TabsContent>
-          )}
-
-          {config.tabs.includes("patients") && (
-            <TabsContent value="patients">
-              <PatientManagement />
-            </TabsContent>
-          )}
-
-
-
-          {config.tabs.includes("analytics") && (
-            <TabsContent value="analytics">
-              <Card className="bg-slate-800 border-slate-600">
-                <CardHeader>
-                  <CardTitle className="text-white flex items-center">
-                    <BarChart3 className="w-5 h-5 mr-2" />
-                    System Analytics & Performance
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <Card className="bg-slate-700 border-slate-600">
-                      <CardHeader>
-                        <CardTitle className="text-white text-lg flex items-center">
-                          <Brain className="w-4 h-4 mr-2 text-purple-400" />
-                          AI Detection Accuracy
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-3">
-                          {[
-                            { type: 'Breast', accuracy: 96, color: 'bg-pink-600' },
-                            { type: 'Lung', accuracy: 94, color: 'bg-blue-600' },
-                            { type: 'Skin', accuracy: 92, color: 'bg-orange-600' },
-                            { type: 'Colon', accuracy: 89, color: 'bg-green-600' },
-                            { type: 'Prostate', accuracy: 91, color: 'bg-purple-600' }
-                          ].map(item => (
-                            <div key={item.type} className="flex justify-between items-center">
-                              <span className="text-slate-300">{item.type} Cancer</span>
-                              <Badge className={item.color}>{item.accuracy}%</Badge>
-                            </div>
-                          ))}
-                        </div>
-                      </CardContent>
-                    </Card>
-                    <Card className="bg-slate-700 border-slate-600">
-                      <CardHeader>
-                        <CardTitle className="text-white text-lg flex items-center">
-                          <Activity className="w-4 h-4 mr-2 text-green-400" />
-                          System Performance
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-3">
-                          <div className="flex justify-between items-center">
-                            <span className="text-slate-300">System Uptime</span>
-                            <span className="text-green-400 font-medium">99.8%</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-slate-300">Response Time</span>
-                            <span className="text-blue-400 font-medium">1.2s</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-slate-300">Database Health</span>
-                            <span className="text-green-400 font-medium">98%</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-slate-300">Security Status</span>
-                            <Badge className="bg-green-600">Secure</Badge>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                    
-                    <Card className="bg-slate-700 border-slate-600">
-                      <CardHeader>
-                        <CardTitle className="text-white text-lg flex items-center">
-                          <TrendingUp className="w-4 h-4 mr-2 text-cyan-400" />
-                          Usage Statistics
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-3">
-                          <div className="flex justify-between items-center">
-                            <span className="text-slate-300">Daily Scans</span>
-                            <span className="text-purple-400 font-medium">{statsData?.dailyScans || 45}</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-slate-300">Active Users</span>
-                            <span className="text-blue-400 font-medium">{statsData?.totalUsers || 156}</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-slate-300">Critical Alerts</span>
-                            <span className={`font-medium ${(statsData?.criticalAlerts || 0) > 0 ? 'text-red-400' : 'text-green-400'}`}>
-                              {statsData?.criticalAlerts || 0}
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-slate-300">AI Accuracy</span>
-                            <span className="text-cyan-400 font-medium">{statsData?.aiAccuracy || 94}%</span>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
+            {config.tabs.includes("scans") && (
+              <TabsContent value="scans">
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <AIScanSimulator />
+                    <MedicalVisualization3D />
                   </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          )}
+                </div>
+              </TabsContent>
+            )}
 
-          {/* Blood Test Analyzer */}
-          {config.tabs.includes("blood-tests") && (
-            <TabsContent value="blood-tests">
-              <BloodTestAnalyzer />
-            </TabsContent>
-          )}
+            {config.tabs.includes("cancer-detection") && (
+              <TabsContent value="cancer-detection">
+                <CancerDetection />
+              </TabsContent>
+            )}
 
-          {/* Cancer Risk Questionnaire */}
-          {config.tabs.includes("questionnaire") && (
-            <TabsContent value="questionnaire">
-              <CancerRiskQuestionnaire 
-                user={user} 
-                onRequestTabChange={setActiveTab}
-              />
-            </TabsContent>
-          )}
+            {config.tabs.includes("google-ai") && (
+              <TabsContent value="google-ai">
+                <GoogleAIScanner />
+              </TabsContent>
+            )}
 
-          {/* Lung Cancer Analyzer */}
-          {config.tabs.includes("lung-analyzer") && (
-            <TabsContent value="lung-analyzer">
-              <LungCancerAnalyzer />
-            </TabsContent>
-          )}
+            {config.tabs.includes("patients") && user.role === 'doctor' && (
+              <TabsContent value="patients">
+                <DoctorPatients 
+                  user={user} 
+                  onSectionChange={(section, data) => {
+                    if (section === 'reports') {
+                      setActiveTab('reports');
+                    } else if (section === 'chat') {
+                      // Navigate to chat with patient context
+                      window.location.href = `/chat?patientId=${data?.patientId}&patientName=${encodeURIComponent(data?.patientName || '')}`;
+                    } else if (section === 'appointments') {
+                      setActiveTab('appointments');
+                    }
+                  }}
+                />
+              </TabsContent>
+            )}
 
-          {/* Medical Image Viewer */}
-          {config.tabs.includes("image-viewer") && (
-            <TabsContent value="image-viewer">
-              <MedicalImageViewer imageFile={null} />
-            </TabsContent>
-          )}
+            {config.tabs.includes("patients") && user.role === 'admin' && (
+              <TabsContent value="patients">
+                <PatientManagement />
+              </TabsContent>
+            )}
 
-          {/* Real-time Skin Scanner */}
-          {config.tabs.includes("skin-scanner") && (
-            <TabsContent value="skin-scanner">
-              <RealTimeSkinScanner />
-            </TabsContent>
-          )}
-
-          {/* AI Analysis Tab */}
-          {config.tabs.includes("ai-analysis") && (
-            <TabsContent value="ai-analysis">
-              <div className="space-y-6">
-                <LungCancerAnalyzer />
-              </div>
-            </TabsContent>
-          )}
-
-          {/* Reports Tab */}
-          {config.tabs.includes("reports") && (
-            <TabsContent value="reports">
-              <div className="space-y-6">
+            {config.tabs.includes("analytics") && (
+              <TabsContent value="analytics">
                 <Card className="bg-slate-800 border-slate-600">
                   <CardHeader>
-                    <CardTitle className="text-white">Medical Reports & Analysis</CardTitle>
+                    <CardTitle className="text-white flex items-center">
+                      <BarChart3 className="w-5 h-5 mr-2" />
+                      System Analytics & Performance
+                    </CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-6">
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      <BloodTestAnalyzer />
-                      <MedicalImageViewer imageFile={null} />
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <Card className="bg-slate-700 border-slate-600">
+                        <CardHeader>
+                          <CardTitle className="text-white text-lg flex items-center">
+                            <Brain className="w-4 h-4 mr-2 text-purple-400" />
+                            AI Detection Accuracy
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-3">
+                            {[
+                              { type: 'Breast', accuracy: 96, color: 'bg-pink-600' },
+                              { type: 'Lung', accuracy: 94, color: 'bg-blue-600' },
+                              { type: 'Skin', accuracy: 92, color: 'bg-orange-600' },
+                              { type: 'Colon', accuracy: 89, color: 'bg-green-600' },
+                              { type: 'Prostate', accuracy: 91, color: 'bg-purple-600' }
+                            ].map(item => (
+                              <div key={item.type} className="flex justify-between items-center">
+                                <span className="text-slate-300">{item.type} Cancer</span>
+                                <Badge className={item.color}>{item.accuracy}%</Badge>
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                      <Card className="bg-slate-700 border-slate-600">
+                        <CardHeader>
+                          <CardTitle className="text-white text-lg flex items-center">
+                            <Activity className="w-4 h-4 mr-2 text-green-400" />
+                            System Performance
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-3">
+                            <div className="flex justify-between items-center">
+                              <span className="text-slate-300">System Uptime</span>
+                              <span className="text-green-400 font-medium">99.8%</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="text-slate-300">Response Time</span>
+                              <span className="text-blue-400 font-medium">1.2s</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="text-slate-300">Database Health</span>
+                              <span className="text-green-400 font-medium">98%</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="text-slate-300">Security Status</span>
+                              <Badge className="bg-green-600">Secure</Badge>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                      
+                      <Card className="bg-slate-700 border-slate-600">
+                        <CardHeader>
+                          <CardTitle className="text-white text-lg flex items-center">
+                            <TrendingUp className="w-4 h-4 mr-2 text-cyan-400" />
+                            Usage Statistics
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-3">
+                            <div className="flex justify-between items-center">
+                              <span className="text-slate-300">Daily Scans</span>
+                              <span className="text-purple-400 font-medium">{statsData?.dailyScans || 45}</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="text-slate-300">Active Users</span>
+                              <span className="text-blue-400 font-medium">{statsData?.totalUsers || 156}</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="text-slate-300">Critical Alerts</span>
+                              <span className={`font-medium ${(statsData?.criticalAlerts || 0) > 0 ? 'text-red-400' : 'text-green-400'}`}>
+                                {statsData?.criticalAlerts || 0}
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="text-slate-300">AI Accuracy</span>
+                              <span className="text-cyan-400 font-medium">{statsData?.aiAccuracy || 94}%</span>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
                     </div>
                   </CardContent>
                 </Card>
-              </div>
-            </TabsContent>
-          )}
+              </TabsContent>
+            )}
 
-          {/* Users Tab */}
-          {config.tabs.includes("users") && (
-            <TabsContent value="users">
-              <AdminUserManagement />
-            </TabsContent>
-          )}
+            {/* Blood Test Analyzer */}
+            {config.tabs.includes("blood-tests") && (
+              <TabsContent value="blood-tests">
+                <BloodTestAnalyzer />
+              </TabsContent>
+            )}
 
-          {/* System Tab */}
-          {config.tabs.includes("system") && (
-            <TabsContent value="system">
-              <Card className="bg-slate-800 border-slate-600">
-                <CardHeader>
-                  <CardTitle className="text-white">System Management</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <Card className="bg-slate-700 border-slate-600">
-                      <CardHeader>
-                        <CardTitle className="text-white text-lg">System Health</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-3">
-                          <div className="flex justify-between">
-                            <span className="text-slate-300">Server Status</span>
-                            <Badge className="bg-green-600">Online</Badge>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-300">Database</span>
-                            <Badge className="bg-green-600">Connected</Badge>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-300">AI Services</span>
-                            <Badge className="bg-green-600">Active</Badge>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                    <Card className="bg-slate-700 border-slate-600">
-                      <CardHeader>
-                        <CardTitle className="text-white text-lg">Component Status</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-3">
-                          <div className="flex justify-between">
-                            <span className="text-slate-300">Blood Test Analyzer</span>
-                            <Badge className="bg-green-600">Active</Badge>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-300">Lung Cancer Analyzer</span>
-                            <Badge className="bg-green-600">Active</Badge>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-300">Skin Scanner</span>
-                            <Badge className="bg-green-600">Active</Badge>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-300">Image Viewer</span>
-                            <Badge className="bg-green-600">Active</Badge>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-300">Risk Questionnaire</span>
-                            <Badge className="bg-green-600">Active</Badge>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
+            {/* Cancer Risk Questionnaire */}
+            {config.tabs.includes("questionnaire") && (
+              <TabsContent value="questionnaire">
+                <CancerRiskQuestionnaire 
+                  user={user} 
+                  onRequestTabChange={setActiveTab}
+                />
+              </TabsContent>
+            )}
+
+            {/* Lung Cancer Analyzer */}
+            {config.tabs.includes("lung-analyzer") && (
+              <TabsContent value="lung-analyzer">
+                <LungCancerAnalyzer />
+              </TabsContent>
+            )}
+
+            {/* Real-time Skin Scanner */}
+            {config.tabs.includes("skin-scanner") && (
+              <TabsContent value="skin-scanner">
+                <RealTimeSkinScanner />
+              </TabsContent>
+            )}
+
+            {/* Reports Tab */}
+            {config.tabs.includes("reports") && user.role === 'doctor' && (
+              <TabsContent value="reports">
+                <DoctorReports user={user} />
+              </TabsContent>
+            )}
+            
+            {config.tabs.includes("schedule") && user.role === 'doctor' && (
+              <TabsContent value="schedule">
+                <Card className="bg-slate-800 border-slate-600">
+                  <CardHeader>
+                    <CardTitle className="text-white flex items-center gap-2">
+                      <Clock className="w-5 h-5" />
+                      Schedule New Appointment
+                    </CardTitle>
+                    <p className="text-slate-300 text-sm">
+                      Create and manage patient appointments
+                    </p>
+                  </CardHeader>
+                  <CardContent>
+                    <AppointmentScheduler user={user} />
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            )}
+
+            {config.tabs.includes("scans") && user.role === 'radiologist' && (
+              <TabsContent value="scans">
+                <RadiologistDashboard user={user} setActiveTab={setActiveTab} />
+              </TabsContent>
+            )}
+
+            {config.tabs.includes("appointments") && user.role === 'doctor' && (
+              <TabsContent value="appointments">
+                <div className="space-y-6">
+                  <Card className="bg-slate-800 border-slate-600">
+                    <CardHeader>
+                      <CardTitle className="text-white flex items-center gap-2">
+                        <Calendar className="w-5 h-5" />
+                        Appointment Management
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* Schedule New Appointment */}
+                        <Card className="bg-slate-700 border-slate-600">
+                          <CardHeader>
+                            <CardTitle className="text-white text-lg">Schedule New Appointment</CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <p className="text-slate-300 mb-4">Create appointments for your patients</p>
+                            <Button 
+                              className="w-full bg-blue-600 hover:bg-blue-700"
+                              onClick={() => setActiveTab('schedule')}
+                            >
+                              <Calendar className="w-4 h-4 mr-2" />
+                              Schedule Appointment
+                            </Button>
+                          </CardContent>
+                        </Card>
+                        
+                        {/* Quick Stats */}
+                        <Card className="bg-slate-700 border-slate-600">
+                          <CardHeader>
+                            <CardTitle className="text-white text-lg">Today's Schedule</CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="space-y-3">
+                              <div className="flex justify-between">
+                                <span className="text-slate-300">Total Appointments</span>
+                                <span className="text-white font-medium">6</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-slate-300">Completed</span>
+                                <span className="text-green-400 font-medium">3</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-slate-300">Upcoming</span>
+                                <span className="text-blue-400 font-medium">2</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-slate-300">Pending</span>
+                                <span className="text-yellow-400 font-medium">1</span>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  
+                  {/* Appointment List */}
+                  <div className="bg-slate-800 border border-slate-600 rounded-lg">
+                    <DoctorAppointmentSection user={user} />
                   </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          )}
+                </div>
+              </TabsContent>
+            )}
+            
+            {config.tabs.includes("appointments") && user.role === 'radiologist' && (
+              <TabsContent value="appointments">
+                <AppointmentScheduler user={user} />
+              </TabsContent>
+            )}
+
+            {config.tabs.includes("analytics") && user.role === 'admin' && (
+              <TabsContent value="analytics">
+                <AdminDashboard user={user} />
+              </TabsContent>
+            )}
+
         </Tabs>
       </main>
       

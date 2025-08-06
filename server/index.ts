@@ -1,3 +1,7 @@
+// Load environment variables first
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
@@ -5,17 +9,14 @@ import rateLimit from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
-import { enforceHTTPS, apiRateLimiter, sessionSecurityConfig } from "./security-enhancements";
+import { applySecurityMiddleware } from "./security-config";
 import { setupMonitoring } from "./monitoring";
+import { initializeEnhancedWebSocket } from "./websocket";
 
 const app = express();
-app.set('trust proxy', 1); // Trust first proxy for rate limiting
 
-// Enforce HTTPS in production
-app.use(enforceHTTPS);
-
-// Apply rate limiting middleware
-app.use(apiRateLimiter);
+// Apply enhanced security middleware first
+applySecurityMiddleware(app);
 
 // Setup monitoring middleware and routes
 setupMonitoring(app);
@@ -24,11 +25,17 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
 // Session configuration - will be set up after database connection test
+// Using enhanced session security configuration
+
 let sessionConfig: any = {
-  ...sessionSecurityConfig(),
+  secret: process.env.SESSION_SECRET || 'your-secure-session-secret-here',
+  resave: false,
+  saveUninitialized: false,
   cookie: {
-    ...sessionSecurityConfig().cookie,
-    sameSite: 'lax' as 'lax'
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    sameSite: 'lax' as 'lax',
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
   }
 };
 
@@ -88,6 +95,10 @@ process.on('unhandledRejection', (reason, promise) => {
     
     app.use(session(sessionConfig));
     
+    // Apply enhanced session security after session middleware
+    const { enhanceSessionSecurity } = await import("./security-enhanced");
+    app.use(enhanceSessionSecurity);
+    
     if (!dbConnected) {
       log("Warning: Database connection failed, but continuing with server startup");
     }
@@ -99,6 +110,10 @@ process.on('unhandledRejection', (reason, promise) => {
     });
 
     const server = await registerRoutes(app);
+
+    // Initialize enhanced WebSocket
+    const wsManager = initializeEnhancedWebSocket(server);
+    console.log('🔌 Enhanced WebSocket server initialized');
 
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
       const status = err.status || err.statusCode || 500;
@@ -115,24 +130,11 @@ process.on('unhandledRejection', (reason, promise) => {
       serveStatic(app);
     }
 
-    const port = parseInt(process.env.PORT || '8080', 10);
-    server.listen({
-      port,
-      host: "0.0.0.0"
-    }, async () => {
-      const os = await import('os');
-      const interfaces = os.networkInterfaces();
-      let localIp = 'localhost';
-      for (const name of Object.keys(interfaces)) {
-        for (const iface of interfaces[name]!) {
-          if (iface.family === 'IPv4' && !iface.internal) {
-            localIp = iface.address;
-            break;
-          }
-        }
-      }
+    const port = parseInt(process.env.PORT || '5000', 10);
+    server.listen(port, '0.0.0.0', () => {
       log(`serving on port ${port}`);
-      log(`Access the server on your local network at http://${localIp}:${port}`);
+      log(`Local: http://localhost:${port}`);
+      log(`Mobile: http://192.168.0.152:${port}`);
     });
   } catch (error) {
     console.error("Failed to start server:", error);

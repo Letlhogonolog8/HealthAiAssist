@@ -110,13 +110,23 @@ async function initializeDatabase() {
       ON CONFLICT (username) DO NOTHING;
     `);
 
-    // Create sample patient
+    // Create sample patients
     const patientPassword = await hashPassword("patient123");
-    await db.execute(`
-      INSERT INTO users (username, password, role, full_name, email, age, gender)
-      VALUES ('patient', '${patientPassword}', 'patient', 'John Doe', 'patient@healthai.com', 35, 'Male')
-      ON CONFLICT (username) DO NOTHING;
-    `);
+    const samplePatients = [
+      { username: 'patient', fullName: 'John Doe', email: 'patient@healthai.com', age: 35, gender: 'Male', phone: '012-345-6789' },
+      { username: 'patient2', fullName: 'Sarah Wilson', email: 'sarah.wilson@healthai.com', age: 28, gender: 'Female', phone: '012-345-6790' },
+      { username: 'patient3', fullName: 'Michael Brown', email: 'michael.brown@healthai.com', age: 42, gender: 'Male', phone: '012-345-6791' },
+      { username: 'patient4', fullName: 'Emma Davis', email: 'emma.davis@healthai.com', age: 31, gender: 'Female', phone: '012-345-6792' },
+      { username: 'patient5', fullName: 'Robert Taylor', email: 'robert.taylor@healthai.com', age: 55, gender: 'Male', phone: '012-345-6793' }
+    ];
+
+    for (const patient of samplePatients) {
+      await db.execute(`
+        INSERT INTO users (username, password, role, full_name, email, age, gender, phone)
+        VALUES ('${patient.username}', '${patientPassword}', 'patient', '${patient.fullName}', '${patient.email}', ${patient.age}, '${patient.gender}', '${patient.phone}')
+        ON CONFLICT (username) DO NOTHING;
+      `);
+    }
 
     // Add sample medical terms
     const medicalTermsData = [
@@ -140,7 +150,7 @@ async function initializeDatabase() {
     console.log("Admin: admin / admin123");
     console.log("Doctor: doctor / doctor123");
     console.log("Radiologist: radiologist / radiologist123");
-    console.log("Patient: patient / patient123");
+    console.log("Patients: patient, patient2, patient3, patient4, patient5 / patient123");
 
   } catch (error) {
     console.error("Error initializing database:", error);

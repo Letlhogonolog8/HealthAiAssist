@@ -142,12 +142,14 @@ export async function getAvailableDermatologists(urgency: string) {
 }
 
 export async function getAvailableAppointmentSlots(year: number, month: number) {
-  // Generate available slots dynamically based on real medical practice schedules
   const availableSlots: { [date: string]: any[] } = {};
   const daysInMonth = new Date(year, month, 0).getDate();
 
   const allUsers = await storage.getAllUsers();
   const availableProfessionals = allUsers.filter(user => ['doctor', 'radiologist'].includes(user.role));
+  
+  // Get all appointments for the month
+  const allAppointments = await storage.getAppointments();
 
   const timeSlots = ['9:00 AM', '9:30 AM', '10:00 AM', '10:30 AM', '11:00 AM', '11:30 AM', '2:00 PM', '2:30 PM', '3:00 PM', '3:30 PM', '4:00 PM', '4:30 PM'];
 
@@ -160,19 +162,36 @@ export async function getAvailableAppointmentSlots(year: number, month: number) 
 
     if (availableProfessionals.length === 0) continue;
 
-    const slots = timeSlots.map(time => {
-      const randomProfessional = availableProfessionals[Math.floor(Math.random() * availableProfessionals.length)];
-      return {
-        time,
-        available: Math.random() > 0.3,
-        doctor: randomProfessional.fullName,
-        doctorId: randomProfessional.id,
-        role: randomProfessional.role,
-        specialty: randomProfessional.specialization || (randomProfessional.role === 'radiologist' ? 'Medical Imaging' : 'General Practice')
-      };
+    // Get booked appointments for this date
+    const dayAppointments = allAppointments.filter(apt => {
+      const aptDate = new Date(apt.appointmentDate).toISOString().split('T')[0];
+      return aptDate === dateString;
     });
 
-    availableSlots[dateString] = slots.filter(slot => slot.available);
+    const availableSlotsForDay = [];
+    
+    for (const professional of availableProfessionals) {
+      // Get booked times for this professional on this date
+      const bookedTimes = dayAppointments
+        .filter(apt => apt.doctorId === professional.id)
+        .map(apt => apt.appointmentTime);
+
+      // Add available time slots for this professional
+      for (const time of timeSlots) {
+        if (!bookedTimes.includes(time)) {
+          availableSlotsForDay.push({
+            time,
+            available: true,
+            doctor: professional.fullName,
+            doctorId: professional.id,
+            role: professional.role,
+            specialty: professional.specialization || (professional.role === 'radiologist' ? 'Medical Imaging' : 'General Practice')
+          });
+        }
+      }
+    }
+
+    availableSlots[dateString] = availableSlotsForDay;
   }
 
   return availableSlots;

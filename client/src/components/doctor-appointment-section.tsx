@@ -21,7 +21,7 @@ interface Appointment {
   priority?: string;
 }
 
-export function DoctorAppointmentSection() {
+export function DoctorAppointmentSection({ user }: { user: any }) {
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -180,7 +180,24 @@ export function DoctorAppointmentSection() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setSelectedAppointment(appointment)}
+                    onClick={() => {
+                      const phoneNumber = appointment.patientEmail ? `tel:+1234567890` : 'tel:+1234567890';
+                      const emailAddress = appointment.patientEmail || 'patient@example.com';
+                      
+                      const contactOptions = [
+                        { label: 'Call Patient', action: () => window.open(phoneNumber) },
+                        { label: 'Send Email', action: () => window.open(`mailto:${emailAddress}?subject=Regarding your appointment on ${appointment.date}`) },
+                        { label: 'Send SMS', action: () => window.open(`sms:+1234567890?body=Hello ${appointment.patientName}, this is regarding your appointment on ${appointment.date}`) }
+                      ];
+                      
+                      // Show contact options
+                      const choice = window.confirm(`Contact ${appointment.patientName}?\n\nClick OK to call, Cancel to send email`);
+                      if (choice) {
+                        window.open(phoneNumber);
+                      } else {
+                        window.open(`mailto:${emailAddress}?subject=Regarding your appointment on ${appointment.date}&body=Dear ${appointment.patientName},%0D%0A%0D%0AThis is regarding your upcoming appointment scheduled for ${appointment.date} at ${appointment.time}.%0D%0A%0D%0ABest regards,%0D%0ADr. ${user?.fullName || 'Doctor'}`);
+                      }
+                    }}
                   >
                     <MessageSquare className="h-4 w-4 mr-2" />
                     Contact
