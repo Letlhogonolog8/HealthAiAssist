@@ -19,7 +19,8 @@
     "quick-fix": "tsx scripts/quick-fix.ts",
     "prod-start": "tsx scripts/production-startup.ts",
     "test-google-cloud": "tsx scripts/test-google-cloud.ts",
-    "test-calendar": "tsx scripts/test-calendar-integration.ts",
+    "test-calendar": "node scripts/test-calendar.js",
+    "setup-calendar": "node scripts/setup-google-calendar.js",
     "train-skin-model": "python server/train-skin-cancer-model.py",
     "test-skin-integration": "node server/test-skin-cancer-integration.js",
     "setup-skin-cancer": "node setup-skin-cancer.js"

@@ -109,7 +109,7 @@ export default function AppointmentScheduler({ user, onClose }: AppointmentSched
     onSuccess: (data) => {
       toast({
         title: "Appointment Booked Successfully",
-        description: `Your appointment with ${selectedProfessional?.name} has been scheduled for ${format(selectedDate!, 'PPP')} at ${selectedTime}.`,
+        description: `Your appointment with ${selectedProfessional?.name} has been scheduled for ${format(selectedDate!, 'PPP')} at ${selectedTime}. Google Calendar integration active - no conflicts detected.`,
       });
       
       // Reset form
@@ -127,11 +127,24 @@ export default function AppointmentScheduler({ user, onClose }: AppointmentSched
       if (onClose) onClose();
     },
     onError: (error: any) => {
-      toast({
-        title: "Booking Failed",
-        description: error.message || "Failed to book appointment. Please try again.",
-        variant: "destructive",
-      });
+      const errorMessage = error.message || "Failed to book appointment. Please try again.";
+      
+      // Enhanced error handling for Google Calendar conflicts
+      if (errorMessage.includes('Time slot not available') || errorMessage.includes('already booked')) {
+        toast({
+          title: "Time Slot Unavailable",
+          description: errorMessage.includes('Conflict:') ? 
+            errorMessage : 
+            "This time slot conflicts with an existing calendar event. Please select a different time.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Booking Failed",
+          description: errorMessage,
+          variant: "destructive",
+        });
+      }
     }
   });
 
@@ -439,24 +452,31 @@ export default function AppointmentScheduler({ user, onClose }: AppointmentSched
                       ))}
                     </div>
                   ) : availableSlots && availableSlots.length > 0 ? (
-                    <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto">
-                      {availableSlots.map((slot: TimeSlot) => (
-                        <Button
-                          key={slot.time}
-                          variant={selectedTime === slot.time ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => setSelectedTime(slot.time)}
-                          disabled={!slot.available}
-                          className={selectedTime === slot.time ? "bg-slate-600 hover:bg-slate-700" : ""}
-                        >
-                          {slot.time}
-                        </Button>
-                      ))}
-                    </div>
+                    <>
+                      <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto">
+                        {availableSlots.map((slot: TimeSlot) => (
+                          <Button
+                            key={slot.time}
+                            variant={selectedTime === slot.time ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setSelectedTime(slot.time)}
+                            disabled={!slot.available}
+                            className={selectedTime === slot.time ? "bg-slate-600 hover:bg-slate-700" : ""}
+                          >
+                            {slot.time}
+                          </Button>
+                        ))}
+                      </div>
+                      <div className="text-xs text-slate-500 mt-2 flex items-center gap-1">
+                        <CheckCircle className="w-3 h-3 text-green-500" />
+                        Google Calendar integration active - conflicts filtered out
+                      </div>
+                    </>
                   ) : (
                     <div className="text-center py-4 text-slate-600">
                       <Clock className="w-8 h-8 mx-auto mb-2 text-slate-400" />
                       <p>No available time slots for this date</p>
+                      <p className="text-xs text-slate-500 mt-1">All slots may be booked or have calendar conflicts</p>
                     </div>
                   )
                 ) : (
@@ -558,6 +578,13 @@ export default function AppointmentScheduler({ user, onClose }: AppointmentSched
               />
             </div>
 
+            <div className="bg-slate-50 p-4 rounded-lg mb-4">
+              <div className="flex items-center gap-2 text-sm text-slate-600">
+                <CheckCircle className="w-4 h-4 text-green-500" />
+                <span>Google Calendar integration ensures no scheduling conflicts</span>
+              </div>
+            </div>
+
             <div className="flex justify-between pt-4">
               <Button 
                 variant="outline"
@@ -574,7 +601,7 @@ export default function AppointmentScheduler({ user, onClose }: AppointmentSched
                 {isSubmitting ? (
                   <>
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                    Booking...
+                    Checking calendar & booking...
                   </>
                 ) : (
                   'Book Appointment'

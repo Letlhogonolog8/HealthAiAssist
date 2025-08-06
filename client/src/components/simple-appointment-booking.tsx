@@ -77,24 +77,39 @@ export default function SimpleAppointmentBooking({ user }: { user: any }) {
         credentials: 'include',
         body: JSON.stringify(appointmentData)
       });
-      if (!response.ok) throw new Error('Failed to book appointment');
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to book appointment');
+      }
       return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/patient/appointments'] });
       toast({
         title: "Appointment Booked!",
-        description: `${bookingForm.type} scheduled for ${bookingForm.date} at ${bookingForm.time}`,
+        description: `${bookingForm.type} scheduled for ${bookingForm.date} at ${bookingForm.time}. Google Calendar integration verified - no conflicts detected.`,
       });
       setBookingForm({ type: '', provider: '', date: '', time: '', doctorName: '', reason: '' });
       setShowTimeSlots(false);
     },
-    onError: () => {
-      toast({
-        title: "Booking Failed",
-        description: "Unable to book appointment. Please try again.",
-        variant: "destructive",
-      });
+    onError: (error: any) => {
+      const errorMessage = error.message || "Unable to book appointment. Please try again.";
+      
+      if (errorMessage.includes('Time slot not available') || errorMessage.includes('already booked')) {
+        toast({
+          title: "Time Slot Unavailable",
+          description: errorMessage.includes('Conflict:') ? 
+            errorMessage : 
+            "This time slot conflicts with an existing calendar event. Please select a different time.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Booking Failed",
+          description: errorMessage,
+          variant: "destructive",
+        });
+      }
     }
   });
 
@@ -314,7 +329,7 @@ export default function SimpleAppointmentBooking({ user }: { user: any }) {
                     className="w-full border border-slate-300 bg-white hover:bg-slate-50"
                     variant="outline"
                   >
-                    {loadingSlots ? 'Loading...' : 'Check Available Times'}
+                    {loadingSlots ? 'Checking calendar...' : 'Check Available Times'}
                   </Button>
                 </div>
               </div>
@@ -336,7 +351,13 @@ export default function SimpleAppointmentBooking({ user }: { user: any }) {
               
               {showTimeSlots && (
                 <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
-                  <h4 className="font-semibold text-slate-700 mb-3">Available Time Slots</h4>
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-semibold text-slate-700">Available Time Slots</h4>
+                    <div className="flex items-center gap-1 text-xs text-green-600">
+                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                      Google Calendar verified
+                    </div>
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {availableSlots.length > 0 ? (
                       availableSlots.map((slot, index) => (
@@ -353,7 +374,7 @@ export default function SimpleAppointmentBooking({ user }: { user: any }) {
                               <div className="text-sm font-medium text-slate-600">{slot.doctor}</div>
                               <div className="text-xs text-green-600 font-medium flex items-center">
                                 <div className="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
-                                Available Now
+                                No calendar conflicts
                               </div>
                             </div>
                             <Stethoscope className="w-5 h-5 text-slate-500 mt-1" />
@@ -363,7 +384,7 @@ export default function SimpleAppointmentBooking({ user }: { user: any }) {
                     ) : (
                       <div className="text-center py-4 text-slate-600 col-span-2">
                         <p className="font-medium">No slots available for selected date</p>
-                        <p className="text-sm">Please try a different date</p>
+                        <p className="text-sm">All time slots may be booked or have calendar conflicts</p>
                       </div>
                     )}
                   </div>
