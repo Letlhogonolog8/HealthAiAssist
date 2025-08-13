@@ -238,6 +238,99 @@ app.get('/api/admin/activities/recent', (req, res) => {
   ]);
 });
 
+// Doctor dashboard endpoints
+app.get('/api/doctor/stats', (req, res) => {
+  res.json({
+    activePatients: 12,
+    todaysAppointments: 3,
+    pendingReports: 2,
+    criticalCases: 1,
+    totalPatients: 25,
+    appointmentsCompleted: 8,
+    avgConsultationTime: '18m',
+    patientSatisfaction: 94
+  });
+});
+
+app.get('/api/doctor/patients', (req, res) => {
+  res.json([
+    {
+      id: 1,
+      name: 'John Smith',
+      email: 'john@example.com',
+      phone: '+1 555-0123',
+      age: 45,
+      gender: 'Male',
+      lastVisit: new Date().toISOString(),
+      condition: 'Hypertension',
+      status: 'stable',
+      recentScans: 2,
+      riskLevel: 'low'
+    },
+    {
+      id: 2,
+      name: 'Sarah Johnson',
+      email: 'sarah@example.com',
+      phone: '+1 555-0124',
+      age: 38,
+      gender: 'Female',
+      lastVisit: new Date().toISOString(),
+      condition: 'Diabetes',
+      status: 'monitoring',
+      recentScans: 1,
+      riskLevel: 'medium'
+    }
+  ]);
+});
+
+app.get('/api/doctor/appointments/today', (req, res) => {
+  res.json([
+    {
+      id: 1,
+      patientName: 'John Smith',
+      time: '09:00 AM',
+      type: 'Follow-up',
+      status: 'scheduled'
+    },
+    {
+      id: 2,
+      patientName: 'Sarah Johnson',
+      time: '10:30 AM',
+      type: 'Consultation',
+      status: 'completed'
+    }
+  ]);
+});
+
+app.get('/api/doctor/reports/pending', (req, res) => {
+  res.json([
+    {
+      id: 1,
+      patientName: 'John Smith',
+      scanType: 'CT Scan',
+      submittedAt: new Date().toISOString(),
+      priority: 'medium',
+      findings: 'Awaiting review',
+      status: 'pending'
+    }
+  ]);
+});
+
+app.get('/api/doctor/activities/recent', (req, res) => {
+  res.json([
+    {
+      message: 'Patient consultation completed',
+      timestamp: new Date().toLocaleTimeString(),
+      type: 'appointment'
+    },
+    {
+      message: 'Medical report reviewed',
+      timestamp: new Date().toLocaleTimeString(),
+      type: 'report'
+    }
+  ]);
+});
+
 // Serve static files
 app.use(express.static('dist/public'));
 
