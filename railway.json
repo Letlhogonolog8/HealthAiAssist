@@ -10,5 +10,17 @@
     "healthcheckTimeout": 100,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
+  },
+  "environments": {
+    "production": {
+      "variables": {
+        "NODE_ENV": "production",
+        "DATABASE_URL": "${{Postgres.DATABASE_URL}}",
+        "SESSION_SECRET": "${{SESSION_SECRET}}",
+        "OPENAI_API_KEY": "${{OPENAI_API_KEY}}",
+        "HTTPS_ONLY": "true",
+        "DEBUG_BYPASS_AUTH": "false"
+      }
+    }
   }
 }

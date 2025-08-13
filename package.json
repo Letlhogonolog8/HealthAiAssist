@@ -24,7 +24,11 @@
     "setup-calendar": "node scripts/setup-google-calendar.js",
     "train-skin-model": "python server/train-skin-cancer-model.py",
     "test-skin-integration": "node server/test-skin-cancer-integration.js",
-    "setup-skin-cancer": "node setup-skin-cancer.js"
+    "setup-skin-cancer": "node setup-skin-cancer.js",
+    "deploy:railway": "bash scripts/deploy-railway.sh",
+    "supabase:setup": "echo 'Run supabase-setup.sql in your Supabase SQL Editor'",
+    "railway:logs": "railway logs",
+    "railway:status": "railway status"
   },
   "dependencies": {
     "@azure/msal-node": "^3.6.4",
@@ -34,6 +38,7 @@
     "@jridgewell/trace-mapping": "^0.3.25",
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "@neondatabase/serverless": "^0.10.4",
+    "@supabase/supabase-js": "^2.39.0",
     "@radix-ui/react-accordion": "^1.2.11",
     "@radix-ui/react-alert-dialog": "^1.1.7",
     "@radix-ui/react-aspect-ratio": "^1.1.3",
