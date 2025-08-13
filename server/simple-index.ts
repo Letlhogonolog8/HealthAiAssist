@@ -37,31 +37,61 @@ app.get('/api/health', (req, res) => {
 // Basic auth
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { username, password } = req.body;
+    console.log('Login attempt:', req.body);
+    const { username, password } = req.body || {};
     
-    // Simple auth check
-    if (username === 'patient' && password === 'patient123') {
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password required' });
+    }
+    
+    // Simple auth check - multiple valid credentials
+    const validCredentials = {
+      'patient': 'patient123',
+      'admin': 'admin123',
+      'doctor': 'doctor123',
+      'Tlhox': 'inw73KYI'
+    };
+    
+    if (validCredentials[username] === password) {
       req.session.userId = 28;
       req.session.user = {
         id: 28,
-        role: 'patient',
-        username: 'patient',
-        fullName: 'John Patient',
-        email: 'patient@healthai.com'
+        role: username === 'admin' ? 'admin' : username === 'doctor' ? 'doctor' : 'patient',
+        username: username,
+        fullName: username === 'Tlhox' ? 'Tlhox Matlaela' : `${username.charAt(0).toUpperCase() + username.slice(1)} User`,
+        email: `${username}@healthai.com`
       };
       
-      res.json({
-        id: 28,
-        username: 'patient',
-        fullName: 'John Patient',
-        role: 'patient',
-        email: 'patient@healthai.com'
+      req.session.save((err) => {
+        if (err) {
+          console.error('Session save error:', err);
+          return res.status(500).json({ error: 'Session error' });
+        }
+        
+        res.json({
+          id: req.session.user.id,
+          username: req.session.user.username,
+          fullName: req.session.user.fullName,
+          role: req.session.user.role,
+          email: req.session.user.email
+        });
       });
     } else {
+      console.log('Invalid credentials:', username, password);
       res.status(401).json({ error: 'Invalid credentials' });
     }
   } catch (error) {
+    console.error('Login error:', error);
     res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// Auth check
+app.get('/api/auth/me', (req, res) => {
+  if (req.session?.user) {
+    res.json(req.session.user);
+  } else {
+    res.status(401).json({ error: 'Not authenticated' });
   }
 });
 
@@ -87,6 +117,31 @@ app.get('/api/patient/profile/:id', (req, res) => {
       overall: 85
     }
   });
+});
+
+// Patient stats
+app.get('/api/patient/stats', (req, res) => {
+  res.json({
+    completedScans: 0,
+    pendingResults: 0,
+    nextAppointment: '7 days',
+    healthScore: 'Good'
+  });
+});
+
+// Patient activities
+app.get('/api/patient/activities/recent', (req, res) => {
+  res.json([]);
+});
+
+// Appointments
+app.get('/api/appointments', (req, res) => {
+  res.json([]);
+});
+
+// Scans
+app.get('/api/scans', (req, res) => {
+  res.json([]);
 });
 
 // Serve static files
