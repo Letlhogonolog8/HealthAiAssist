@@ -26,7 +26,7 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     async function fetchUser() {
       try {
-        const res = await fetch('/api/auth/me');
+        const res = await fetch('/api/auth/me', { credentials: 'include' });
         if (res.ok) {
           const data = await res.json();
           setUser(data);
@@ -48,6 +48,7 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
+      credentials: 'include',
     });
     if (!res.ok) {
       throw new Error('Login failed');
@@ -58,7 +59,7 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
 
   // Logout function
   const logout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
     setUser(null);
   };
 

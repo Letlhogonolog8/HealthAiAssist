@@ -36,73 +36,16 @@ interface Patient {
 export default function DoctorPatients({ user, onSectionChange }: { user: any; onSectionChange?: (section: string, data?: any) => void }) {
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Mock patients data
-  const mockPatients: Patient[] = [
-    {
-      id: 1,
-      name: 'John Smith',
-      email: 'john.smith@email.com',
-      phone: '+1 (555) 123-4567',
-      age: 45,
-      gender: 'Male',
-      lastVisit: new Date(Date.now() - 3*24*60*60*1000).toISOString(),
-      condition: 'Hypertension',
-      status: 'stable',
-      riskLevel: 'low',
-      recentScans: 2,
-      nextAppointment: 'Tomorrow 2:00 PM'
-    },
-    {
-      id: 2,
-      name: 'Sarah Wilson',
-      email: 'sarah.wilson@email.com',
-      phone: '+1 (555) 234-5678',
-      age: 38,
-      gender: 'Female',
-      lastVisit: new Date(Date.now() - 1*24*60*60*1000).toISOString(),
-      condition: 'Breast Cancer Screening',
-      status: 'follow-up',
-      riskLevel: 'medium',
-      recentScans: 1,
-      nextAppointment: 'Next week'
-    },
-    {
-      id: 3,
-      name: 'Michael Davis',
-      email: 'michael.davis@email.com',
-      phone: '+1 (555) 345-6789',
-      age: 62,
-      gender: 'Male',
-      lastVisit: new Date(Date.now() - 7*24*60*60*1000).toISOString(),
-      condition: 'Lung Nodule',
-      status: 'critical',
-      riskLevel: 'high',
-      recentScans: 3
-    },
-    {
-      id: 4,
-      name: 'Emily Johnson',
-      email: 'emily.johnson@email.com',
-      phone: '+1 (555) 456-7890',
-      age: 29,
-      gender: 'Female',
-      lastVisit: new Date(Date.now() - 14*24*60*60*1000).toISOString(),
-      condition: 'Routine Checkup',
-      status: 'stable',
-      riskLevel: 'low',
-      recentScans: 0
-    }
-  ];
+  // Removed mock patients; default to empty list when API fails
+  const mockPatients: Patient[] = [];
 
-  const { data: patients = mockPatients } = useQuery<Patient[]>({
+  const { data: patients = [] } = useQuery<Patient[]>({
     queryKey: ['/api/doctor/patients'],
     queryFn: async () => {
       const response = await fetch('/api/doctor/patients', {
         credentials: 'include'
       });
-      if (!response.ok) {
-        return mockPatients;
-      }
+      if (!response.ok) return [];
       return response.json();
     },
     retry: 1

@@ -365,6 +365,15 @@ export default function EnhancedChatbot({ user, onActionClick }: EnhancedChatbot
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
+      // Build recent context including this user message
+      const recentWithUser = [
+        ...messages.slice(-5).map(m => ({
+          role: m.sender === 'user' ? 'user' : 'assistant' as const,
+          content: m.content
+        })),
+        { role: 'user' as const, content }
+      ];
+
       const response = await fetch('/api/chatbot/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -373,10 +382,7 @@ export default function EnhancedChatbot({ user, onActionClick }: EnhancedChatbot
         body: JSON.stringify({ 
           message: content,
           userId: user?.id,
-          messages: messages.slice(-5).map(m => ({ // Send last 5 messages for context
-            role: m.sender === 'user' ? 'user' : 'assistant',
-            content: m.content
-          }))
+          messages: recentWithUser
         })
       });
 
@@ -506,6 +512,22 @@ export default function EnhancedChatbot({ user, onActionClick }: EnhancedChatbot
     }
   }, [sendMessage, toast]);
 
+  // Symptom quick analyze helper
+  const analyzeSymptoms = useCallback(async (text: string) => {
+    try {
+      const res = await fetch('/api/chatbot/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ symptoms: text, age: user?.age, gender: user?.gender })
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const summary = `Assessment: ${data.assessment}\nUrgency: ${data.urgencyLevel}\nRecommendations: ${(data.recommendations||[]).join('; ')}`;
+      setMessages(prev => [...prev, { id: Date.now().toString(), content: summary, sender: 'assistant', timestamp: new Date() }]);
+    } catch {}
+  }, [user?.age, user?.gender]);
+
   const speakMessage = useCallback((text: string) => {
     if ('speechSynthesis' in window && voiceEnabled) {
       const utterance = new SpeechSynthesisUtterance(text);
@@ -530,6 +552,55 @@ export default function EnhancedChatbot({ user, onActionClick }: EnhancedChatbot
       description: "Your input helps us improve our service." 
     });
   }, [toast]);
+
+  // Lightweight markdown renderer for headings/bold/lists
+  const renderMessageContent = useCallback((text: string) => {
+    const boldSegments = (line: string, key: string) => {
+      const parts = line.split(/(\*\*[^*]+\*\*)/g);
+      return (
+        <span key={key}>
+          {parts.map((part, idx) => {
+            if (part.startsWith('**') && part.endsWith('**')) {
+              return <strong key={idx}>{part.slice(2, -2)}</strong>;
+            }
+            return <span key={idx}>{part}</span>;
+          })}
+        </span>
+      );
+    };
+
+    const lines = text.split('\n');
+    return (
+      <div className="space-y-1">
+        {lines.map((line, i) => {
+          // bullet
+          if (/^\s*[•*-]\s+/.test(line)) {
+            const content = line.replace(/^\s*[•*-]\s+/, '');
+            return (
+              <div key={i} className="flex items-start gap-2">
+                <span className="mt-[6px] text-slate-400">•</span>
+                <span>{boldSegments(content, `b-${i}`)}</span>
+              </div>
+            );
+          }
+          // numbered
+          if (/^\s*\d+\.\s+/.test(line)) {
+            const match = line.match(/^(\s*)(\d+)\.\s+(.*)$/);
+            const num = match?.[2] || '1';
+            const content = match?.[3] || line;
+            return (
+              <div key={i} className="flex items-start gap-2">
+                <span className="mt-[2px] text-slate-400 font-medium">{num}.</span>
+                <span>{boldSegments(content, `n-${i}`)}</span>
+              </div>
+            );
+          }
+          if (line.trim() === '') return <div key={i} className="h-2" />;
+          return <div key={i}>{boldSegments(line, `p-${i}`)}</div>;
+        })}
+      </div>
+    );
+  }, []);
 
   // Role-specific Quick Actions Component
   const QuickActions = useCallback(() => {
@@ -707,14 +778,14 @@ export default function EnhancedChatbot({ user, onActionClick }: EnhancedChatbot
 
                         <div className="flex flex-col">
                         <div className="flex flex-col">
-                          <div className={`rounded-2xl px-5 py-4 shadow-md max-w-full ${
+                            <div className={`rounded-2xl px-5 py-4 shadow-md max-w-full ${
                             message.sender === 'user'
                               ? 'bg-blue-600 text-white rounded-br-md'
                               : message.error
                               ? 'bg-orange-50 dark:bg-orange-900/20 text-orange-900 dark:text-orange-200 border border-orange-200 dark:border-orange-700 rounded-bl-md'
                               : 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-600 rounded-bl-md'
                           }`}>
-                            <p className="text-base leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                            <div className="text-base leading-relaxed whitespace-pre-wrap">{renderMessageContent(message.content)}</div>
                           </div>
                           
                           {/* Message Actions */}
@@ -910,6 +981,16 @@ export default function EnhancedChatbot({ user, onActionClick }: EnhancedChatbot
                       <Send className="w-5 h-5" />
                     )}
                   </Button>
+                </div>
+
+                {/* Smart helpers under input */}
+                <div className="mt-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" className="h-6 px-2" onClick={() => currentMessage && analyzeSymptoms(currentMessage)}>Analyze symptoms</Button>
+                    <Button size="sm" variant="outline" className="h-6 px-2" onClick={() => setCurrentMessage('Schedule appointment')}>Book appt</Button>
+                    <Button size="sm" variant="outline" className="h-6 px-2" onClick={() => setCurrentMessage('View results')}>View results</Button>
+                  </div>
+                  <div>Max 500 chars</div>
                 </div>
                 
                 {/* Settings Panel */}

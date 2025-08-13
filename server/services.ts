@@ -38,7 +38,7 @@ type Dermatologist = User & {
 type Scan = {
   id: number;
   scanType: string;
-  createdAt?: string;
+  createdAt?: Date;
   result?: string;
   aiConfidence?: string;
   status?: string;
@@ -52,7 +52,7 @@ export async function getPatientProfile(patientId: number) {
   if (!user || user.role !== 'patient') {
     throw new Error('Patient not found');
   }
-  const patientScans: Scan[] = await storage.getScans(patientId);
+  const patientScans = await storage.getScans(patientId);
   const patientAppointments: Appointment[] = await storage.getPatientAppointments(patientId);
 
   // Type assertion for optional properties

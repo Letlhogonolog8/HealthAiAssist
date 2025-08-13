@@ -172,6 +172,46 @@ GOOGLE_CALENDAR_ID=your-calendar-id@group.calendar.google.com  # Optional
 NODE_ENV=production
 ```
 
+### System Environment Variables (Production)
+
+In production, the app reads from System/Platform environment variables. `.env` is only used in development.
+
+- Required: `DATABASE_URL`, `SESSION_SECRET`
+- Optional: `OPENAI_API_KEY`, `GOOGLE_CALENDAR_CREDENTIALS`, `GOOGLE_CALENDAR_ID`, `ENCRYPTION_KEY`, `JWT_SECRET`
+
+### Health Check
+
+- `GET /api/health` returns `{ status: 'ok', env, uptimeSec, websocket }`.
+
+### Docker Deployment (Alternative)
+
+```bash
+# Build
+docker build -t healthai:latest .
+
+# Run (set env vars)
+docker run -p 5000:5000 \
+  -e NODE_ENV=production \
+  -e DATABASE_URL=postgresql://user:pass@host:5432/db \
+  -e SESSION_SECRET=your-secret \
+  --name healthai \
+  healthai:latest
+```
+
+### One-click deploy options
+
+- Render: add `render.yaml` from the repo root. Create a new Render Web Service from this repo. Set env vars `DATABASE_URL`, `SESSION_SECRET`, `PROD_ORIGIN` to your domain (e.g., `https://app.yourdomain.com`). Render will run `npm run build` then `npm start`.
+- Google Cloud Run: use the Dockerfile in the repo.
+  ```bash
+  gcloud builds submit --tag gcr.io/PROJECT/healthai:latest
+  gcloud run deploy healthai \
+    --image gcr.io/PROJECT/healthai:latest \
+    --region REGION \
+    --platform managed \
+    --allow-unauthenticated \
+    --set-env-vars NODE_ENV=production,DATABASE_URL=...,SESSION_SECRET=...,PROD_ORIGIN=https://app.yourdomain.com
+  ```
+
 ### Google Calendar Integration (Optional)
 
 To prevent appointment conflicts with external calendar events:

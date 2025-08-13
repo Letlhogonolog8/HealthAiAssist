@@ -1,9 +1,13 @@
-// TensorFlow import - conditional to avoid startup errors
+// TensorFlow import - conditional and ESM-safe using createRequire
+import { createRequire } from 'module';
+const nodeRequire = createRequire(import.meta.url);
 let tf: any = null;
 try {
-  tf = require('@tensorflow/tfjs-node');
-} catch (error) {
-  console.warn('TensorFlow.js not available - ML features will be disabled:', error.message);
+  // Load CJS module from ESM context
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  tf = nodeRequire('@tensorflow/tfjs-node');
+} catch (error: any) {
+  console.warn('TensorFlow.js not available - ML features will be disabled:', error?.message || error);
 }
 import fs from 'fs';
 import path from 'path';

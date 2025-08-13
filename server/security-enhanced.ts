@@ -20,6 +20,9 @@ export interface AuthenticatedRequest extends Request {
 
 // Rate limiting configurations for different endpoint types
 export const createRateLimiters = () => {
+  const isDev = process.env.NODE_ENV === 'development';
+  const disableRateLimit = (process.env.DISABLE_RATE_LIMIT || '').toLowerCase() === 'true';
+  const shouldSkip = () => isDev || disableRateLimit;
   // General API rate limiting
   const generalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
@@ -30,18 +33,20 @@ export const createRateLimiters = () => {
     },
     standardHeaders: true,
     legacyHeaders: false,
+    skip: shouldSkip,
   });
 
   // Strict rate limiting for authentication endpoints
   const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 5, // limit each IP to 5 login attempts per windowMs
+    max: 50, // increased from 5 to 50 login attempts per windowMs
     message: {
       error: 'Too many login attempts, please try again later.',
       retryAfter: 15 * 60 * 1000
     },
     standardHeaders: true,
     legacyHeaders: false,
+    skip: shouldSkip,
   });
 
   // Medical data endpoints - more permissive for healthcare workflows
@@ -54,6 +59,7 @@ export const createRateLimiters = () => {
     },
     standardHeaders: true,
     legacyHeaders: false,
+    skip: shouldSkip,
   });
 
   // Chat/messaging endpoints - higher limit for real-time communication
@@ -66,6 +72,7 @@ export const createRateLimiters = () => {
     },
     standardHeaders: true,
     legacyHeaders: false,
+    skip: shouldSkip,
   });
 
   return { generalLimiter, authLimiter, medicalLimiter, chatLimiter };
@@ -74,52 +81,51 @@ export const createRateLimiters = () => {
 // CORS configuration for healthcare application
 export const corsConfig = cors({
   origin: function (origin, callback) {
-    // Allow requests from localhost in development
-    const allowedOrigins = [
+    const prodOrigin = process.env.PROD_ORIGIN; // e.g., https://app.yourdomain.com
+    const allowedOrigins = new Set([
       'http://localhost:5000',
       'http://localhost:3000',
       'https://localhost:5000',
-      // Add your production domain here
-      // 'https://yourdomain.com'
-    ];
+      'http://192.168.0.160:5000', // Mobile access
+      ...(prodOrigin ? [prodOrigin] : [])
+    ]);
 
-    // Allow requests with no origin (mobile apps, postman, etc.)
     if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
+    if (allowedOrigins.has(origin)) return callback(null, true);
+    return callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-requested-with'],
-  maxAge: 86400 // 24 hours
+  maxAge: 86400
 });
 
 // Security headers configuration
+const isDevEnv = process.env.NODE_ENV !== 'production';
+
+const cspDirectives: helmet.IHelmetContentSecurityPolicyConfiguration['directives'] = {
+  defaultSrc: ["'self'"],
+  styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+  fontSrc: ["'self'", "https://fonts.gstatic.com"],
+  imgSrc: ["'self'", "data:", "https:", "blob:", "https://api.qrserver.com"],
+  scriptSrc: isDevEnv ? ["'self'", "'unsafe-eval'", "'unsafe-inline'"] : ["'self'"],
+  connectSrc: ["'self'", "https://api.openai.com", "wss:", "https:"],
+  mediaSrc: ["'self'", "blob:"],
+};
+
 export const securityHeaders = helmet({
   contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-      fontSrc: ["'self'", "https://fonts.gstatic.com"],
-      imgSrc: ["'self'", "data:", "https:", "blob:", "https://api.qrserver.com"],
-      scriptSrc: ["'self'", "'unsafe-eval'", "'unsafe-inline'"], // Note: unsafe-eval and unsafe-inline needed for development
-      connectSrc: ["'self'", "https://api.openai.com", "wss:", "https:"],
-      mediaSrc: ["'self'", "blob:"],
-    },
+    directives: cspDirectives,
   },
   hsts: {
     maxAge: 31536000,
     includeSubDomains: true,
-    preload: true
+    preload: true,
   },
   noSniff: true,
   frameguard: { action: 'deny' },
   xssFilter: true,
-  referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
 });
 
 // Input validation middleware

@@ -50,6 +50,9 @@ interface CompletedScan {
 
 export default function RadiologistDashboard({ user, setActiveTab }: { user: any; setActiveTab?: (tab: string) => void }) {
   const [activeSection, setActiveSection] = useState('overview');
+  const [searchText, setSearchText] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState<'all' | 'urgent' | 'high' | 'medium' | 'low'>('all');
+  const [sortBy, setSortBy] = useState<'submittedAt' | 'priority' | 'aiConfidence'>('submittedAt');
   const [selectedScan, setSelectedScan] = useState<ScanReview | null>(null);
   const [reportText, setReportText] = useState('');
   const [findings, setFindings] = useState('');
@@ -244,16 +247,29 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
   const safeStats = radiologyStats || {
     pendingReviews: 0,
     completedToday: 0,
-    aiConfidence: 87,
-    avgReviewTime: 12,
+    aiConfidence: 0,
+    avgReviewTime: 0,
     totalScansReviewed: 0,
     criticalCases: 0,
-    accuracyRate: 94,
-    workloadHours: 8
+    accuracyRate: 0,
+    workloadHours: 0
   };
 
   const safePendingScans = pendingScans || [];
   const safeCompletedScans = completedScans || [];
+
+  const filteredPending = safePendingScans
+    .filter(s => !searchText || s.patientName.toLowerCase().includes(searchText.toLowerCase()) || s.scanType.toLowerCase().includes(searchText.toLowerCase()))
+    .filter(s => priorityFilter === 'all' || s.priority === priorityFilter)
+    .sort((a, b) => {
+      if (sortBy === 'submittedAt') return new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime();
+      if (sortBy === 'priority') {
+        const order: Record<string, number> = { urgent: 3, high: 2, medium: 1, low: 0 };
+        return (order[b.priority] ?? 0) - (order[a.priority] ?? 0);
+      }
+      if (sortBy === 'aiConfidence') return (b.aiConfidence ?? 0) - (a.aiConfidence ?? 0);
+      return 0;
+    });
 
   return (
     <div className="space-y-6">
@@ -485,7 +501,7 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
                 <div>
                   <CardTitle className="text-white">Pending Scan Reviews</CardTitle>
                   <div className="text-sm text-slate-400">
-                    {safePendingScans.length} scans awaiting review
+                    {filteredPending.length} scans awaiting review
                   </div>
                 </div>
                 <Button
@@ -500,6 +516,34 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
               </div>
             </CardHeader>
             <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+                <input
+                  placeholder="Search patient or scan type..."
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  className="bg-slate-700 border border-slate-600 rounded px-3 py-2 text-slate-200 outline-none"
+                />
+                <select
+                  value={priorityFilter}
+                  onChange={(e) => setPriorityFilter(e.target.value as any)}
+                  className="bg-slate-700 border border-slate-600 rounded px-3 py-2 text-slate-200"
+                >
+                  <option value="all">All priorities</option>
+                  <option value="urgent">Urgent</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as any)}
+                  className="bg-slate-700 border border-slate-600 rounded px-3 py-2 text-slate-200"
+                >
+                  <option value="submittedAt">Sort: Newest</option>
+                  <option value="priority">Sort: Priority</option>
+                  <option value="aiConfidence">Sort: AI Confidence</option>
+                </select>
+              </div>
               {pendingError ? (
                 <div className="text-center py-8">
                   <AlertTriangle className="w-12 h-12 mx-auto mb-4 text-red-400" />
@@ -514,7 +558,7 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {safePendingScans.map((scan) => (
+                  {filteredPending.map((scan) => (
                     <div key={scan.id} className="border border-slate-600 rounded-lg p-4 space-y-3 bg-slate-700 hover:bg-slate-600 transition-colors">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">

@@ -1,17 +1,21 @@
-// Load environment variables first
+// Load environment variables from .env only in non-production environments
 import dotenv from 'dotenv';
-dotenv.config();
+if (process.env.NODE_ENV !== 'production') {
+  dotenv.config();
+}
 
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import rateLimit from "express-rate-limit";
 import { registerRoutes } from "./routes";
+import { registerHealthRoute } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
 import { applySecurityMiddleware } from "./security-config";
 import { setupMonitoring } from "./monitoring";
 import { initializeEnhancedWebSocket } from "./websocket";
+import { enhancedWsManager } from "./websocket";
 
 const app = express();
 
@@ -26,17 +30,21 @@ app.use(express.urlencoded({ extended: false }));
 
 // Session configuration - will be set up after database connection test
 // Using enhanced session security configuration
+const isProduction = process.env.NODE_ENV === 'production';
+const httpsOnly = (process.env.HTTPS_ONLY || 'false').toLowerCase() === 'true';
 
 let sessionConfig: any = {
-  secret: process.env.SESSION_SECRET || 'your-secure-session-secret-here',
+  secret: process.env.SESSION_SECRET || 'your-secure-session-secret-here-dev-only',
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
+    // Use Secure+SameSite=None only when HTTPS_ONLY is enabled (i.e., behind HTTPS)
+    secure: httpsOnly,
     httpOnly: true,
-    sameSite: 'lax' as 'lax',
+    sameSite: httpsOnly ? 'none' as 'none' : 'lax' as 'lax',
     maxAge: 24 * 60 * 60 * 1000 // 24 hours
-  }
+  },
+  name: 'healthai.sid' // Custom session name
 };
 
 app.use((req, res, next) => {
@@ -77,30 +85,52 @@ process.on('unhandledRejection', (reason, promise) => {
 (async () => {
   try {
     // Test database connection before starting server
-    const { testDbConnection } = await import("./db");
-    const dbConnected = await testDbConnection();
+    let dbConnected = false;
+    try {
+      const { testDbConnection } = await import("./db");
+      dbConnected = await testDbConnection();
+      
+      // Setup PostgreSQL session store
+      if (dbConnected) {
+        const { pool } = await import("./db");
+        const PgSession = connectPgSimple(session);
+        sessionConfig.store = new PgSession({
+          pool,
+          tableName: 'session'
+        });
+        log("Using PostgreSQL session store");
+      }
+    } catch (dbError) {
+      console.error('Database connection error:', dbError);
+      dbConnected = false;
+    }
     
-    // Setup PostgreSQL session store
-    if (dbConnected) {
-      const { pool } = await import("./db");
-      const PgSession = connectPgSimple(session);
-      sessionConfig.store = new PgSession({
-        pool,
-        tableName: 'session'
-      });
-      log("Using PostgreSQL session store");
-    } else {
+    if (!dbConnected) {
       log("Using memory session store (database connection failed)");
     }
     
     app.use(session(sessionConfig));
     
     // Apply enhanced session security after session middleware
-    const { enhanceSessionSecurity } = await import("./security-enhanced");
-    app.use(enhanceSessionSecurity);
+    try {
+      const { enhanceSessionSecurity } = await import("./security-enhanced");
+      app.use(enhanceSessionSecurity);
+    } catch (securityError) {
+      console.error('Security middleware error:', securityError);
+    }
     
     if (!dbConnected) {
       log("Warning: Database connection failed, but continuing with server startup");
+    }
+
+    // Initialize storage with fallback mechanism
+    try {
+      const { initializeStorage } = await import("./storage");
+      await initializeStorage();
+      log("Storage initialized successfully");
+    } catch (storageError) {
+      console.error('Storage initialization error:', storageError);
+      log("Using fallback storage");
     }
 
     // Serve manifest.json with proper content-type
@@ -108,6 +138,33 @@ process.on('unhandledRejection', (reason, promise) => {
       res.setHeader('Content-Type', 'application/json');
       res.sendFile('manifest.json', { root: process.cwd() });
     });
+
+    // Lightweight health endpoint for uptime checks
+    app.get('/api/health', (_req, res) => {
+      res.setHeader('Content-Type', 'application/json');
+      res.status(200).send(JSON.stringify({
+        status: 'ok',
+        env: app.get('env'),
+        uptimeSec: Math.round(process.uptime()),
+        websocket: enhancedWsManager ? {
+          connections: enhancedWsManager.getConnectionCount(),
+        } : { connections: 0 }
+      }));
+    });
+
+    // Optional dev seeding
+    try {
+      if ((process.env.DEV_SEED || '').toLowerCase() === 'true' && app.get('env') === 'development') {
+        const { seedDev } = await import('../scripts/seed-dev');
+        const result = await seedDev();
+        console.log(`🌱 Dev seed: users=${result.createdUsers}, scans=${result.createdScans}, appointments=${result.createdAppointments}`);
+      }
+    } catch (seedError) {
+      console.warn('Dev seed failed:', seedError);
+    }
+
+    // Register basic health endpoint before other middleware that may catch-all
+    try { registerHealthRoute(app); } catch {}
 
     const server = await registerRoutes(app);
 
@@ -134,7 +191,7 @@ process.on('unhandledRejection', (reason, promise) => {
     server.listen(port, '0.0.0.0', () => {
       log(`serving on port ${port}`);
       log(`Local: http://localhost:${port}`);
-      log(`Mobile: http://192.168.0.152:${port}`);
+      log(`Mobile: http://192.168.0.160:${port}`);
     });
   } catch (error) {
     console.error("Failed to start server:", error);

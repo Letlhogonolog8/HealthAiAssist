@@ -62,6 +62,7 @@ export default function GoogleAIScannerFixed() {
             method: 'POST',
             body: formData,
             signal: controller.signal,
+            credentials: 'include',
             headers: {
               'Connection': 'keep-alive',
             }

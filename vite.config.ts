@@ -43,5 +43,20 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ['react', 'react-dom'],
+          vendor: [
+            '@tanstack/react-query',
+            'i18next',
+            'react-i18next',
+            'framer-motion',
+            'recharts',
+            'lucide-react'
+          ]
+        }
+      }
+    },
   },
 });

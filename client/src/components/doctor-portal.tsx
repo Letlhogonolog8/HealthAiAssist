@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -99,6 +99,25 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
   const [chatMessage, setChatMessage] = useState("");
   const [activePatientId, setActivePatientId] = useState<number | null>(null);
   const [showScheduleDialog, setShowScheduleDialog] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const notificationRef = useRef<HTMLDivElement>(null);
+
+  // Close notifications when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
+        setShowNotifications(false);
+      }
+    };
+
+    if (showNotifications) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showNotifications]);
   const [scheduleForm, setScheduleForm] = useState({
     patientId: '',
     date: '',
@@ -132,16 +151,7 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
         }
         return response.json();
       } catch (error) {
-        console.warn('Stats API failed, using fallback data');
-        // Return fallback stats
-        return {
-          activePatients: 12,
-          todaysAppointments: 3,
-          pendingReports: 2,
-          criticalCases: 1,
-          avgConsultationTime: '18m',
-          patientSatisfaction: 94
-        };
+        throw error;
       }
     },
     refetchInterval: 15000,
@@ -156,10 +166,7 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
       const response = await fetch('/api/doctor/appointments/upcoming', {
         credentials: 'include'
       });
-      if (!response.ok) {
-        console.warn('Failed to fetch appointments, using fallback');
-        return [];
-      }
+      if (!response.ok) return [];
       return response.json();
     },
     refetchInterval: 5000,
@@ -173,10 +180,7 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
       const response = await fetch('/api/doctor/patients', {
         credentials: 'include'
       });
-      if (!response.ok) {
-        console.warn('Failed to fetch patients, using fallback');
-        return [];
-      }
+      if (!response.ok) return [];
       return response.json();
     },
     refetchInterval: 15000,
@@ -190,10 +194,7 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
       const response = await fetch('/api/doctor/reports/pending', {
         credentials: 'include'
       });
-      if (!response.ok) {
-        console.warn('Failed to fetch reports, using fallback');
-        return [];
-      }
+      if (!response.ok) return [];
       return response.json();
     },
     refetchInterval: 8000,
@@ -457,8 +458,13 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
                   {isConnected ? 'Connected' : 'Offline'}
                 </span>
               </div>
-              <div className="relative">
-                <Button variant="ghost" size="sm" className="relative">
+              <div className="relative" ref={notificationRef}>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="relative"
+                  onClick={() => setShowNotifications(!showNotifications)}
+                >
                   <Bell className="w-4 h-4" />
                   {(notifications as any[])?.length > 0 && (
                     <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
@@ -466,6 +472,39 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
                     </div>
                   )}
                 </Button>
+                {showNotifications && (
+                  <div className="absolute right-0 top-full mt-2 w-80 bg-slate-800 border border-slate-600 rounded-lg shadow-lg z-50">
+                    <div className="p-3 border-b border-slate-600">
+                      <h3 className="font-medium text-white">Notifications</h3>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto">
+                      {(notifications as any[])?.length > 0 ? (
+                        (notifications as any[]).map((notification: any, index: number) => (
+                          <div 
+                            key={index} 
+                            className="p-3 border-b border-slate-700 hover:bg-slate-700 cursor-pointer transition-colors"
+                            onClick={() => {
+                              if (notification.type === 'scan_result') {
+                                setActiveTab?.('scans');
+                              } else if (notification.type === 'appointment') {
+                                setActiveTab?.('appointments');
+                              }
+                              setShowNotifications(false);
+                            }}
+                          >
+                            <p className="text-sm text-white">{notification.message}</p>
+                            <p className="text-xs text-slate-400 mt-1">{notification.timestamp}</p>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="p-4 text-center text-slate-400">
+                          <Bell className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                          <p className="text-sm">No new notifications</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
               <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
                 <RefreshCw className="w-4 h-4 mr-2" />
@@ -706,33 +745,7 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
                               <MessageSquare className="w-3 h-3 mr-1" />
                               Chat
                             </Button>
-                            {appointment.status === 'completed' && (
-                              <AnalysisResultsDisplay 
-                                analysisData={{
-                                  title: `${appointment.reason} - Analysis Complete`,
-                                  subtitle: 'Medical Consultation Results',
-                                  confidence: 92,
-                                  riskLevel: 'low',
-                                  primaryFinding: 'Consultation completed successfully',
-                                  cancerType: 'No malignant characteristics identified',
-                                  scanType: appointment.reason,
-                                  analysisDate: new Date(appointment.date).toLocaleDateString(),
-                                  scanId: `#APT-${appointment.id.toString().padStart(4, '0')}`,
-                                  detailedFindings: [
-                                    'Patient consultation completed',
-                                    'Clinical assessment performed',
-                                    'Treatment plan discussed',
-                                    'Follow-up scheduled as appropriate'
-                                  ],
-                                  recommendations: [
-                                    'Follow-up in 6 months',
-                                    'Continue regular screening',
-                                    'Maintain current treatment plan',
-                                    'Contact if symptoms change'
-                                  ]
-                                }}
-                              />
-                            )}
+
                           </div>
                         </div>
                       ))}
@@ -750,126 +763,9 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-3">
-                    <div className="p-3 bg-slate-700 rounded-lg border border-slate-600">
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <p className="font-medium text-white">Sarah Johnson - Mammography</p>
-                          <p className="text-sm text-slate-400">BI-RADS Category 2 - Benign findings</p>
-                        </div>
-                        <Badge className="bg-green-100 text-green-800 border-green-300">
-                          LOW RISK
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-2 mt-2">
-                        <span className="text-xs text-slate-400">5m ago</span>
-                        <AnalysisResultsDisplay 
-                          analysisData={{
-                            title: 'Mammography Analysis Results',
-                            subtitle: 'BI-RADS Assessment Complete',
-                            confidence: 94,
-                            riskLevel: 'low',
-                            primaryFinding: 'Benign calcifications identified',
-                            cancerType: 'No malignant characteristics identified',
-                            scanType: 'Mammography',
-                            analysisDate: new Date().toLocaleDateString(),
-                            scanId: '#MAMM-0001',
-                            detailedFindings: [
-                              'Benign calcifications identified',
-                              'BI-RADS Category 2 - Benign findings',
-                              'No architectural distortion',
-                              'Symmetric breast tissue density'
-                            ],
-                            recommendations: [
-                              'Continue annual screening',
-                              'No immediate follow-up required',
-                              'Routine mammography in 12 months',
-                              'Self-examination monthly'
-                            ]
-                          }}
-                        />
-                      </div>
-                    </div>
-                    
-                    <div className="p-3 bg-slate-700 rounded-lg border border-slate-600">
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <p className="font-medium text-white">Michael Chen - Pulmonary MRI</p>
-                          <p className="text-sm text-slate-400">Lung nodule detected - requires follow-up</p>
-                        </div>
-                        <Badge className="bg-yellow-100 text-yellow-800 border-yellow-300">
-                          MEDIUM RISK
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-2 mt-2">
-                        <span className="text-xs text-slate-400">15m ago</span>
-                        <AnalysisResultsDisplay 
-                          analysisData={{
-                            title: 'Pulmonary MRI Analysis Results',
-                            subtitle: 'Lung Nodule Assessment',
-                            confidence: 87,
-                            riskLevel: 'medium',
-                            primaryFinding: 'Small pulmonary nodule identified in right upper lobe',
-                            cancerType: 'Indeterminate findings - clinical correlation advised',
-                            scanType: 'Pulmonary MRI',
-                            analysisDate: new Date(Date.now() - 15*60*1000).toLocaleDateString(),
-                            scanId: '#PMRI-0002',
-                            detailedFindings: [
-                              'Small pulmonary nodule identified in right upper lobe',
-                              'Nodule measures approximately 8mm in diameter',
-                              'No associated lymphadenopathy',
-                              'Remaining lung parenchyma appears normal'
-                            ],
-                            recommendations: [
-                              'Follow-up CT scan in 3 months',
-                              'Monitor for changes in size or characteristics',
-                              'Consider biopsy if growth detected',
-                              'Multidisciplinary team review recommended'
-                            ]
-                          }}
-                        />
-                      </div>
-                    </div>
-                    
-                    <div className="p-3 bg-slate-700 rounded-lg border border-slate-600">
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <p className="font-medium text-white">Emma Davis - Dermatoscopy</p>
-                          <p className="text-sm text-slate-400">Melanoma screening completed</p>
-                        </div>
-                        <Badge className="bg-green-100 text-green-800 border-green-300">
-                          LOW RISK
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-2 mt-2">
-                        <span className="text-xs text-slate-400">1h ago</span>
-                        <AnalysisResultsDisplay 
-                          analysisData={{
-                            title: 'Dermatoscopy Analysis Results',
-                            subtitle: 'Melanoma Screening Complete',
-                            confidence: 96,
-                            riskLevel: 'low',
-                            primaryFinding: 'No suspicious lesions detected',
-                            cancerType: 'No malignant characteristics identified',
-                            scanType: 'Dermatoscopy',
-                            analysisDate: new Date(Date.now() - 60*60*1000).toLocaleDateString(),
-                            scanId: '#DERM-0003',
-                            detailedFindings: [
-                              'No suspicious lesions detected',
-                              'All examined lesions show benign characteristics',
-                              'Normal pigmentation patterns observed',
-                              'No asymmetry or irregular borders noted'
-                            ],
-                            recommendations: [
-                              'Continue annual skin checks',
-                              'Use sun protection (SPF 30+)',
-                              'Self-examine monthly',
-                              'Avoid excessive UV exposure'
-                            ]
-                          }}
-                        />
-                      </div>
-                    </div>
+                  <div className="text-center py-12">
+                    <Activity className="w-12 h-12 text-slate-400 mx-auto mb-4" />
+                    <p className="text-slate-400">No recent scans available</p>
                   </div>
                 </CardContent>
               </Card>
@@ -879,80 +775,60 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
             {reports.length > 0 && (
               <Card className="bg-slate-800 border-slate-600 shadow-sm mt-6">
                 <CardHeader>
-                  <CardTitle className="flex items-center text-white">
-                    <FileText className="w-5 h-5 mr-2 text-blue-400" />
-                    Pending Reports for Review
+                  <CardTitle className="flex items-center justify-between text-white">
+                    <div className="flex items-center">
+                      <FileText className="w-5 h-5 mr-2 text-blue-400" />
+                      Pending Reports for Review
+                    </div>
+                    <Badge variant="outline" className="text-yellow-400 border-yellow-400">
+                      {reports.length} pending
+                    </Badge>
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-4">
-                    {reports.map((report) => (
-                      <div key={report.id} className="p-4 bg-slate-700 rounded-lg border border-slate-600">
-                        <div className="flex justify-between items-start mb-3">
-                          <div>
-                            <p className="font-medium text-white">{report.patientName}</p>
-                            <p className="text-sm text-slate-300">{report.scanType}</p>
-                            <p className="text-xs text-slate-400">{new Date(report.submittedAt).toLocaleDateString()}</p>
+                  <div className="space-y-2">
+                    {reports.slice(0, 3).map((report) => (
+                      <div key={report.id} className="p-3 bg-slate-700 rounded-lg border border-slate-600">
+                        <div className="flex justify-between items-center">
+                          <div className="flex-1">
+                            <p className="font-medium text-white text-sm">{report.patientName}</p>
+                            <p className="text-xs text-slate-400">{report.scanType} • {new Date(report.submittedAt).toLocaleDateString()}</p>
                           </div>
                           <div className="flex items-center gap-2">
-                            <Badge className={getPriorityColor(report.priority)}>
+                            <Badge className={`text-xs px-2 py-1 ${
+                              report.priority === 'urgent' ? 'bg-red-100 text-red-800' :
+                              report.priority === 'high' ? 'bg-yellow-100 text-yellow-800' :
+                              'bg-blue-100 text-blue-800'
+                            }`}>
                               {report.priority?.toUpperCase()}
                             </Badge>
-                            <Badge className={getStatusColor(report.status)}>
-                              {report.status}
-                            </Badge>
+                            <Button 
+                              size="sm" 
+                              onClick={() => approveReportMutation.mutate({ reportId: report.id })}
+                              disabled={approveReportMutation.isPending}
+                              className="bg-green-600 hover:bg-green-700 text-xs px-2 py-1 h-6"
+                            >
+                              <CheckCircle className="w-3 h-3 mr-1" />
+                              Approve
+                            </Button>
                           </div>
-                        </div>
-                        
-                        {report.findings && (
-                          <div className="mb-3">
-                            <p className="text-sm text-slate-400 mb-1">AI Findings:</p>
-                            <p className="text-sm text-slate-300">{report.findings}</p>
-                            {report.aiConfidence && (
-                              <p className="text-xs text-slate-400 mt-1">Confidence: {report.aiConfidence}</p>
-                            )}
-                          </div>
-                        )}
-                        
-                        <div className="flex gap-2">
-                          <Button 
-                            size="sm" 
-                            onClick={() => approveReportMutation.mutate({ reportId: report.id })}
-                            disabled={approveReportMutation.isPending}
-                            className="bg-green-600 hover:bg-green-700"
-                          >
-                            <CheckCircle className="w-3 h-3 mr-1" />
-                            Approve
-                          </Button>
-                          <AnalysisResultsDisplay 
-                            analysisData={{
-                              title: `${report.scanType} - Pending Review`,
-                              subtitle: 'Awaiting Medical Approval',
-                              confidence: parseInt(report.aiConfidence?.replace('%', '') || '0'),
-                              riskLevel: report.priority === 'urgent' ? 'high' : report.priority === 'high' ? 'medium' : 'low',
-                              primaryFinding: report.findings || 'Analysis pending',
-                              cancerType: 'Assessment pending medical review',
-                              scanType: report.scanType,
-                              analysisDate: new Date(report.date || report.submittedAt).toLocaleDateString(),
-                              scanId: `#RPT-${report.id.toString().padStart(4, '0')}`,
-                              detailedFindings: [
-                                report.findings || 'Analysis pending',
-                                'AI processing completed',
-                                'Awaiting radiologist review',
-                                'Quality assurance passed'
-                              ],
-                              recommendations: [
-                                'Review required by qualified physician',
-                                'Awaiting doctor approval',
-                                'Patient notification pending',
-                                'Follow-up as clinically indicated'
-                              ]
-                            }}
-                          />
                         </div>
                       </div>
                     ))}
                   </div>
+                  
+                  {reports.length > 3 && (
+                    <div className="mt-4 pt-3 border-t border-slate-600">
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="w-full text-slate-300 border-slate-600 hover:bg-slate-700"
+                        onClick={() => setActiveTab?.('reports')}
+                      >
+                        View All {reports.length} Reports
+                      </Button>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}

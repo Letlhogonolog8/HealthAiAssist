@@ -1,12 +1,18 @@
 import express from 'express';
-import statusMonitor from 'express-status-monitor';
+// import statusMonitor from 'express-status-monitor';
 
 export function setupMonitoring(app: express.Express) {
-  // Setup express-status-monitor middleware for basic monitoring
-  app.use(statusMonitor());
+  // Disabled express-status-monitor due to Windows wmic compatibility issues
+  // app.use(statusMonitor());
 
-  // Endpoint to serve monitoring dashboard
+  // Simple status endpoint instead
   app.get('/status', (req, res) => {
-    res.redirect('/status-monitor');
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      memory: process.memoryUsage(),
+      env: process.env.NODE_ENV
+    });
   });
 }

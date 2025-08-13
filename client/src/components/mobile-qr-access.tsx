@@ -12,7 +12,7 @@ export default function MobileQRAccess() {
   // Get the current URL and construct the mobile-friendly URL
   const currentHost = window.location.host;
   // Replace localhost with server IP for mobile access using environment variable
-  const serverIp = import.meta.env.VITE_SERVER_IP || '192.168.0.152';
+  const serverIp = import.meta.env.VITE_SERVER_IP || '192.168.0.160';
   const adjustedHost = currentHost.includes('localhost') ? currentHost.replace('localhost', serverIp) : currentHost;
   const mobileUrl = `http://${adjustedHost}`;
   

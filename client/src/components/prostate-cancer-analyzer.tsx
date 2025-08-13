@@ -76,6 +76,7 @@ export default function ProstateCancerAnalyzer() {
       const response = await fetch('/api/scans/analyze', {
         method: 'POST',
         body: formData,
+        credentials: 'include',
       });
 
       if (!response.ok) {

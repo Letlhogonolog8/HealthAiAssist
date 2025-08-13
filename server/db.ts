@@ -6,7 +6,7 @@ import * as schema from "@shared/schema";
 const DATABASE_URL = process.env.DATABASE_URL;
 
 if (!DATABASE_URL) {
-  throw new Error('DATABASE_URL environment variable is required');
+  throw new Error('DATABASE_URL environment variable is required (set as a System environment variable in production)');
 }
 
 const pool = new Pool({ 

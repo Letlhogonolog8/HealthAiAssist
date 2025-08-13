@@ -68,7 +68,8 @@ export default function SkinCancerAnalyzer() {
     mutationFn: async (formData: FormData) => {
       const response = await fetch('/api/scans/analyze', {
         method: 'POST',
-        body: formData
+        body: formData,
+        credentials: 'include'
       });
       
       if (!response.ok) {

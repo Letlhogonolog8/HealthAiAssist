@@ -267,94 +267,38 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                {activitiesLoading ? (
                   <div className="space-y-3">
-                    {[1,2,3].map(i => (
-                      <div key={i} className="h-12 bg-slate-700 rounded animate-pulse"></div>
-                    ))}
+                    {activitiesLoading ? (
+                      <div className="space-y-3">
+                        {[1,2,3].map(i => (
+                          <div key={i} className="h-12 bg-slate-700 rounded animate-pulse"></div>
+                        ))}
+                      </div>
+                    ) : (
+                      <>
+                        {Array.isArray(recentActivities) && recentActivities.length > 0 ? (
+                          recentActivities.map((item: any, idx: number) => {
+                            const message = item.message || item.description || 'Activity';
+                            const timeLabel = item.timestamp || item.date || '';
+                            const status = (item.status || item.type || '').toString().toLowerCase();
+                            const colorClass = status.includes('critical') ? 'bg-red-400' :
+                                               status.includes('abnormal') ? 'bg-orange-400' :
+                                               status.includes('normal') ? 'bg-green-400' :
+                                               'bg-blue-400';
+                            return (
+                              <div key={idx} className="flex items-center space-x-3 p-3 bg-slate-700 rounded-lg hover:bg-slate-600 transition-colors">
+                                <div className={`w-2 h-2 ${colorClass} rounded-full`}></div>
+                                <span className="text-slate-300 flex-1">{message}</span>
+                                <span className="text-slate-500 text-sm">{typeof timeLabel === 'string' ? timeLabel : new Date(timeLabel).toLocaleString()}</span>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div className="text-slate-400 text-sm">No recent activity</div>
+                        )}
+                      </>
+                    )}
                   </div>
-                ) : (
-                  <>
-                    {user.role === 'admin' && (
-                      <>
-                        <div className="flex items-center space-x-3 p-3 bg-slate-700 rounded-lg hover:bg-slate-600 transition-colors">
-                          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                          <span className="text-slate-300 flex-1">System backup completed successfully</span>
-                          <span className="text-slate-500 text-sm">2h ago</span>
-                        </div>
-                        <div className="flex items-center space-x-3 p-3 bg-slate-700 rounded-lg hover:bg-slate-600 transition-colors">
-                          <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
-                          <span className="text-slate-300 flex-1">New doctor registered: Dr. Emily Watson</span>
-                          <span className="text-slate-500 text-sm">4h ago</span>
-                        </div>
-                        <div className="flex items-center space-x-3 p-3 bg-slate-700 rounded-lg hover:bg-slate-600 transition-colors">
-                          <div className="w-2 h-2 bg-purple-400 rounded-full"></div>
-                          <span className="text-slate-300 flex-1">AI model updated to v2.1.4</span>
-                          <span className="text-slate-500 text-sm">6h ago</span>
-                        </div>
-                      </>
-                    )}
-                    {user.role === 'radiologist' && (
-                      <>
-                        <div className="flex items-center space-x-3 p-3 bg-slate-700 rounded-lg hover:bg-slate-600 transition-colors">
-                          <div className="w-2 h-2 bg-orange-400 rounded-full animate-pulse"></div>
-                          <span className="text-slate-300 flex-1">High-priority breast scan assigned</span>
-                          <span className="text-slate-500 text-sm">15m ago</span>
-                        </div>
-                        <div className="flex items-center space-x-3 p-3 bg-slate-700 rounded-lg hover:bg-slate-600 transition-colors">
-                          <div className="w-2 h-2 bg-red-400 rounded-full"></div>
-                          <span className="text-slate-300 flex-1">AI flagged suspicious nodule in lung CT</span>
-                          <span className="text-slate-500 text-sm">1h ago</span>
-                        </div>
-                        <div className="flex items-center space-x-3 p-3 bg-slate-700 rounded-lg hover:bg-slate-600 transition-colors">
-                          <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-                          <span className="text-slate-300 flex-1">Mammography report completed</span>
-                          <span className="text-slate-500 text-sm">2h ago</span>
-                        </div>
-                      </>
-                    )}
-                    {user.role === 'doctor' && (
-                      <>
-                        <div className="flex items-center space-x-3 p-3 bg-slate-700 rounded-lg hover:bg-slate-600 transition-colors">
-                          <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
-                          <span className="text-slate-300 flex-1">New scan results available for review</span>
-                          <span className="text-slate-500 text-sm">30m ago</span>
-                        </div>
-                        <div className="flex items-center space-x-3 p-3 bg-slate-700 rounded-lg hover:bg-slate-600 transition-colors">
-                          <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-                          <span className="text-slate-300 flex-1">Patient appointment confirmed</span>
-                          <span className="text-slate-500 text-sm">1h ago</span>
-                        </div>
-                        <div className="flex items-center space-x-3 p-3 bg-slate-700 rounded-lg hover:bg-slate-600 transition-colors">
-                          <div className="w-2 h-2 bg-red-400 rounded-full"></div>
-                          <span className="text-slate-300 flex-1">Critical case requires attention</span>
-                          <span className="text-slate-500 text-sm">3h ago</span>
-                        </div>
-                      </>
-                    )}
-                    {user.role === 'patient' && (
-                      <>
-                        <div className="flex items-center space-x-3 p-3 bg-slate-700 rounded-lg hover:bg-slate-600 transition-colors">
-                          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                          <span className="text-slate-300 flex-1">Scan results are now available</span>
-                          <span className="text-slate-500 text-sm">30m ago</span>
-                        </div>
-                        <div className="flex items-center space-x-3 p-3 bg-slate-700 rounded-lg hover:bg-slate-600 transition-colors">
-                          <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
-                          <span className="text-slate-300 flex-1">Appointment reminder: Tomorrow 2:00 PM</span>
-                          <span className="text-slate-500 text-sm">2h ago</span>
-                        </div>
-                        <div className="flex items-center space-x-3 p-3 bg-slate-700 rounded-lg hover:bg-slate-600 transition-colors">
-                          <div className="w-2 h-2 bg-purple-400 rounded-full"></div>
-                          <span className="text-slate-300 flex-1">Health screening reminder</span>
-                          <span className="text-slate-500 text-sm">1d ago</span>
-                        </div>
-                      </>
-                    )}
-                  </>
-                )}
-              </div>
             </CardContent>
           </Card>
 
@@ -488,7 +432,12 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
       </header>
 
       {/* Main Content */}
-      <main className="p-6">
+      <main className="p-6" onLoad={() => {
+        try {
+          const rolePath = user.role === 'admin' ? '/?role=admin' : '/';
+          sessionStorage.setItem('lastPath', rolePath);
+        } catch {}
+      }}>
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
             <TabsList className="bg-gradient-to-r from-slate-800 to-slate-900 border border-slate-600 rounded-lg p-1 shadow-lg">
               {(config.tabs || []).map(tab => {
@@ -565,7 +514,7 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
             <>
               <TabsContent value="overview">
                 {user.role === 'admin' ? (
-                  <AdminDashboard user={user} />
+                  <AdminDashboard user={user} section={'overview'} hideLocalTabs setActiveTab={setActiveTab} />
                 ) : user.role === 'doctor' ? (
                   <DoctorPortal user={user} setActiveTab={setActiveTab} />
                 ) : user.role === 'radiologist' ? (
@@ -1015,9 +964,21 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
               </TabsContent>
             )}
 
-            {config.tabs.includes("analytics") && user.role === 'admin' && (
+            {user.role === 'admin' && (
               <TabsContent value="analytics">
-                <AdminDashboard user={user} />
+                <AdminDashboard user={user} section={'analytics'} hideLocalTabs setActiveTab={setActiveTab} />
+              </TabsContent>
+            )}
+
+            {user.role === 'admin' && (
+              <TabsContent value="users">
+                <AdminDashboard user={user} section={'users'} hideLocalTabs setActiveTab={setActiveTab} />
+              </TabsContent>
+            )}
+
+            {user.role === 'admin' && (
+              <TabsContent value="system">
+                <AdminDashboard user={user} section={'system'} hideLocalTabs setActiveTab={setActiveTab} />
               </TabsContent>
             )}
 

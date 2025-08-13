@@ -31,50 +31,21 @@ class StartupChecker {
   }
 
   private async checkEnvironmentFile(): Promise<void> {
-    const envPath = path.join(process.cwd(), '.env');
-    
-    if (!fs.existsSync(envPath)) {
-      this.results.push({
-        name: 'Environment File',
-        status: 'fail',
-        message: '.env file not found',
-        fix: async () => {
-          const envExample = path.join(process.cwd(), '.env.example');
-          if (fs.existsSync(envExample)) {
-            fs.copyFileSync(envExample, envPath);
-            console.log('✅ Created .env file from .env.example');
-          }
-        }
-      });
-      return;
-    }
-
-    const envContent = fs.readFileSync(envPath, 'utf8');
     const requiredVars = ['DATABASE_URL', 'SESSION_SECRET'];
-    const missingVars = requiredVars.filter(varName => !envContent.includes(varName));
+    const missing = requiredVars.filter((v) => !process.env[v]);
 
-    if (missingVars.length > 0) {
+    if (missing.length > 0) {
+      // Prefer system environment variables; do not create or modify .env automatically
       this.results.push({
         name: 'Environment Variables',
         status: 'warning',
-        message: `Missing variables: ${missingVars.join(', ')}`,
-        fix: async () => {
-          let content = envContent;
-          if (!content.includes('DATABASE_URL')) {
-            content += '\nDATABASE_URL=postgresql://postgres:password@localhost:5432/healthai_db';
-          }
-          if (!content.includes('SESSION_SECRET')) {
-            content += '\nSESSION_SECRET=healthai_session_secret_2025';
-          }
-          fs.writeFileSync(envPath, content);
-          console.log('✅ Added missing environment variables');
-        }
+        message: `Missing system variables: ${missing.join(', ')}`,
       });
     } else {
       this.results.push({
-        name: 'Environment File',
+        name: 'Environment Variables',
         status: 'pass',
-        message: 'All required environment variables present'
+        message: 'Required system environment variables present'
       });
     }
   }

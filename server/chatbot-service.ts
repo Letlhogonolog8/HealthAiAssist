@@ -128,14 +128,16 @@ Always respond in a caring, professional tone while being informative and helpfu
       ]) as any;
 
       const response = completion.choices[0].message;
-      
-      // Check if response mentions appointment scheduling
-      const responseContent = response.content || "I'm here to help with your health questions and guide you through MedAI's features. How can I assist you today?";
-      const isAppointmentRelated = responseContent.toLowerCase().includes('appointment') || 
-                                  responseContent.toLowerCase().includes('schedule') ||
-                                  messages.some(msg => msg.content.toLowerCase().includes('appointment') || 
-                                                      msg.content.toLowerCase().includes('schedule'));
-      
+
+      // Basic intent detection using the latest user message (not system messages)
+      const lastUser = [...messages].reverse().find(m => m.role === 'user');
+      const lastContent = (lastUser?.content || '').toLowerCase();
+      const isAppointmentRelated = /\b(appointment|schedule|book)\b/.test(lastContent);
+
+      const responseContent = response.content || (isAppointmentRelated
+        ? "I can help with appointments. Do you want to schedule, reschedule, or view existing appointments?"
+        : "I'm here to help with your health questions and guide you through MedAI's features. How can I assist you today?");
+
       return {
         message: responseContent,
         suggestions: [

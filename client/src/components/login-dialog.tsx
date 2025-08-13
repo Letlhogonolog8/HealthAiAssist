@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { LogIn, UserPlus, User, Stethoscope, Shield, Brain } from "lucide-react";
+import { LogIn, UserPlus, User, Stethoscope, Shield, Brain, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -26,6 +26,8 @@ export default function LoginDialog({ open, onOpenChange, onLoginSuccess }: Logi
     email: "", 
     role: "patient" 
   });
+  const [showPassword, setShowPassword] = useState(false);
+  const [showRegPassword, setShowRegPassword] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -35,6 +37,7 @@ export default function LoginDialog({ open, onOpenChange, onLoginSuccess }: Logi
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
+        credentials: 'include',
       });
       if (!response.ok) throw new Error("Login failed");
       return response.json();
@@ -63,6 +66,7 @@ export default function LoginDialog({ open, onOpenChange, onLoginSuccess }: Logi
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
+        credentials: 'include',
       });
       if (!response.ok) throw new Error("Registration failed");
       return response.json();
@@ -220,14 +224,29 @@ export default function LoginDialog({ open, onOpenChange, onLoginSuccess }: Logi
                         <Shield className="w-4 h-4 mr-2 text-blue-400" />
                         Password
                       </Label>
-                      <Input
-                        id="password"
-                        type="password"
-                        value={loginData.password}
-                        onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
-                        className="bg-slate-700/50 border-slate-500 text-white placeholder:text-slate-400 focus:border-blue-400 focus:ring-blue-400/25 h-12 px-4 rounded-lg transition-all"
-                        placeholder="Enter password"
-                      />
+                      <div className="relative">
+                        <Input
+                          id="password"
+                          type={showPassword ? "text" : "password"}
+                          value={loginData.password}
+                          onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
+                          className="bg-slate-700/50 border-slate-500 text-white placeholder:text-slate-400 focus:border-blue-400 focus:ring-blue-400/25 h-12 px-4 pr-12 rounded-lg transition-all"
+                          placeholder="Enter password"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 p-0 hover:bg-slate-600"
+                          onClick={() => setShowPassword(!showPassword)}
+                        >
+                          {showPassword ? (
+                            <EyeOff className="w-4 h-4 text-slate-400" />
+                          ) : (
+                            <Eye className="w-4 h-4 text-slate-400" />
+                          )}
+                        </Button>
+                      </div>
                     </div>
                     <Button 
                       onClick={() => loginMutation.mutate(loginData)}
@@ -297,14 +316,29 @@ export default function LoginDialog({ open, onOpenChange, onLoginSuccess }: Logi
                   </div>
                   <div>
                     <Label htmlFor="reg-password" className="text-white">Password</Label>
-                    <Input
-                      id="reg-password"
-                      type="password"
-                      value={registerData.password}
-                      onChange={(e) => setRegisterData({ ...registerData, password: e.target.value })}
-                      className="bg-slate-700 border-slate-600 text-white"
-                      placeholder="Enter password"
-                    />
+                    <div className="relative">
+                      <Input
+                        id="reg-password"
+                        type={showRegPassword ? "text" : "password"}
+                        value={registerData.password}
+                        onChange={(e) => setRegisterData({ ...registerData, password: e.target.value })}
+                        className="bg-slate-700 border-slate-600 text-white pr-12"
+                        placeholder="Enter password"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 p-0 hover:bg-slate-600"
+                        onClick={() => setShowRegPassword(!showRegPassword)}
+                      >
+                        {showRegPassword ? (
+                          <EyeOff className="w-4 h-4 text-slate-400" />
+                        ) : (
+                          <Eye className="w-4 h-4 text-slate-400" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 </div>
                 <Button 

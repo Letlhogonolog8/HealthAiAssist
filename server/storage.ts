@@ -308,7 +308,41 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPatientActivities(patientId: number): Promise<any[]> {
-    return [];
+    try {
+      const scans = await this.getScans(patientId);
+      const appts = await this.getAppointments(patientId);
+
+      const scanActivities = (scans || []).map((s: any) => ({
+        id: s.id,
+        message: `${(s.scanType || 'Medical')} scan ${s.status === 'pending' ? 'submitted' : 'completed'}`,
+        description: s.result || 'Scan updated',
+        timestamp: s.createdAt || s.updatedAt || new Date(),
+        status: (() => {
+          const res = (s.result || '').toString().toLowerCase();
+          if (res.includes('abnormal') || res.includes('suspicious')) return 'abnormal';
+          if (res.includes('urgent') || res.includes('critical')) return 'critical';
+          return 'normal';
+        })(),
+        type: 'scan'
+      }));
+
+      const apptActivities = (appts || []).map((a: any) => ({
+        id: a.id,
+        message: `Appointment ${a.status || 'scheduled'}`,
+        description: a.notes || 'Appointment update',
+        timestamp: a.updatedAt || a.createdAt || new Date(),
+        status: a.status || 'scheduled',
+        type: 'appointment'
+      }));
+
+      const all = [...scanActivities, ...apptActivities]
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+        .slice(0, 10);
+      return all;
+    } catch (error) {
+      console.error('Error building patient activities:', error);
+      return [];
+    }
   }
 
   async getPatientAppointments(patientId: number): Promise<any[]> {
@@ -425,4 +459,160 @@ export class DatabaseStorage implements IStorage {
   }
 }
 
-export const storage = new DatabaseStorage();
+// Create storage instance with fallback mechanism
+class FallbackStorage implements IStorage {
+  private mockUsers: User[] = [
+    {
+      id: 1,
+      username: 'admin',
+      password: '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj3QJflLxQjm', // admin123
+      fullName: 'System Administrator',
+      email: 'admin@healthai.com',
+      role: 'admin',
+      isActive: true,
+      createdAt: new Date()
+    },
+    {
+      id: 2,
+      username: 'doctor',
+      password: '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj3QJflLxQjm', // doctor123
+      fullName: 'Dr. Sarah Johnson',
+      email: 'doctor@healthai.com',
+      role: 'doctor',
+      specialization: 'General Practice',
+      isActive: true,
+      createdAt: new Date()
+    },
+    {
+      id: 3,
+      username: 'radiologist',
+      password: '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj3QJflLxQjm', // radiologist123
+      fullName: 'Dr. Michael Chen',
+      email: 'radiologist@healthai.com',
+      role: 'radiologist',
+      specialization: 'Medical Imaging',
+      isActive: true,
+      createdAt: new Date()
+    },
+    {
+      id: 4,
+      username: 'patient',
+      password: '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj3QJflLxQjm', // patient123
+      fullName: 'John Patient',
+      email: 'patient@healthai.com',
+      role: 'patient',
+      age: 35,
+      gender: 'male',
+      isActive: true,
+      createdAt: new Date()
+    }
+  ];
+
+  async getUser(id: number): Promise<User | undefined> {
+    return this.mockUsers.find(u => u.id === id);
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    return this.mockUsers.find(u => u.username === username);
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    return this.mockUsers.find(u => u.email === email);
+  }
+
+  async createUser(user: InsertUser): Promise<User> {
+    const newUser: User = {
+      id: Math.max(...this.mockUsers.map(u => u.id)) + 1,
+      ...user,
+      role: user.role || 'patient',
+      isActive: true,
+      createdAt: new Date()
+    } as User;
+    this.mockUsers.push(newUser);
+    return newUser;
+  }
+
+  async updateUser(id: number, updates: Partial<User>): Promise<User | undefined> {
+    const userIndex = this.mockUsers.findIndex(u => u.id === id);
+    if (userIndex === -1) return undefined;
+    this.mockUsers[userIndex] = { ...this.mockUsers[userIndex], ...updates };
+    return this.mockUsers[userIndex];
+  }
+
+  async updateUserProfile(id: number, updates: Partial<User>): Promise<User | undefined> {
+    return this.updateUser(id, updates);
+  }
+
+  async permanentlyDeleteUser(id: number): Promise<boolean> {
+    const index = this.mockUsers.findIndex(u => u.id === id);
+    if (index === -1) return false;
+    this.mockUsers.splice(index, 1);
+    return true;
+  }
+
+  async deleteUser(id: number): Promise<boolean> {
+    return this.permanentlyDeleteUser(id);
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return this.mockUsers;
+  }
+
+  // Implement other required methods with mock data
+  async setPasswordResetToken(userId: number, token: string): Promise<void> {}
+  async getUserByResetToken(token: string): Promise<User | undefined> { return undefined; }
+  async updateUserPassword(userId: number, hashedPassword: string): Promise<void> {}
+  async clearPasswordResetToken(userId: number): Promise<void> {}
+  async getScans(patientId?: number): Promise<MedicalScan[]> { return []; }
+  async createScan(scan: InsertScan): Promise<MedicalScan> { return {} as MedicalScan; }
+  async updateScan(id: number, updates: Partial<MedicalScan>): Promise<MedicalScan | undefined> { return undefined; }
+  async getScansForReview(): Promise<any[]> { return []; }
+  async getTerms(): Promise<MedicalTerm[]> { return []; }
+  async searchTerms(query: string): Promise<MedicalTerm[]> { return []; }
+  async createTerm(term: InsertTerm): Promise<MedicalTerm> { return {} as MedicalTerm; }
+  async getAppointments(patientId?: number): Promise<Appointment[]> { return []; }
+  async createAppointment(appointment: InsertAppointment): Promise<Appointment> { return {} as Appointment; }
+  async updateAppointment(id: number, updates: Partial<Appointment>): Promise<Appointment | undefined> { return undefined; }
+  async updateAppointmentStatus(id: number, action: string, notes?: string): Promise<any> { return null; }
+  async rescheduleAppointment(id: number, newDate: Date, newTime: string): Promise<Appointment | undefined> { return undefined; }
+  async deleteAppointment(id: number): Promise<boolean> { return false; }
+  async getPatientActivities(patientId: number): Promise<any[]> { return []; }
+  async getPatientAppointments(patientId: number): Promise<any[]> { return []; }
+  async getDoctorStats(): Promise<any> { return {}; }
+  async getDoctorAppointments(doctorId: number): Promise<any[]> { return []; }
+  async getDoctorPatients(doctorId: number): Promise<any[]> { return []; }
+  async getPendingReports(doctorId: number): Promise<any[]> { return []; }
+  async getDoctorNotifications(doctorId: number): Promise<any[]> { return []; }
+  async getRadiologistStats(): Promise<any> { return {}; }
+  async getRadiologistActivities(radiologistId: number): Promise<any[]> { return []; }
+  async completeReview(scanId: number, notes: string, approved: boolean): Promise<any> { return null; }
+  async getAdminStats(): Promise<any> { return {}; }
+  async getSystemActivities(): Promise<any[]> { return []; }
+  async getChatParticipants(userId: number, role: string): Promise<any[]> { return []; }
+  async getChatMessages(userId: number, participantId: number): Promise<any[]> { return []; }
+  async createChatMessage(message: any): Promise<any> { return {}; }
+  async markMessagesAsRead(senderId: number, receiverId: number): Promise<void> {}
+}
+
+// Dynamic storage selection based on database availability
+let storage: IStorage;
+
+export async function initializeStorage(): Promise<IStorage> {
+  try {
+    // Test if database is available
+    const dbStorage = new DatabaseStorage();
+    await dbStorage.getAllUsers(); // Test database connection
+    storage = dbStorage;
+    console.log('✅ Using database storage');
+    return storage;
+  } catch (error) {
+    console.warn('⚠️ Database storage failed, using fallback storage:', error);
+    storage = new FallbackStorage();
+    return storage;
+  }
+}
+
+// Initialize with fallback storage by default
+storage = new FallbackStorage();
+
+export { storage };

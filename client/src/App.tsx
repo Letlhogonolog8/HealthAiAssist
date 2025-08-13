@@ -40,13 +40,18 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Check for existing session on app start
+    // Check for existing session on app start and restore last route
     const checkSession = async () => {
       try {
         const response = await fetch('/api/auth/me', { credentials: 'include' });
         if (response.ok) {
           const userData = await response.json();
           setUser(userData);
+          // Restore last location (admin vs patient) if saved
+          const lastPath = sessionStorage.getItem('lastPath');
+          if (lastPath && window.location.pathname === '/') {
+            window.history.replaceState({}, '', lastPath);
+          }
         }
       } catch (error) {
         console.log('No existing session');
@@ -61,16 +66,20 @@ function App() {
     setUser(userData);
     // Store user in sessionStorage for persistence
     sessionStorage.setItem('user', JSON.stringify(userData));
+    // Save landing path per role
+    const rolePath = userData?.role === 'admin' ? '/?role=admin' : '/';
+    sessionStorage.setItem('lastPath', rolePath);
   };
 
   const handleLogout = async () => {
     try {
-      await fetch("/api/auth/logout", { method: "POST" });
+      await fetch("/api/auth/logout", { method: "POST", credentials: 'include' });
     } catch (error) {
       console.log("Logout error:", error);
     } finally {
       setUser(null);
       sessionStorage.removeItem('user');
+      sessionStorage.removeItem('lastPath');
     }
   };
 
