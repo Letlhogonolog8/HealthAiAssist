@@ -46,9 +46,9 @@ app.post('/api/auth/login', async (req, res) => {
     
     // Simple auth check - multiple valid credentials
     const validCredentials = {
-      'patient': 'patient123',
-      'admin': 'admin123',
-      'doctor': 'doctor123',
+      'doctor_kenosi': 'doctor123',
+      'sam': 'radiologist123',
+      'Letlhogonolo': 'doctor123',
       'Tlhox': 'inw73KYI'
     };
     
@@ -149,9 +149,9 @@ app.get('/api/admin/users/metrics', (req, res) => {
   res.json({
     totalUsers: 4,
     admins: 1,
-    doctors: 1,
+    doctors: 2,
     radiologists: 1,
-    patients: 1,
+    patients: 0,
     activeUsers: 4,
     newUsersToday: 0,
     loginRate: 85,
@@ -163,31 +163,31 @@ app.get('/api/admin/users', (req, res) => {
   const users = [
     {
       id: 1,
-      username: 'admin',
-      fullName: 'System Admin',
-      email: 'admin@healthai.com',
-      role: 'admin',
-      specialization: null,
+      username: 'doctor_kenosi',
+      fullName: 'Dr. Kenosi Rakgalane',
+      email: 'docrakgalane@gmail.com',
+      role: 'doctor',
+      specialization: 'Oncologist',
       isActive: true,
       createdAt: new Date().toISOString()
     },
     {
       id: 2,
-      username: 'doctor',
-      fullName: 'Dr. Sarah Johnson',
-      email: 'doctor@healthai.com',
-      role: 'doctor',
-      specialization: 'General Practice',
+      username: 'sam',
+      fullName: 'Dr. Sam Radiologist',
+      email: 'sam@healthai.com',
+      role: 'radiologist',
+      specialization: 'Medical Imaging',
       isActive: true,
       createdAt: new Date().toISOString()
     },
     {
       id: 3,
-      username: 'radiologist',
-      fullName: 'Dr. Michael Chen',
-      email: 'radiologist@healthai.com',
-      role: 'radiologist',
-      specialization: 'Medical Imaging',
+      username: 'Letlhogonolo',
+      fullName: 'Letlhogonolo Matlaela',
+      email: 'LMatlaela@NW.CETC.edu.za',
+      role: 'doctor',
+      specialization: 'Oncologist',
       isActive: true,
       createdAt: new Date().toISOString()
     },
@@ -196,7 +196,7 @@ app.get('/api/admin/users', (req, res) => {
       username: 'Tlhox',
       fullName: 'Tlhox Matlaela',
       email: 'tlhox@healthai.com',
-      role: 'patient',
+      role: 'admin',
       specialization: null,
       isActive: true,
       createdAt: new Date().toISOString()
