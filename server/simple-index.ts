@@ -46,20 +46,29 @@ app.post('/api/auth/login', async (req, res) => {
     
     // Simple auth check - multiple valid credentials
     const validCredentials = {
-      'doctor_kenosi': 'doctor123',
-      'sam': 'radiologist123',
-      'Letlhogonolo': 'doctor123',
+      'doctor_kenosi': 'kenosi123!',
+      'sam': 'inw73KYI!!',
+      'Letlhogonolo': 'gontseg8',
       'Tlhox': 'inw73KYI'
     };
     
     if (validCredentials[username] === password) {
-      req.session.userId = 28;
+      // Map users to their details
+      const userDetails = {
+        'doctor_kenosi': { id: 1, role: 'doctor', fullName: 'Dr. Kenosi Rakgalane', email: 'docrakgalane@gmail.com' },
+        'sam': { id: 2, role: 'radiologist', fullName: 'Dr. Sam Radiologist', email: 'sam@healthai.com' },
+        'Letlhogonolo': { id: 3, role: 'doctor', fullName: 'Letlhogonolo Matlaela', email: 'LMatlaela@NW.CETC.edu.za' },
+        'Tlhox': { id: 28, role: 'admin', fullName: 'Tlhox Matlaela', email: 'tlhox@healthai.com' }
+      };
+      
+      const user = userDetails[username];
+      req.session.userId = user.id;
       req.session.user = {
-        id: 28,
-        role: username === 'admin' ? 'admin' : username === 'doctor' ? 'doctor' : 'patient',
+        id: user.id,
+        role: user.role,
         username: username,
-        fullName: username === 'Tlhox' ? 'Tlhox Matlaela' : `${username.charAt(0).toUpperCase() + username.slice(1)} User`,
-        email: `${username}@healthai.com`
+        fullName: user.fullName,
+        email: user.email
       };
       
       req.session.save((err) => {
@@ -68,6 +77,7 @@ app.post('/api/auth/login', async (req, res) => {
           return res.status(500).json({ error: 'Session error' });
         }
         
+        console.log('Login successful for:', username, 'Role:', req.session.user.role);
         res.json({
           id: req.session.user.id,
           username: req.session.user.username,
