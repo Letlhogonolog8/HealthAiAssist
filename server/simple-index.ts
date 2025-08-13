@@ -144,6 +144,90 @@ app.get('/api/scans', (req, res) => {
   res.json([]);
 });
 
+// Admin endpoints
+app.get('/api/admin/users/metrics', (req, res) => {
+  res.json({
+    totalUsers: 4,
+    admins: 1,
+    doctors: 1,
+    radiologists: 1,
+    patients: 1,
+    activeUsers: 4,
+    newUsersToday: 0,
+    loginRate: 85,
+    avgSessionTime: 24
+  });
+});
+
+app.get('/api/admin/users', (req, res) => {
+  const users = [
+    {
+      id: 1,
+      username: 'admin',
+      fullName: 'System Admin',
+      email: 'admin@healthai.com',
+      role: 'admin',
+      specialization: null,
+      isActive: true,
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: 2,
+      username: 'doctor',
+      fullName: 'Dr. Sarah Johnson',
+      email: 'doctor@healthai.com',
+      role: 'doctor',
+      specialization: 'General Practice',
+      isActive: true,
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: 3,
+      username: 'radiologist',
+      fullName: 'Dr. Michael Chen',
+      email: 'radiologist@healthai.com',
+      role: 'radiologist',
+      specialization: 'Medical Imaging',
+      isActive: true,
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: 28,
+      username: 'Tlhox',
+      fullName: 'Tlhox Matlaela',
+      email: 'tlhox@healthai.com',
+      role: 'patient',
+      specialization: null,
+      isActive: true,
+      createdAt: new Date().toISOString()
+    }
+  ];
+  res.json(users);
+});
+
+app.get('/api/admin/stats', (req, res) => {
+  res.json({
+    totalUsers: 4,
+    activeScans: 0,
+    systemUptime: 99.8,
+    aiAccuracy: 94,
+    dailyScans: 0,
+    criticalAlerts: 0,
+    databaseHealth: 98,
+    securityStatus: 'secure'
+  });
+});
+
+app.get('/api/admin/activities/recent', (req, res) => {
+  res.json([
+    {
+      message: 'System started successfully',
+      timestamp: new Date().toLocaleTimeString(),
+      type: 'system'
+    }
+  ]);
+});
+
 // Serve static files
 app.use(express.static('dist/public'));
 
