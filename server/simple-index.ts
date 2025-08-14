@@ -111,27 +111,103 @@ app.get('/api/auth/me', (req, res) => {
 });
 
 // Basic patient profile
-app.get('/api/patient/profile/:id', (req, res) => {
-  res.json({
-    id: 28,
-    personalInfo: {
-      name: 'John Patient',
-      email: 'patient@healthai.com',
-      phone: '+1 (555) 123-4567',
-      age: 34,
-      gender: 'Male'
-    },
-    recentScans: [],
-    appointments: [],
-    vitals: {
-      bloodPressure: '120/80',
-      heartRate: 72,
-      temperature: 98.6
-    },
-    healthScore: {
-      overall: 85
+app.get('/api/patient/profile/:id', async (req, res) => {
+  try {
+    const patientId = parseInt(req.params.id);
+    
+    if (supabase) {
+      // Get patient from Supabase
+      const { data: patient, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', patientId)
+        .eq('role', 'patient')
+        .single();
+      
+      if (error || !patient) {
+        return res.status(404).json({ error: 'Patient not found' });
+      }
+      
+      // Get patient's scans
+      const { data: scans } = await supabase
+        .from('scans')
+        .select('*')
+        .eq('patient_id', patientId)
+        .order('created_at', { ascending: false });
+      
+      // Get patient's appointments
+      const { data: appointments } = await supabase
+        .from('appointments')
+        .select('*')
+        .eq('patient_id', patientId)
+        .order('appointment_date', { ascending: false });
+      
+      res.json({
+        id: patient.id,
+        personalInfo: {
+          name: patient.full_name || patient.username,
+          email: patient.email,
+          phone: patient.phone || '+27734801665',
+          age: patient.age || 28,
+          gender: patient.gender || 'Male',
+          bloodType: patient.blood_type,
+          address: patient.address,
+          emergencyContact: patient.emergency_contact
+        },
+        recentScans: scans?.map(scan => ({
+          id: scan.id,
+          type: scan.scan_type,
+          date: scan.created_at,
+          result: scan.result || 'Processing',
+          confidence: scan.ai_confidence || '0%',
+          status: scan.status || 'pending'
+        })) || [],
+        appointments: appointments?.map(apt => ({
+          id: apt.id,
+          date: apt.appointment_date,
+          time: apt.appointment_time,
+          type: apt.type,
+          status: apt.status,
+          doctorId: apt.doctor_id
+        })) || [],
+        vitals: {
+          bloodPressure: '120/80',
+          heartRate: 72,
+          temperature: 98.6,
+          weight: patient.weight,
+          height: patient.height
+        },
+        healthScore: {
+          overall: scans?.length > 0 ? Math.max(70, 100 - (scans.length * 5)) : 85
+        }
+      });
+    } else {
+      // Fallback for Tlhox when database not connected
+      res.json({
+        id: 28,
+        personalInfo: {
+          name: 'Tlhox',
+          email: 'gontseg8@gmail.com',
+          phone: '+27734801665',
+          age: 28,
+          gender: 'Male'
+        },
+        recentScans: [],
+        appointments: [],
+        vitals: {
+          bloodPressure: '120/80',
+          heartRate: 72,
+          temperature: 98.6
+        },
+        healthScore: {
+          overall: 85
+        }
+      });
     }
-  });
+  } catch (error) {
+    console.error('Error fetching patient profile:', error);
+    res.status(500).json({ error: 'Failed to fetch patient profile' });
+  }
 });
 
 // Patient stats
