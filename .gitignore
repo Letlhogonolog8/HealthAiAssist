@@ -66,8 +66,9 @@ Thumbs.db
 *.tmp
 *.temp
 
-# Model files (too large for git)
-dataset/models/
+# Training data and model files (too large for git — ~600MB of MRI scans).
+# Stripped from history with git-filter-repo; keep them out of the repo.
+dataset/
 *.h5
 *.pkl
 *.joblib
