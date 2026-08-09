@@ -150,7 +150,7 @@ export class AnalyticsEngine {
       return {
         type: 'treatment_outcome',
         insight: `Treatment success rates vary by scan type: ${Object.entries(successRates)
-          .map(([type, rate]) => `${type}: ${(rate * 100).toFixed(1)}%`)
+          .map(([type, rate]) => `${type}: ${((rate as number) * 100).toFixed(1)}%`)
           .join(', ')}`,
         confidence: 0.8,
         data: {
@@ -383,7 +383,7 @@ export class AnalyticsEngine {
   }
 
   private generatePopulationHealthInsight(ageGroups: any, riskDistribution: any): any {
-    const totalScans = Object.values(ageGroups).reduce((sum: number, count) => sum + (count as number), 0);
+    const totalScans = Object.values(ageGroups).reduce((sum: number, count) => sum + (count as number), 0) as number;
     const highRiskPercentage = ((riskDistribution.high + riskDistribution.critical) / totalScans) * 100;
 
     let message = `Population analysis shows ${totalScans} total scans with ${highRiskPercentage.toFixed(1)}% high-risk cases.`;
@@ -431,7 +431,7 @@ export class AnalyticsEngine {
   }
 
   private generateTreatmentRecommendations(successRates: any): string[] {
-    const recommendations = [];
+    const recommendations: string[] = [];
     
     for (const [type, rate] of Object.entries(successRates)) {
       if ((rate as number) < 0.7) {

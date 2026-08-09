@@ -6,7 +6,7 @@ import { exec } from "child_process";
 import path from "path";
 import fs from "fs";
 import multer from "multer";
-import { hashPassword, verifyPassword } from "./auth-middleware";
+import { hashPassword, verifyPassword, loginLimiter, apiLimiter } from "./auth-middleware";
 import { getPatientProfile, getAvailableDermatologists, getAvailableAppointmentSlots } from './services';
 import { medicalChatbotService } from "./chatbot-service";
 import { 
@@ -602,6 +602,9 @@ function generateMockSkinAnalysis(): AnalysisResult {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Global API rate limiting (100 req/min per IP) to blunt abuse/scraping.
+  app.use("/api", apiLimiter);
+
   // Configure multer for image uploads
   const upload = multer({ 
     storage: multer.memoryStorage(),
@@ -624,7 +627,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   // Authentication routes
-  app.post("/api/auth/login", validateInput, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/auth/login", loginLimiter, validateInput, async (req: AuthenticatedRequest, res) => {
     try {
       const { username, password } = req.body;
       if (!username || !password) {
@@ -671,7 +674,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { messages, message, userId } = req.body;
       
       // Handle both message formats
-      let chatMessages = [];
+      let chatMessages: any[] = [];
       if (messages && Array.isArray(messages)) {
         chatMessages = messages;
       } else if (message) {
@@ -1267,101 +1270,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Debug endpoint to test database connection
-  app.get("/api/debug/users", async (req, res) => {
-    try {
-      const users = await storage.getAllUsers();
-      res.json({ success: true, count: users.length, users });
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      res.status(500).json({ success: false, error: errorMessage });
-    }
-  });
-
-  // Debug endpoint to test session
-  app.get("/api/debug/session", bypassAuthForDebug, (req, res) => {
-    res.json({
-      hasSession: !!req.session,
-      sessionId: req.sessionID,
-      user: req.session?.user || null,
-      userId: req.session?.userId || null,
-      sessionData: req.session,
-      cookies: req.headers.cookie,
-      headers: {
-        'user-agent': req.headers['user-agent'],
-        'accept': req.headers.accept,
-        'cookie': req.headers.cookie
-      }
-    });
-  });
-
-  // Test login endpoint for debugging
-  app.post("/api/debug/test-login", async (req, res) => {
-    try {
-      const { username, password } = req.body;
-      console.log('Test login attempt:', { username, password: '***' });
-      
-      if (username === 'patient' && password === 'patient123') {
-        // Set session manually for testing
-        req.session.userId = 28;
-        req.session.user = {
-          id: 28,
-          role: 'patient',
-          username: 'patient',
-          fullName: 'John Patient',
-          email: 'patient@healthai.com'
-        };
-        
-        // Save session explicitly
-        req.session.save((err) => {
-          if (err) {
-            console.error('Session save error:', err);
-            return res.status(500).json({ error: 'Session save failed' });
-          }
-          console.log('Test login successful, session set:', req.session.user);
-          res.json({ success: true, user: req.session.user, sessionId: req.sessionID });
-        });
-      } else {
-        res.status(401).json({ error: 'Invalid test credentials' });
-      }
-    } catch (error) {
-      console.error('Test login error:', error);
-      res.status(500).json({ error: 'Test login failed' });
-    }
-  });
-  
-  // Quick session setup endpoint for debugging
-  app.post("/api/debug/set-session", async (req, res) => {
-    try {
-      const { userId = 28, role = 'patient' } = req.body;
-      
-      req.session.userId = userId;
-      req.session.user = {
-        id: userId,
-        role: role,
-        username: 'debug_user',
-        fullName: 'Debug User',
-        email: 'debug@user.com'
-      };
-      
-      req.session.save((err) => {
-        if (err) {
-          console.error('Session save error:', err);
-          return res.status(500).json({ error: 'Session save failed' });
-        }
-        console.log('Debug session set:', req.session.user);
-        res.json({ 
-          success: true, 
-          user: req.session.user, 
-          sessionId: req.sessionID,
-          message: 'Debug session established'
-        });
+  // Diagnostic session endpoint — never exposed in production.
+  // Reveals only the caller's own session; the user-enumeration,
+  // test-login backdoor, and set-session privilege-escalation endpoints
+  // that used to live here have been removed.
+  if (process.env.NODE_ENV !== 'production') {
+    app.get("/api/debug/session", (req, res) => {
+      res.json({
+        hasSession: !!req.session,
+        sessionId: req.sessionID,
+        user: req.session?.user || null,
+        userId: req.session?.userId || null
       });
-    } catch (error) {
-      console.error('Set session error:', error);
-      res.status(500).json({ error: 'Failed to set session' });
-    }
-  });
+    });
+  }
 
   // Doctor dashboard API endpoints
   app.get("/api/doctor/stats", async (req, res) => {
@@ -1372,7 +1294,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const doctorId = (req.session as any)?.user?.id;
       
       // Get doctor's appointments for today with error handling
-      let todayAppointments = [];
+      let todayAppointments: any[] = [];
       try {
         const doctorAppointments = doctorId ? await storage.getDoctorAppointments(doctorId) : [];
         todayAppointments = doctorAppointments.filter(apt => {
@@ -1718,7 +1640,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         aiAnalysis: {
           processed: scan.result !== 'Processing',
           findings: scan.result !== 'Processing' ? [scan.result] : ['Analysis in progress'],
-          riskLevel: scan.result.toLowerCase().includes('normal') ? 'low' : 'medium'
+          riskLevel: (scan.result || '').toLowerCase().includes('normal') ? 'low' : 'medium'
         }
       }));
 
@@ -3897,7 +3819,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       else if (riskScore >= 5) riskLevel = 'moderate';
 
       // Mock recommendations
-      const recommendations = [];
+      const recommendations: string[] = [];
       if (riskLevel === 'high') {
         recommendations.push("Consult a specialist immediately.");
         recommendations.push("Schedule regular screenings.");

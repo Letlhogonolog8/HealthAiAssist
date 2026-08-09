@@ -43,11 +43,13 @@ A comprehensive AI-powered healthcare platform for multi-modal cancer detection 
      3. Under "System Variables", click "New"
      4. Variable name: `OPENAI_API_KEY`
      5. Variable value: `your_openai_api_key_here`
+     6. (Optional) Variable name: `OPENAI_MODEL` and value: `gpt-4o-mini` (or your preferred model). Defaults to `gpt-4o-mini` if not set.
      6. Restart your terminal/IDE after setting
    
    **Test API Key:**
    ```bash
-   node server/test-openai.mjs
+   # Powershell
+   $env:OPENAI_API_KEY="sk-..."; $env:OPENAI_MODEL="gpt-4o-mini"; node server/test-openai.mjs
    ```
 
 3. **Database Setup** (Optional)
@@ -167,6 +169,7 @@ HealthAiAssist/
 DATABASE_URL=postgresql://user:pass@host:5432/db
 SESSION_SECRET=your-secure-secret
 OPENAI_API_KEY=your-openai-key  # Set in System Environment Variables
+OPENAI_MODEL=gpt-4o-mini        # Optional: defaults to gpt-4o-mini
 GOOGLE_CALENDAR_CREDENTIALS=your-service-account-json  # Optional
 GOOGLE_CALENDAR_ID=your-calendar-id@group.calendar.google.com  # Optional
 NODE_ENV=production
@@ -177,7 +180,7 @@ NODE_ENV=production
 In production, the app reads from System/Platform environment variables. `.env` is only used in development.
 
 - Required: `DATABASE_URL`, `SESSION_SECRET`
-- Optional: `OPENAI_API_KEY`, `GOOGLE_CALENDAR_CREDENTIALS`, `GOOGLE_CALENDAR_ID`, `ENCRYPTION_KEY`, `JWT_SECRET`
+- Optional: `OPENAI_API_KEY`, `OPENAI_MODEL`, `GOOGLE_CALENDAR_CREDENTIALS`, `GOOGLE_CALENDAR_ID`, `ENCRYPTION_KEY`, `JWT_SECRET`
 
 ### Health Check
 

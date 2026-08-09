@@ -117,7 +117,7 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
           fetch('/api/debug/users', { credentials: 'include' }).catch(() => ({ ok: false } as Response))
         ]);
 
-        const [stats, users, staff, activities, wsStats, metrics, debugUsers] = await Promise.all([
+        const [stats, users, staff, activities, wsStats, metrics, debugUsers]: any[] = await Promise.all([
           statsRes.ok ? statsRes.json().catch(() => ({})) : {
             totalUsers: 0, activeScans: 0, systemUptime: 99.9, aiAccuracy: 94,
             dailyScans: 0, criticalAlerts: 0, databaseHealth: 95, securityStatus: 'secure'

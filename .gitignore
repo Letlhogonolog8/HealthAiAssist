@@ -75,3 +75,7 @@ dataset/models/
 # Uploads
 uploads/
 temp/
+# Secrets and local artifacts (never commit)
+cookies.txt
+set-openai-key.bat
+*.env.production.local

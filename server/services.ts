@@ -168,7 +168,7 @@ export async function getAvailableAppointmentSlots(year: number, month: number) 
       return aptDate === dateString;
     });
 
-    const availableSlotsForDay = [];
+    const availableSlotsForDay: any[] = [];
     
     for (const professional of availableProfessionals) {
       // Get booked times for this professional on this date

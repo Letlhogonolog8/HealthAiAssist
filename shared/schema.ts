@@ -114,6 +114,8 @@ export const insertUserSchema = createInsertSchema(users).pick({
   role: true,
   fullName: true,
   email: true,
+  age: true,
+  gender: true,
   specialization: true,
   licenseNumber: true,
 });

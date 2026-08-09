@@ -15,7 +15,7 @@ export { default as AdminDashboard } from './admin-dashboard';
 export { default as PatientPortalFinal } from './patient-portal-final';
 export { default as PatientManagement } from './patient-management';
 export { default as RadiologistDashboard } from './radiologist-dashboard';
-export { default as EnhancedDashboard } from './enhanced-dashboard';
+export { EnhancedDashboard } from './enhanced-dashboard';
 
 // Chatbot Components
 export { default as FloatingChatbot } from './floating-chatbot';
@@ -44,7 +44,7 @@ export { default as AmbientSoundTherapy } from './ambient-sound-therapy';
 export { default as MobileQRAccess } from './mobile-qr-access';
 export { WebSocketProvider } from './websocket-provider';
 export { default as OptimizedQueryClient } from './optimized-query-client';
-export { default as NotificationCenter } from './notification-center';
+export { NotificationCenter, NotificationButton } from './notification-center';
 export { default as ChatNotifications } from './chat-notifications';
 
 // Section Components

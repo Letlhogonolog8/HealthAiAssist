@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
@@ -21,7 +21,7 @@ interface MobileNavigationProps {
 export function MobileNavigation({ className }: MobileNavigationProps) {
   const [isOpen, setIsOpen] = useState(false);
   const { user, logout } = useUser();
-  const location = useLocation();
+  const [location] = useLocation();
 
   const getNavigationItems = () => {
     if (!user) return [];
@@ -88,9 +88,9 @@ export function MobileNavigation({ className }: MobileNavigationProps) {
 
   const isActive = (href: string) => {
     if (href === '/') {
-      return location.pathname === '/' || location.pathname === `/${user?.role}`;
+      return location === '/' || location === `/${user?.role}`;
     }
-    return location.pathname.startsWith(href);
+    return location.startsWith(href);
   };
 
   return (
@@ -241,7 +241,7 @@ export function MobileNavigation({ className }: MobileNavigationProps) {
 // Bottom navigation for mobile (alternative approach)
 export function MobileBottomNavigation({ className }: MobileNavigationProps) {
   const { user } = useUser();
-  const location = useLocation();
+  const [location] = useLocation();
 
   if (!user) return null;
 
@@ -290,9 +290,9 @@ export function MobileBottomNavigation({ className }: MobileNavigationProps) {
 
   const isActive = (href: string) => {
     if (href === `/${user.role}`) {
-      return location.pathname === '/' || location.pathname === `/${user.role}`;
+      return location === '/' || location === `/${user.role}`;
     }
-    return location.pathname.startsWith(href);
+    return location.startsWith(href);
   };
 
   return (

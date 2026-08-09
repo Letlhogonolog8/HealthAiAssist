@@ -141,7 +141,7 @@ export class AuditLogger {
 
 // Data Encryption Service
 export class DataEncryption {
-  private static algorithm = 'aes-256-gcm';
+  private static algorithm = 'aes-256-gcm' as const;
   private static keyLength = 32;
   private static ivLength = 16;
 
@@ -149,7 +149,7 @@ export class DataEncryption {
     const encryptionKey = key ? Buffer.from(key, 'hex') : crypto.randomBytes(this.keyLength);
     const iv = crypto.randomBytes(this.ivLength);
     
-    const cipher = crypto.createCipher(this.algorithm, encryptionKey);
+    const cipher = crypto.createCipheriv(this.algorithm, encryptionKey, iv);
     cipher.setAAD(Buffer.from('HealthAI-Medical-Data', 'utf8'));
     
     let encrypted = cipher.update(data, 'utf8', 'hex');
@@ -166,7 +166,7 @@ export class DataEncryption {
   }
 
   static decrypt(encryptedData: string, key: string, iv: string, tag: string): string {
-    const decipher = crypto.createDecipher(this.algorithm, Buffer.from(key, 'hex'));
+    const decipher = crypto.createDecipheriv(this.algorithm, Buffer.from(key, 'hex'), Buffer.from(iv, 'hex'));
     decipher.setAAD(Buffer.from('HealthAI-Medical-Data', 'utf8'));
     decipher.setAuthTag(Buffer.from(tag, 'hex'));
     

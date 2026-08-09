@@ -13,7 +13,11 @@ import {
   Eye,
   Contrast,
   Sun,
-  Settings
+  Settings,
+  Brain,
+  FileText,
+  Activity,
+  Clock
 } from 'lucide-react';
 
 interface MedicalImageViewerProps {

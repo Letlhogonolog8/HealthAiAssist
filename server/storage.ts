@@ -25,6 +25,7 @@ export interface IStorage {
   getScans(patientId?: number): Promise<MedicalScan[]>;
   createScan(scan: InsertScan): Promise<MedicalScan>;
   updateScan(id: number, updates: Partial<MedicalScan>): Promise<MedicalScan | undefined>;
+  deleteScan(id: number): Promise<boolean>;
   getScansForReview(): Promise<any[]>;
   
   // Medical terms
@@ -461,7 +462,7 @@ export class DatabaseStorage implements IStorage {
 
 // Create storage instance with fallback mechanism
 class FallbackStorage implements IStorage {
-  private mockUsers: User[] = [
+  private mockUsers: User[] = ([
     {
       id: 1,
       username: 'admin',
@@ -506,7 +507,7 @@ class FallbackStorage implements IStorage {
       isActive: true,
       createdAt: new Date()
     }
-  ];
+  ] as unknown) as User[];
 
   async getUser(id: number): Promise<User | undefined> {
     return this.mockUsers.find(u => u.id === id);
@@ -566,6 +567,7 @@ class FallbackStorage implements IStorage {
   async getScans(patientId?: number): Promise<MedicalScan[]> { return []; }
   async createScan(scan: InsertScan): Promise<MedicalScan> { return {} as MedicalScan; }
   async updateScan(id: number, updates: Partial<MedicalScan>): Promise<MedicalScan | undefined> { return undefined; }
+  async deleteScan(id: number): Promise<boolean> { return false; }
   async getScansForReview(): Promise<any[]> { return []; }
   async getTerms(): Promise<MedicalTerm[]> { return []; }
   async searchTerms(query: string): Promise<MedicalTerm[]> { return []; }

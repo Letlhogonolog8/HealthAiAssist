@@ -223,7 +223,7 @@ export default function BloodTestAnalyzer() {
   };
 
   const generateRecommendations = (riskLevel: string, cancerType: string, markers: any[]): string[] => {
-    const recommendations = [];
+    const recommendations: string[] = [];
     
     if (riskLevel === 'critical' || riskLevel === 'high') {
       recommendations.push('Immediate oncology consultation required within 48 hours');

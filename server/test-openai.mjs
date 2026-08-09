@@ -1,6 +1,12 @@
 import OpenAI from 'openai';
 
-const apiKey = '***REMOVED-OPENAI-KEY***';
+const apiKey = process.env.OPENAI_API_KEY;
+const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+
+if (!apiKey) {
+  console.error('OPENAI_API_KEY not set. Please configure it in your environment.');
+  process.exit(1);
+}
 
 const openai = new OpenAI({ apiKey });
 
@@ -9,7 +15,7 @@ async function testOpenAI() {
     console.log('Testing OpenAI API key...');
     
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model,
       messages: [
         { role: "user", content: "Hello, this is a test message." }
       ],

@@ -5,8 +5,9 @@ const db = getDb();
 import { users, medicalScans, appointments } from "@shared/schema";
 import { eq, and, desc, gte } from "drizzle-orm";
 
-// Use system environment variable for OpenAI API key
+// Use system environment variables for OpenAI configuration
 const apiKey = process.env.OPENAI_API_KEY;
+const configuredModel = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const openai = apiKey ? new OpenAI({ apiKey }) : null;
 
 if (!openai) {
@@ -117,7 +118,7 @@ Always respond in a caring, professional tone while being informative and helpfu
       
       const completion = await Promise.race([
         openai!.chat.completions.create({
-          model: "gpt-4o",
+          model: configuredModel,
           messages: openaiMessages,
           max_tokens: 400,
           temperature: 0.7
@@ -272,7 +273,7 @@ Remember: This is guidance only, not medical diagnosis.`;
       }
       
       const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
+        model: configuredModel,
         messages: [
           { role: 'system', content: 'You are a medical guidance AI. Provide helpful health information while emphasizing the need for professional medical consultation.' },
           { role: 'user', content: prompt }

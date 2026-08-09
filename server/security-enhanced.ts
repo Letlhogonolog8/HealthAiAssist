@@ -103,7 +103,7 @@ export const corsConfig = cors({
 // Security headers configuration
 const isDevEnv = process.env.NODE_ENV !== 'production';
 
-const cspDirectives: helmet.IHelmetContentSecurityPolicyConfiguration['directives'] = {
+const cspDirectives: Record<string, string[]> = {
   defaultSrc: ["'self'"],
   styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
   fontSrc: ["'self'", "https://fonts.gstatic.com"],

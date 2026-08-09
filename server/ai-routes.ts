@@ -373,7 +373,7 @@ function getPerformanceGrade(metrics: any): string {
 }
 
 function getPerformanceRecommendations(metrics: any): string[] {
-  const recommendations = [];
+  const recommendations: string[] = [];
   if (metrics.averageConfidence < 0.80) {
     recommendations.push('Consider model retraining with additional data');
   }

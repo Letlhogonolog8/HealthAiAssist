@@ -52,13 +52,12 @@ export async function performEnhancedMedicalAnalysis(
     return {
       confidence: 0.5,
       findings: [`${scanType} analysis unavailable - TensorFlow.js not loaded`],
-      riskAssessment: 'Unable to assess - ML features disabled',
       recommendations: ['Please install TensorFlow.js properly to enable AI analysis'],
-      metadata: {
-        analysisTime: Date.now(),
-        modelVersion: 'N/A',
-        quality: 'unknown'
-      }
+      riskLevel: 'low',
+      imageQuality: 0,
+      preprocessingApplied: [],
+      multiModelConsensus: false,
+      uncertaintyScore: 1
     };
   }
   

@@ -19,7 +19,7 @@ const pool = new Pool({
   query_timeout: 30000
 });
 
-const db = drizzle(pool, { schema });
+export const db = drizzle(pool, { schema });
 
 export function getDb() {
   return db;

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -46,6 +46,7 @@ export function EnhancedDashboard({ userRole, className }: EnhancedDashboardProp
   const [timeRange, setTimeRange] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [chartType, setChartType] = useState<'line' | 'bar' | 'area'>('line');
   const { user } = useUser();
+  const queryClient = useQueryClient();
 
   // Real-time updates via WebSocket
   const { isConnected, connectionState } = useWebSocketEnhanced({

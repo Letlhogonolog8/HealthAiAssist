@@ -61,7 +61,7 @@ interface MedicalContext {
 }
 
 export class AIEngine {
-  private models: Map<string, tf.LayersModel> = new Map();
+  private models: Map<string, any> = new Map();
   private modelConfigs: Map<string, ModelConfig> = new Map();
   private isInitialized = false;
   private initializationPromise: Promise<void> | null = null;
@@ -250,11 +250,11 @@ export class AIEngine {
       const tensor = await this.preprocessImage(imagePath, config);
       
       // Make prediction
-      const prediction = model.predict(tensor) as tf.Tensor;
+      const prediction = model.predict(tensor) as any;
       const probabilities = await prediction.data();
       
       // Process results
-      const predictions = Array.from(probabilities).map((prob, index) => ({
+      const predictions = Array.from(probabilities as Float32Array).map((prob, index) => ({
         class: config.outputClasses[index],
         confidence: Math.round(prob * 100) / 100,
         probability: prob
@@ -305,7 +305,7 @@ export class AIEngine {
     }
   }
 
-  private async preprocessImage(imagePath: string, config: ModelConfig): Promise<tf.Tensor> {
+  private async preprocessImage(imagePath: string, config: ModelConfig): Promise<any> {
     try {
       // Read image file
       const imageBuffer = fs.readFileSync(imagePath);

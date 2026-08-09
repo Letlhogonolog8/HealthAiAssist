@@ -48,7 +48,7 @@ router.post('/security/2fa/setup', requireAuth, async (req: AuthenticatedRequest
       action: '2fa_setup_initiated',
       resource: 'user_security',
       outcome: 'success',
-      ipAddress: req.ip,
+      ipAddress: req.ip || '',
       userAgent: req.headers['user-agent'] || ''
     });
 
@@ -92,7 +92,7 @@ router.post('/security/2fa/verify', requireAuth, async (req: AuthenticatedReques
         action: '2fa_enabled',
         resource: 'user_security',
         outcome: 'success',
-        ipAddress: req.ip,
+        ipAddress: req.ip || '',
         userAgent: req.headers['user-agent'] || ''
       });
 
@@ -108,7 +108,7 @@ router.post('/security/2fa/verify', requireAuth, async (req: AuthenticatedReques
         action: '2fa_verification_failed',
         resource: 'user_security',
         outcome: 'failure',
-        ipAddress: req.ip,
+        ipAddress: req.ip || '',
         userAgent: req.headers['user-agent'] || ''
       });
 
@@ -182,7 +182,7 @@ router.post('/security/sessions/terminate-all', requireAuth, async (req: Authent
       action: 'all_sessions_terminated',
       resource: 'user_security',
       outcome: 'success',
-      ipAddress: req.ip,
+      ipAddress: req.ip || '',
       userAgent: req.headers['user-agent'] || '',
       metadata: { terminatedSessions: terminatedCount }
     });
@@ -320,7 +320,7 @@ router.post('/analytics/track', requireAuth, async (req: AuthenticatedRequest, r
     await SecurityMonitor.monitorUserActivity(req.session.user?.id!, {
       action,
       resource,
-      ipAddress: req.ip,
+      ipAddress: req.ip || '',
       timestamp: new Date()
     });
 
