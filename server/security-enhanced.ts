@@ -103,14 +103,21 @@ export const corsConfig = cors({
 // Security headers configuration
 const isDevEnv = process.env.NODE_ENV !== 'production';
 
+// NOTE: In development, we use 'unsafe-inline' for styles due to Vite HMR and React development tools.
+// This should NOT be used in production. For production, implement proper nonce-based CSP or styled-components.
 const cspDirectives: Record<string, string[]> = {
   defaultSrc: ["'self'"],
-  styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+  styleSrc: ["'self'", "https://fonts.googleapis.com", ...(isDevEnv ? ["'unsafe-inline'"] : [])],
   fontSrc: ["'self'", "https://fonts.gstatic.com"],
   imgSrc: ["'self'", "data:", "https:", "blob:", "https://api.qrserver.com"],
-  scriptSrc: isDevEnv ? ["'self'", "'unsafe-eval'", "'unsafe-inline'"] : ["'self'"],
-  connectSrc: ["'self'", "https://api.openai.com", "wss:", "https:"],
+  // PRODUCTION: Remove unsafe-inline and unsafe-eval. Only allow scripts from self.
+  scriptSrc: isDevEnv ? ["'self'", "'unsafe-inline'"] : ["'self'"],
+  connectSrc: ["'self'", "https://api.openai.com", "wss:", "ws:", "https:"],
   mediaSrc: ["'self'", "blob:"],
+  // Additional security directives
+  objectSrc: ["'none'"],
+  frameAncestors: ["'none'"],
+  upgradeInsecureRequests: isDevEnv ? [] : ["'self'"],
 };
 
 export const securityHeaders = helmet({

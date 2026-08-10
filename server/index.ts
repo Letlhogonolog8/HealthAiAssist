@@ -33,6 +33,23 @@ app.use(express.urlencoded({ extended: false }));
 const isProduction = process.env.NODE_ENV === 'production';
 const httpsOnly = (process.env.HTTPS_ONLY || 'false').toLowerCase() === 'true';
 
+// Warn if HTTPS is not enabled in production
+if (isProduction && !httpsOnly) {
+  console.warn('⚠️  WARNING: HTTPS_ONLY is not enabled in production. This is a security risk.');
+  console.warn('   Set HTTPS_ONLY=true in production environment variables.');
+}
+
+// HTTPS enforcement middleware - redirect HTTP to HTTPS in production
+if (httpsOnly) {
+  app.use((req, res, next) => {
+    if (req.header('x-forwarded-proto') !== 'https') {
+      res.redirect(301, `https://${req.header('host')}${req.url}`);
+    } else {
+      next();
+    }
+  });
+}
+
 let sessionConfig: any = {
   secret: process.env.SESSION_SECRET || 'your-secure-session-secret-here-dev-only',
   resave: false,

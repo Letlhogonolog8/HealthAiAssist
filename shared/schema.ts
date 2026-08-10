@@ -108,17 +108,47 @@ export const chatMessages = pgTable("chat_messages", {
 
 
 
-export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
-  password: true,
-  role: true,
-  fullName: true,
-  email: true,
-  age: true,
-  gender: true,
-  specialization: true,
-  licenseNumber: true,
-});
+export const insertUserSchema = createInsertSchema(users)
+  .pick({
+    username: true,
+    password: true,
+    role: true,
+    fullName: true,
+    email: true,
+    age: true,
+    gender: true,
+    specialization: true,
+    licenseNumber: true,
+  })
+  .refine((data) => {
+    // Password must be at least 8 characters with mixed case and number
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+    return passwordRegex.test(data.password);
+  }, {
+    message: "Password must be at least 8 characters with uppercase, lowercase, and a number",
+    path: ["password"],
+  })
+  .refine((data) => {
+    // Username must be 3-20 characters, alphanumeric with underscore
+    return /^[a-zA-Z0-9_]{3,20}$/.test(data.username);
+  }, {
+    message: "Username must be 3-20 characters, alphanumeric with underscore only",
+    path: ["username"],
+  })
+  .refine((data) => {
+    // Email must be valid and not too long
+    return data.email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email);
+  }, {
+    message: "Invalid email format or too long",
+    path: ["email"],
+  })
+  .refine((data) => {
+    // Full name must be reasonable length
+    return data.fullName.length >= 2 && data.fullName.length <= 255;
+  }, {
+    message: "Full name must be between 2 and 255 characters",
+    path: ["fullName"],
+  });
 
 export const insertScanSchema = createInsertSchema(medicalScans).pick({
   patientId: true,

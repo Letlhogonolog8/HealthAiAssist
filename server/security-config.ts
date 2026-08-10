@@ -50,20 +50,24 @@ export const applySecurityMiddleware = (app: express.Application) => {
 
 // Additional middleware for specific security requirements
 export const requireAuth = (req: AuthenticatedRequest, res: express.Response, next: express.NextFunction) => {
-  console.log('RequireAuth - Session exists:', !!req.session);
-  console.log('RequireAuth - User in session:', !!req.session?.user);
-  console.log('RequireAuth - UserId in session:', req.session?.userId);
-  
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('RequireAuth - Session exists:', !!req.session);
+    console.log('RequireAuth - User in session:', !!req.session?.user);
+    console.log('RequireAuth - UserId in session:', req.session?.userId);
+  }
+
   if (!req.session?.user && !req.session?.userId) {
-    return res.status(401).json({ 
-      error: 'Authentication required',
-      debug: {
+    // In production, don't leak debug info. In development, include for troubleshooting.
+    const response: any = { error: 'Authentication required' };
+    if (process.env.NODE_ENV !== 'production') {
+      response.debug = {
         hasSession: !!req.session,
         hasUser: !!req.session?.user,
         hasUserId: !!req.session?.userId,
         sessionId: req.sessionID
-      }
-    });
+      };
+    }
+    return res.status(401).json(response);
   }
   next();
 };
