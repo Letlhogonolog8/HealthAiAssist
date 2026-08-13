@@ -72,22 +72,22 @@ export const MODEL_REGISTRY: Record<string, ModelRegistryEntry> = {
     }
   },
   skin: {
-    enabled: false,
-    disabledReason:
-      'The skin model does not discriminate. Measured on the held-out test set ' +
-      '(360 benign / 300 malignant) its best balanced accuracy is 0.50 — chance — ' +
-      'under every preprocessing scheme tried (div255, resnet_v2 preprocess_input, ' +
-      'raw 0-255). It must be retrained and re-evaluated before it is served.',
+    enabled: true,
     evaluation: {
-      dataset: 'dataset/dataset/data/test (360 benign / 300 malignant)',
-      balancedAccuracy: 0.5,
-      sensitivity: 0.0,
-      specificity: 1.0,
-      preprocessing: 'best of div255 / resnet_v2 preprocess_input / raw 0-255',
+      dataset: 'dataset/dataset/data/test (360 benign / 300 malignant), held out from training',
+      balancedAccuracy: 0.8636,
+      sensitivity: 0.9133,
+      specificity: 0.8139,
+      preprocessing: 'raw RGB 0-255 — normalisation is fused into the model graph',
       caveats:
-        'Best-scoring configuration predicts "benign" for every image, detecting ' +
-        'no malignancies at all. Other configurations invert this and flag almost ' +
-        'everything as malignant (specificity 0.06). The model carries no usable signal.'
+        'Retrained 2026-08-13 (frozen ResNet50V2 + trained head); the previous ' +
+        'artifact scored at chance. Figures above are at argmax. The service uses ' +
+        'banded thresholds (>0.70 malignant, 0.30-0.70 uncertain, <=0.30 benign), ' +
+        'at which 10 of 300 malignant lesions (3.3%) receive an outright benign ' +
+        'result, 96.7% are flagged or escalated, and 17% of all scans land in the ' +
+        'uncertain band. Training data provenance and demographic composition are ' +
+        'unrecorded, so performance across skin tones is UNKNOWN and must not be ' +
+        'assumed uniform. Screening triage only; not clinically validated.'
     }
   }
 };

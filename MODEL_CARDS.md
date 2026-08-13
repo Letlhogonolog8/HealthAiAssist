@@ -1,5 +1,12 @@
 # Model Cards
 
+> **Artifacts are not in git.** `dataset/` is gitignored (it was stripped from
+> history), so the `.h5` files these cards describe are not version-controlled and
+> must be provisioned onto any machine that serves them. The skin model is
+> rebuildable from source with `python scripts/train-skin-cancer-model.py`; the
+> lung model is not — its training script is stale and no equivalent exists, so
+> **that artifact is currently irreplaceable if lost.** Back it up.
+
 Every model this system can serve, what it was measured at, and what it must not
 be used for. The authoritative machine-readable copy lives in
 [`server/model-availability.ts`](server/model-availability.ts) and is served at
@@ -50,40 +57,69 @@ accuracy scores that degenerate case at 0.5, which is chance.
 
 ---
 
-## Skin cancer — ResNet50V2 — **DISABLED**
+## Skin cancer — ResNet50V2 — **ENABLED** (retrained 2026-08-13)
 
 | | |
 |---|---|
 | Artifact | `dataset/data/resnet50v2_skin_cancer_model.h5` |
-| Task | Binary classification, `benign` vs `malignant` |
-| Evaluation set | `dataset/dataset/data/test` — 360 benign / 300 malignant (held out) |
-| **Balanced accuracy** | **0.50 — chance** |
+| Task | Binary classification, `benign` (index 0) vs `malignant` (index 1) |
+| Architecture | ResNet50V2 ImageNet trunk, **frozen**; trained Dense(256)+Dropout head |
+| Input | Raw RGB 0–255, 224×224. Normalisation is **fused into the graph** as a `Rescaling` layer |
+| Training set | `dataset/dataset/data/train` — 2241 images (1224 benign / 1017 malignant) after a 15% validation holdout, ×3 with flip/rotation augmentation |
+| Evaluation set | `dataset/dataset/data/test` — 360 benign / 300 malignant, **never touched during training or model selection** |
+| **Balanced accuracy** | **0.864** (chance = 0.50) |
+| Sensitivity @ argmax | 0.913 — 274 of 300 |
+| Specificity @ argmax | 0.814 — 293 of 360 |
+| Raw accuracy | 0.859 (majority-class baseline 0.545) |
+| Validation balanced accuracy | 0.873 — close to test, so not overfit to the split |
 
-**This model does not work and is not served.** Requests for skin analysis return
-HTTP 503 and the scan is queued for manual review.
+Reproduce: `python scripts/train-skin-cancer-model.py` then
+`python scripts/evaluate-model.py dataset/data/resnet50v2_skin_cancer_model.h5 dataset/dataset/data/test benign malignant raw_0_255`
 
-It was evaluated under three preprocessing schemes. None produced a usable
-classifier:
+### The deployed operating point
 
-| Preprocessing | Balanced acc. | Sensitivity | Specificity | Behaviour |
-|---|---|---|---|---|
-| Raw 0–255 | 0.500 | 0.00 | 1.00 | Calls every image benign; detects nothing |
-| Divide by 255 | 0.466 | 0.87 | 0.06 | Calls almost every image malignant |
-| `resnet_v2.preprocess_input` | 0.451 | 0.84 | 0.06 | Same failure, slightly worse |
+The service does not use argmax. It bands the malignant probability, and **these are
+the numbers that describe what a user actually receives**:
 
-The two orientations are mirror images of each other: the model separates nothing,
-it only shifts where the threshold falls. It carries no usable signal.
+| Truth | → "benign" (≤0.30) | → "uncertain" (0.30–0.70) | → "malignant" (>0.70) |
+|---|---|---|---|
+| Malignant (300) | **10 (3.3%)** | 56 | 234 |
+| Benign (360) | 268 | 57 | 35 |
 
-The original training code is gone — `server/train-skin-cancer-model.py` imports a
-`SkinCancerDetector` class that no longer exists in `server/skin_cancer_model.py` —
-so the artifact's true preprocessing and class order cannot be recovered from the
-repository. **Retraining from scratch, with the preprocessing recorded, is the only
-path to re-enabling this model.**
+- **3.3% of malignant lesions receive an outright benign result.** This is the
+  number to care about: it is the only outcome that actively reassures someone who
+  has cancer.
+- 96.7% of malignant lesions are either flagged or escalated to `uncertain`, and
+  both paths route to a clinician.
+- 74.4% of benign lesions are cleared; 17% of all scans land in `uncertain`.
+- Banding trades label precision for safety: strict "malignant" sensitivity is
+  0.78, but outright-miss rate falls to 0.033.
 
-**Re-enable only when** balanced accuracy on the held-out test set clears 0.55 by a
-meaningful margin, the preprocessing is pinned in code, and this card is updated
-with the measured figures. Flip `enabled` in `MODEL_REGISTRY` at that point, not
-before.
+### Limitations
+
+- **Performance across skin tones is unknown.** The dataset's provenance and
+  demographic composition are unrecorded. Dermoscopy sets of this vintage are
+  typically light-skin dominant, so sensitivity on darker skin should be assumed
+  *worse than reported* until measured. Measuring it requires Fitzpatrick labels
+  the dataset does not carry.
+- Not clinically validated. Not cleared by any regulator.
+- The trunk is frozen, so the model relies on generic ImageNet features rather
+  than dermatology-specific ones. Fine-tuning the upper blocks would likely help;
+  it was not attempted here because the training box is CPU-only with ~1 GB free.
+- 660 test images is a small evaluation set. The confidence interval on 0.864 is
+  wide — roughly ±0.03.
+
+### History
+
+The previous artifact scored **0.50 balanced accuracy — exactly chance** — on this
+same test set, under all three preprocessing schemes tried (raw 0–255 called every
+image benign; div255 and `resnet_v2.preprocess_input` flagged nearly everything
+malignant at specificity 0.06). Its training code no longer existed, so its
+preprocessing and class order could not be recovered, and it was rebuilt from
+scratch. The app had been advertising that model at "96% accuracy".
+
+Preprocessing is now fused into the saved graph specifically so that inference
+cannot silently disagree with training about normalisation again.
 
 ---
 

@@ -6,19 +6,20 @@ from PIL import Image
 import tensorflow as tf
 
 def preprocess_image(image_path):
-    """Preprocess image for model prediction"""
+    """Load an image as raw RGB 0-255, resized to the model's input size.
+
+    Deliberately NO normalisation here. The served model begins with a Rescaling
+    layer that applies resnet_v2's x/127.5-1 inside the graph, so training and
+    inference cannot drift apart on normalisation. Dividing by 255 here would
+    silently double-scale the input.
+
+    See scripts/train-skin-cancer-model.py and MODEL_CARDS.md.
+    """
     try:
-        # Load and resize image
-        img = Image.open(image_path)
-        img = img.convert('RGB')
-        img = img.resize((224, 224))
-        
-        # Convert to numpy array and normalize
-        img_array = np.array(img) / 255.0
-        img_array = np.expand_dims(img_array, axis=0)
-        
-        return img_array
-    except Exception as e:
+        img = Image.open(image_path).convert('RGB').resize((224, 224))
+        img_array = np.array(img, dtype=np.float32)
+        return np.expand_dims(img_array, axis=0)
+    except Exception:
         return None
 
 def predict_skin_cancer(image_path, model_path=None):
@@ -46,7 +47,8 @@ def predict_skin_cancer(image_path, model_path=None):
             # Make prediction
             predictions = model.predict(img_array, verbose=0)
             
-            # Get probabilities
+            # Class index order is fixed by training: 0=benign, 1=malignant.
+            # Recorded in dataset/data/skin_model_training.json.
             benign_prob = float(predictions[0][0])
             malignant_prob = float(predictions[0][1])
             

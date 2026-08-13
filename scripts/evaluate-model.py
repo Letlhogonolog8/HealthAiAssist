@@ -7,15 +7,21 @@ does not beat its baseline is not a working model, regardless of what the
 training logs said.
 
 Usage:
-    python scripts/evaluate-model.py <model.h5> <data_dir> <class0> <class1>
+    python scripts/evaluate-model.py <model.h5> <data_dir> <class0> <class1> [scheme]
 
 `data_dir` must contain one subdirectory per class. Class order must match the
 model's output index order (index 0 = class0, index 1 = class1).
 
+`scheme` pins the input normalisation to one of: div255, resnet_v2_preprocess,
+raw_0_255. Pass it whenever the model's preprocessing is known — a model with
+preprocessing fused into its graph must be evaluated with `raw_0_255`, and
+sweeping schemes against it would report meaningless numbers for the other two.
+Omit it only to probe a legacy artifact whose preprocessing was never recorded.
+
 Example:
     python scripts/evaluate-model.py \\
         dataset/data/resnet50v2_skin_cancer_model.h5 \\
-        dataset/dataset/data/test benign malignant
+        dataset/dataset/data/test benign malignant raw_0_255
 """
 import json
 import os
@@ -50,10 +56,17 @@ def load_dir(path):
 
 
 def main():
-    if len(sys.argv) != 5:
+    if len(sys.argv) not in (5, 6):
         raise SystemExit(__doc__)
 
     model_path, data_dir, class0, class1 = sys.argv[1:5]
+    schemes = SCHEMES
+    if len(sys.argv) == 6:
+        pinned = sys.argv[5]
+        if pinned not in SCHEMES:
+            raise SystemExit(f"Unknown scheme {pinned!r}. Choose from: {', '.join(SCHEMES)}")
+        schemes = {pinned: SCHEMES[pinned]}
+
     model = tf.keras.models.load_model(model_path)
 
     data = {c: load_dir(os.path.join(data_dir, c)) for c in (class0, class1)}
@@ -61,7 +74,7 @@ def main():
     baseline = max(n0, n1) / (n0 + n1)
 
     results = {}
-    for scheme, fn in SCHEMES.items():
+    for scheme, fn in schemes.items():
         p0 = model.predict(fn(data[class0]), verbose=0)
         p1 = model.predict(fn(data[class1]), verbose=0)
 
