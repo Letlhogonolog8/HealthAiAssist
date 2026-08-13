@@ -1,0 +1,35 @@
+{
+  "source": "SYNTHETIC TEST DATA - not ClinVar",
+  "version": "synthetic-v1",
+  "synthetic": true,
+  "variants": [
+    {
+      "rsid": "rs80357906",
+      "gene": "BRCA1",
+      "riskAllele": "A",
+      "classification": "pathogenic",
+      "condition": "Hereditary breast and ovarian cancer",
+      "clinvarId": null,
+      "inheritance": "autosomal dominant"
+    },
+    {
+      "rsid": "rs80359550",
+      "gene": "BRCA2",
+      "riskAllele": "T",
+      "classification": "pathogenic",
+      "condition": "Hereditary breast and ovarian cancer",
+      "clinvarId": null,
+      "inheritance": "autosomal dominant"
+    },
+    {
+      "rsid": "rs28897743",
+      "gene": "BRCA2",
+      "riskAllele": "G",
+      "classification": "uncertain_significance",
+      "condition": "Hereditary breast and ovarian cancer",
+      "clinvarId": null,
+      "inheritance": "autosomal dominant"
+    }
+  ],
+  "_warning": "The rsIDs here are real identifiers but the classifications and risk alleles are NOT verified against ClinVar. This file exists so the screening pipeline can be tested. Replace it with a ClinVar-derived panel, or delete it, before any real deployment. See README.md."
+}

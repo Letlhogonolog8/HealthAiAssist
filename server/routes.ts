@@ -27,6 +27,7 @@ import {
   auditLog
 } from "./security-middleware";
 import advancedRoutes from "./advanced-routes";
+import genomicsRoutes from "./genomics-routes";
 import { createCompressionMiddleware, ResponseOptimizer, PerformanceMonitor } from "./performance-optimizer";
 import { analyticsEngine } from "./analytics-engine";
 import { enhancedWsManager } from "./websocket";
@@ -3933,6 +3934,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Mount advanced routes
   app.use('/api/advanced', advancedRoutes);
+
+  // Genomics: consent, genotype upload, polygenic scoring, fused risk.
+  // Every data-touching route inside enforces consent and writes an audit entry.
+  app.use('/api/genomics', genomicsRoutes);
 
   // Track application usage for analytics
   app.use('/api/*', async (req: AuthenticatedRequest, res, next) => {

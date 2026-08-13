@@ -1,0 +1,21 @@
+{
+  "id": "SYNTHETIC-MELANOMA-001",
+  "condition": "melanoma",
+  "provenance": "synthetic",
+  "pgsId": null,
+  "genomeBuild": "GRCh37",
+  "discoveryAncestry": null,
+  "citation": "SYNTHETIC TEST DATA - weights are invented and have no clinical meaning. The rsIDs are real melanoma-associated loci from the literature, but the weights attached to them here are NOT published effect sizes. Replace with a PGS Catalog scoring file before any real use. See README.md.",
+  "variants": [
+    { "rsid": "rs16891982", "effectAllele": "C", "otherAllele": "G", "weight": 0.10 },
+    { "rsid": "rs12913832", "effectAllele": "G", "otherAllele": "A", "weight": 0.10 },
+    { "rsid": "rs1805007", "effectAllele": "T", "otherAllele": "C", "weight": 0.10 },
+    { "rsid": "rs1805008", "effectAllele": "T", "otherAllele": "C", "weight": 0.10 },
+    { "rsid": "rs1393350", "effectAllele": "A", "otherAllele": "G", "weight": 0.10 },
+    { "rsid": "rs910873", "effectAllele": "A", "otherAllele": "G", "weight": 0.10 },
+    { "rsid": "rs6059655", "effectAllele": "A", "otherAllele": "G", "weight": 0.10 },
+    { "rsid": "rs2218220", "effectAllele": "T", "otherAllele": "C", "weight": 0.10 },
+    { "rsid": "rs7412746", "effectAllele": "C", "otherAllele": "T", "weight": 0.10 },
+    { "rsid": "rs4636294", "effectAllele": "A", "otherAllele": "G", "weight": 0.10 }
+  ]
+}

@@ -106,6 +106,166 @@ export const chatMessages = pgTable("chat_messages", {
   createdAtIdx: index("idx_chat_created").on(table.createdAt),
 }));
 
+// ---------------------------------------------------------------------------
+// Genomics
+//
+// Genomic data is kept in its own tables rather than on `users`, because it has
+// a different access model: it is immutable once uploaded, it implicates blood
+// relatives who never consented, and it cannot be reissued if leaked. Every read
+// is logged; every use requires an unrevoked consent scope.
+// ---------------------------------------------------------------------------
+
+/**
+ * Granular, revocable consent. One row per grant or revocation — rows are never
+ * updated, so the consent history is auditable. Current state is the newest row
+ * per (patient, scope).
+ */
+export const genomicConsents = pgTable("genomic_consents", {
+  id: serial("id").primaryKey(),
+  patientId: integer("patient_id").references(() => users.id).notNull(),
+  // "clinical_care" | "research" | "secondary_sharing"
+  scope: text("scope").notNull(),
+  granted: boolean("granted").notNull(),
+  // Version of the consent text the patient actually saw.
+  consentVersion: text("consent_version").notNull(),
+  recordedAt: timestamp("recorded_at").defaultNow().notNull(),
+  recordedByUserId: integer("recorded_by_user_id").references(() => users.id),
+  notes: text("notes").default(""),
+}, (table) => ({
+  patientScopeIdx: index("idx_consent_patient_scope").on(table.patientId, table.scope),
+  recordedAtIdx: index("idx_consent_recorded").on(table.recordedAt),
+}));
+
+/** One uploaded genotype file per row. */
+export const genomicProfiles = pgTable("genomic_profiles", {
+  id: serial("id").primaryKey(),
+  patientId: integer("patient_id").references(() => users.id).notNull(),
+  // "23andme" | "ancestrydna" | "vcf"
+  source: text("source").notNull(),
+  // Reference build the file declares, e.g. "GRCh37". Scores are only valid when
+  // the build matches the scoring file's build.
+  genomeBuild: text("genome_build"),
+  variantCount: integer("variant_count").notNull().default(0),
+  /**
+   * Self-reported ancestry, used to pick a PRS transferability factor and to
+   * report it honestly. Free text; absence is meaningful and must not be
+   * defaulted to European — that assumption is the bias this system exists to
+   * surface. See server/genomics/ancestry.ts.
+   */
+  selfReportedAncestry: text("self_reported_ancestry"),
+  // "processing" | "ready" | "rejected"
+  status: text("status").notNull().default("processing"),
+  rejectionReason: text("rejection_reason"),
+  uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
+}, (table) => ({
+  patientIdx: index("idx_genomic_profiles_patient").on(table.patientId),
+  statusIdx: index("idx_genomic_profiles_status").on(table.status),
+}));
+
+/** Individual genotype calls. Only variants a loaded panel needs are persisted. */
+export const genomicVariants = pgTable("genomic_variants", {
+  id: serial("id").primaryKey(),
+  profileId: integer("profile_id").references(() => genomicProfiles.id).notNull(),
+  rsid: text("rsid").notNull(),
+  chromosome: text("chromosome"),
+  position: integer("position"),
+  // Two-character diploid call as read from the file, e.g. "AG". "--" = no call.
+  genotype: text("genotype").notNull(),
+}, (table) => ({
+  profileIdx: index("idx_genomic_variants_profile").on(table.profileId),
+  rsidIdx: index("idx_genomic_variants_rsid").on(table.rsid),
+  profileRsidIdx: index("idx_genomic_variants_profile_rsid").on(table.profileId, table.rsid),
+}));
+
+/**
+ * A computed risk assessment. Stores the inputs alongside the output so a past
+ * result can be explained later, after panels or models have moved on.
+ */
+export const riskAssessments = pgTable("genomic_risk_assessments", {
+  id: serial("id").primaryKey(),
+  patientId: integer("patient_id").references(() => users.id).notNull(),
+  condition: text("condition").notNull(),
+  profileId: integer("profile_id").references(() => genomicProfiles.id),
+  scanId: integer("scan_id").references(() => medicalScans.id),
+
+  // Polygenic component
+  panelId: text("panel_id"),
+  prsRawScore: text("prs_raw_score"),
+  prsPercentile: integer("prs_percentile"),
+  /** Fraction of panel variants actually genotyped in this profile, 0-100. */
+  panelCoveragePct: integer("panel_coverage_pct"),
+  /** Ancestry transferability applied, 0-100. Low values widen the interval. */
+  transferabilityPct: integer("transferability_pct"),
+
+  // Fused output
+  // "low" | "moderate" | "high" | "indeterminate"
+  riskBand: text("risk_band").notNull().default("indeterminate"),
+  /** JSON: which inputs contributed, and which were missing. */
+  contributions: text("contributions").default("{}"),
+  /** Human-readable limitations attached to THIS result. */
+  caveats: text("caveats").default(""),
+
+  requiresClinicianReview: boolean("requires_clinician_review").notNull().default(true),
+  reviewedByUserId: integer("reviewed_by_user_id").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  patientIdx: index("idx_genomic_risk_patient").on(table.patientId),
+  conditionIdx: index("idx_genomic_risk_condition").on(table.condition),
+  createdAtIdx: index("idx_genomic_risk_created").on(table.createdAt),
+}));
+
+/**
+ * Append-only record of every genomic data access. Never updated, never deleted.
+ * Separate from the general audit log because genomic access has to be
+ * reconstructable per-patient on request.
+ */
+export const genomicAccessLog = pgTable("genomic_access_log", {
+  id: serial("id").primaryKey(),
+  patientId: integer("patient_id").references(() => users.id).notNull(),
+  accessedByUserId: integer("accessed_by_user_id").references(() => users.id),
+  accessedByRole: text("accessed_by_role"),
+  // "upload" | "read_variants" | "compute_risk" | "export" | "delete"
+  action: text("action").notNull(),
+  purpose: text("purpose"),
+  /** Consent scope relied on for this access. */
+  consentScope: text("consent_scope"),
+  granted: boolean("granted").notNull(),
+  denialReason: text("denial_reason"),
+  ipAddress: text("ip_address"),
+  occurredAt: timestamp("occurred_at").defaultNow().notNull(),
+}, (table) => ({
+  patientIdx: index("idx_genomic_access_patient").on(table.patientId),
+  occurredAtIdx: index("idx_genomic_access_occurred").on(table.occurredAt),
+}));
+
+export const insertGenomicConsentSchema = createInsertSchema(genomicConsents).pick({
+  patientId: true,
+  scope: true,
+  granted: true,
+  consentVersion: true,
+  notes: true,
+});
+
+export const insertGenomicProfileSchema = createInsertSchema(genomicProfiles).pick({
+  patientId: true,
+  source: true,
+  genomeBuild: true,
+  variantCount: true,
+  selfReportedAncestry: true,
+  status: true,
+});
+
+export type GenomicConsent = typeof genomicConsents.$inferSelect;
+export type InsertGenomicConsent = z.infer<typeof insertGenomicConsentSchema>;
+export type GenomicProfile = typeof genomicProfiles.$inferSelect;
+export type InsertGenomicProfile = z.infer<typeof insertGenomicProfileSchema>;
+export type GenomicVariant = typeof genomicVariants.$inferSelect;
+export type InsertGenomicVariant = typeof genomicVariants.$inferInsert;
+export type RiskAssessment = typeof riskAssessments.$inferSelect;
+export type InsertRiskAssessment = typeof riskAssessments.$inferInsert;
+export type GenomicAccessLogEntry = typeof genomicAccessLog.$inferSelect;
+export type InsertGenomicAccessLogEntry = typeof genomicAccessLog.$inferInsert;
 
 
 export const insertUserSchema = createInsertSchema(users)
