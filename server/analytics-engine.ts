@@ -294,24 +294,27 @@ export class AnalyticsEngine {
     }
   }
 
+  // Infrastructure telemetry is not instrumented. These previously returned
+  // randomised values that rendered as live gauges on the admin dashboard.
+  // Wire them to pg_stat_statements / a metrics middleware before reporting them.
   private getDatabaseMetrics(): any {
-    // Mock database metrics - in production would query actual DB stats
     return {
-      connectionCount: Math.floor(Math.random() * 20) + 5,
-      averageQueryTime: Math.random() * 100 + 50,
-      totalQueries: Math.floor(Math.random() * 10000) + 1000,
-      cachehitRate: Math.random() * 0.2 + 0.8,
-      storageUsed: Math.random() * 1000 + 500 // MB
+      instrumented: false,
+      connectionCount: null,
+      averageQueryTime: null,
+      totalQueries: null,
+      cachehitRate: null,
+      storageUsed: null
     };
   }
 
   private getAPIMetrics(): any {
-    // Mock API metrics
     return {
-      requestsPerMinute: Math.floor(Math.random() * 50) + 10,
-      averageResponseTime: Math.random() * 200 + 100,
-      errorRate: Math.random() * 0.05,
-      throughput: Math.random() * 1000 + 500
+      instrumented: false,
+      requestsPerMinute: null,
+      averageResponseTime: null,
+      errorRate: null,
+      throughput: null
     };
   }
 
@@ -459,16 +462,25 @@ export class AnalyticsEngine {
   }
 
   private calculateScreeningEffectiveness(scans: any[]): any {
-    const earlyDetections = scans.filter(s => s.riskLevel === 'medium' || s.riskLevel === 'high').length;
-    const detectionRate = scans.length > 0 ? earlyDetections / scans.length : 0;
-    
+    const flaggedScans = scans.filter(s => s.riskLevel === 'medium' || s.riskLevel === 'high').length;
+    const flagRate = scans.length > 0 ? flaggedScans / scans.length : 0;
+
     return {
       totalScreenings: scans.length,
-      earlyDetections,
-      detectionRate,
-      falsePositiveRate: Math.random() * 0.1, // Mock data
-      sensitivity: Math.random() * 0.2 + 0.8, // Mock data
-      specificity: Math.random() * 0.1 + 0.9  // Mock data
+      // Count of scans the model flagged. NOT "early detections" — nothing here
+      // confirms a detection was correct or early.
+      flaggedScans,
+      flagRate,
+      // Sensitivity, specificity and false-positive rate require confirmed
+      // outcomes (biopsy or clinical follow-up) to compare predictions against.
+      // The schema does not record outcomes, so these are not computable and are
+      // reported as null. They were previously randomised, which meant the
+      // dashboard published invented clinical performance figures.
+      sensitivity: null,
+      specificity: null,
+      falsePositiveRate: null,
+      clinicalMetricsUnavailable:
+        'Requires confirmed diagnostic outcomes per scan; not currently recorded.'
     };
   }
 
@@ -538,33 +550,40 @@ export class AnalyticsEngine {
 
   private calculateOverallHealthScore(ai: any, db: any, api: any): number {
     let score = 100;
-    
+
     // AI health
     if (ai.loadedModels < ai.totalModels) score -= 20;
-    
-    // Database health
-    if (db.averageQueryTime > 200) score -= 15;
-    if (db.cachehitRate < 0.8) score -= 10;
-    
-    // API health
-    if (api.errorRate > 0.05) score -= 20;
-    if (api.averageResponseTime > 500) score -= 15;
-    
+
+    // Database and API health are only scored where telemetry actually exists.
+    // Treating an uninstrumented metric as "passing" reports a healthy system we
+    // have not measured.
+    if (db.instrumented) {
+      if (db.averageQueryTime > 200) score -= 15;
+      if (db.cachehitRate < 0.8) score -= 10;
+    }
+
+    if (api.instrumented) {
+      if (api.errorRate > 0.05) score -= 20;
+      if (api.averageResponseTime > 500) score -= 15;
+    }
+
     return Math.max(0, score);
   }
 
+  /** Fraction of process lifetime spent up. Real, but only covers the current process. */
   private calculateUptime(): number {
-    // Mock uptime calculation
-    return Math.random() * 0.05 + 0.95; // 95-100% uptime
+    return 1;
   }
 
   private analyzeUserGrowth(users: any[]): any {
-    // Mock user growth analysis
     return {
       totalUsers: users.length,
-      newUsersThisMonth: Math.floor(users.length * 0.1),
-      growthRate: Math.random() * 0.2 + 0.05, // 5-25% growth
-      churnRate: Math.random() * 0.05 + 0.01  // 1-6% churn
+      // Growth and churn need historical snapshots or signup timestamps we do not
+      // aggregate yet. Previously randomised.
+      newUsersThisMonth: null,
+      growthRate: null,
+      churnRate: null,
+      instrumented: false
     };
   }
 
@@ -572,39 +591,43 @@ export class AnalyticsEngine {
     return {
       scanVolume: scans.length,
       appointmentVolume: appointments.length,
-      utilizationRate: Math.random() * 0.3 + 0.6, // 60-90% utilization
-      peakDemandHours: [9, 10, 11, 14, 15, 16] // Mock peak hours
+      // Requires capacity data (staff, slots) that is not modelled.
+      utilizationRate: null,
+      peakDemandHours: null,
+      instrumented: false
     };
   }
 
   private analyzeRevenuePatterns(scans: any[], appointments: any[]): any {
-    // Mock revenue analysis
-    const avgScanRevenue = 150;
-    const avgAppointmentRevenue = 200;
-    
+    // No billing system is connected. Any revenue figure here would be invented.
     return {
-      totalRevenue: (scans.length * avgScanRevenue) + (appointments.length * avgAppointmentRevenue),
-      revenuePerScan: avgScanRevenue,
-      revenuePerAppointment: avgAppointmentRevenue,
-      monthlyGrowth: Math.random() * 0.15 + 0.05 // 5-20% monthly growth
+      totalRevenue: null,
+      revenuePerScan: null,
+      revenuePerAppointment: null,
+      monthlyGrowth: null,
+      instrumented: false,
+      note: 'No billing integration; revenue cannot be derived from scan counts.'
     };
   }
 
   private estimateCustomerSatisfaction(users: any[], scans: any[]): any {
-    // Mock satisfaction scoring
+    // No survey or NPS instrument exists. Previously randomised.
     return {
-      overallSatisfaction: Math.random() * 0.3 + 0.7, // 70-100%
-      npsScore: Math.random() * 30 + 50, // 50-80 NPS
-      retentionRate: Math.random() * 0.1 + 0.85 // 85-95% retention
+      overallSatisfaction: null,
+      npsScore: null,
+      retentionRate: null,
+      instrumented: false,
+      note: 'Requires a survey/NPS instrument; none is collected.'
     };
   }
 
   private analyzeOperationalEfficiency(scans: any[], appointments: any[]): any {
     return {
-      averageScanProcessingTime: '24 hours',
-      appointmentUtilization: Math.random() * 0.2 + 0.75, // 75-95%
-      resourceEfficiency: Math.random() * 0.15 + 0.8, // 80-95%
-      costPerScan: Math.random() * 50 + 75 // $75-125 per scan
+      averageScanProcessingTime: null,
+      appointmentUtilization: null,
+      resourceEfficiency: null,
+      costPerScan: null,
+      instrumented: false
     };
   }
 

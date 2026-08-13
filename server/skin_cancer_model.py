@@ -22,7 +22,13 @@ def preprocess_image(image_path):
         return None
 
 def predict_skin_cancer(image_path, model_path=None):
-    """Predict skin cancer from image"""
+    """Predict skin cancer from image.
+
+    Returns a prediction ONLY when the trained model actually ran. When the model
+    is missing, the caller gets prediction='unavailable' — never a default 'benign'.
+    A fabricated benign result is a false negative a clinician cannot tell apart
+    from a real one.
+    """
     try:
         # Preprocess image
         img_array = preprocess_image(image_path)
@@ -32,7 +38,7 @@ def predict_skin_cancer(image_path, model_path=None):
                 'confidence': 0,
                 'error': 'Failed to preprocess image'
             }
-        
+
         # Load model if available
         if model_path and os.path.exists(model_path):
             model = tf.keras.models.load_model(model_path)
@@ -64,17 +70,17 @@ def predict_skin_cancer(image_path, model_path=None):
                 }
             }
         else:
-            # Fallback prediction when model not available
             return {
-                'prediction': 'benign',
-                'confidence': 85.0,
-                'probabilities': {
-                    'benign': 0.85,
-                    'malignant': 0.15
-                },
-                'note': 'Using fallback prediction - model not available'
+                'prediction': 'unavailable',
+                'confidence': None,
+                'probabilities': None,
+                'error': (
+                    f'Skin cancer model not found at {model_path}'
+                    if model_path else 'No model path supplied to skin cancer model'
+                )
             }
-            
+
+
     except Exception as e:
         return {
             'prediction': 'Error',

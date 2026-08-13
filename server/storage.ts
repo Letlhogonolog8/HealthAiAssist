@@ -199,7 +199,10 @@ export class DatabaseStorage implements IStorage {
     const [scan] = await (db as any).insert(medicalScans)
       .values({
         ...insertScan,
-        status: "pending",
+        // Honour an explicit status (e.g. "pending_manual_review" when automated
+        // analysis could not run); default to "pending". This previously always
+        // forced "pending", silently discarding the caller's value.
+        status: insertScan.status ?? "pending",
         createdAt: new Date()
       })
       .returning();

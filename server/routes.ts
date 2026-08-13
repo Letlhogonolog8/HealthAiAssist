@@ -64,27 +64,28 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
 import { randomUUID } from 'crypto';
-import { analyzeImageWithGoogleCloud, isGoogleCloudAvailable, uploadToGoogleCloudStorage } from './google-cloud-service';
+import { uploadToGoogleCloudStorage } from './google-cloud-service';
+import { ModelUnavailableError, assertModelEnabled, MODEL_REGISTRY } from './model-availability';
 
 async function performRealTimeAnalysis(imageBuffer: Buffer, scanType: string, patientData?: any): Promise<AnalysisResult> {
-  const scanTypeLower = scanType.toLowerCase();
-  
-  // For skin cancer, use TensorFlow model
-  if (scanTypeLower.includes('skin')) {
-    return performSkinCancerAnalysis(imageBuffer);
+  // Throws for modalities with no model (breast, colon, prostate) and for models
+  // that exist but failed evaluation (skin). Previously all of these fell through
+  // to randomised output; they now fail loudly so the scan reaches a human.
+  const resolved = assertModelEnabled(scanType);
+
+  switch (resolved) {
+    case 'skin':
+      return performSkinCancerAnalysis(imageBuffer);
+    case 'lung':
+      return performLungCancerAnalysis(imageBuffer);
+    default:
+      throw new ModelUnavailableError(scanType, 'No analysis pipeline wired for this modality.');
   }
-  
-  // For lung cancer, use ResNet50V2 model
-  if (scanTypeLower.includes('lung')) {
-    return performLungCancerAnalysis(imageBuffer);
-  }
-  
-  // For other cancers, use medical imaging analysis
-  return performMedicalImagingAnalysis(imageBuffer, scanType, patientData);
 }
 
 // ResNet50V2 model analysis for lung cancer
 async function performLungCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisResult> {
+  const startedAt = Date.now();
   try {
     // Ensure uploads directory exists
     const uploadsDir = path.join(process.cwd(), 'uploads');
@@ -98,512 +99,268 @@ async function performLungCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisR
     
     // Analyze with Python lung cancer model (use venv if available)
     const pythonCmd = fs.existsSync('venv/Scripts/python.exe') ? 'venv/Scripts/python.exe' : 'python';
-    const result = await new Promise<any>((resolve, reject) => {
-      exec(`${pythonCmd} server/lung-cancer-service.py "${tempImagePath}"`, (error, stdout, stderr) => {
-        if (error) {
-          console.error('Lung cancer analysis error:', error);
-          resolve({ prediction: 'Error', confidence: 0.5 });
-        } else {
-          try {
-            const result = JSON.parse(stdout);
-            resolve(result);
-          } catch (parseError) {
-            console.error('Failed to parse lung cancer result:', parseError);
-            resolve({ prediction: 'Error', confidence: 0.5 });
-          }
-        }
-      });
-    });
-    
-    // Clean up temp file
+    let result: any;
     try {
-      fs.unlinkSync(tempImagePath);
-    } catch (cleanupError) {
-      console.warn('Failed to cleanup temp file:', cleanupError);
+      result = await new Promise<any>((resolve, reject) => {
+        exec(`${pythonCmd} server/lung-cancer-service.py "${tempImagePath}"`, (error, stdout) => {
+          if (error) {
+            reject(new ModelUnavailableError('lung', `Model process failed: ${error.message}`));
+            return;
+          }
+          try {
+            resolve(JSON.parse(stdout));
+          } catch {
+            reject(new ModelUnavailableError('lung', 'Model returned unparseable output'));
+          }
+        });
+      });
+    } finally {
+      // Clean up temp file whether or not inference succeeded
+      try {
+        fs.unlinkSync(tempImagePath);
+      } catch (cleanupError) {
+        console.warn('Failed to cleanup temp file:', cleanupError);
+      }
     }
-    
-    if (result.prediction === 'Error') {
-      console.log('ResNet50V2 lung cancer model unavailable, using fallback analysis');
-      return generateMockLungAnalysis();
+
+    if (result.status !== 'success' || !result.prediction) {
+      throw new ModelUnavailableError('lung', result.message || 'Lung cancer model did not return a prediction');
     }
-    
+
     const hasCancer = result.prediction === 'cancer';
     const confidence = result.confidence * 100;
-    
-    const primaryFinding = hasCancer ? 'Suspicious lung nodule detected' : 'No abnormal lung findings';
-    
-    const detailedFindings = hasCancer ? [
-      'Irregular nodular opacity identified',
-      'Suspicious morphological characteristics',
-      'Requires immediate clinical correlation',
-      'Possible malignant transformation'
-    ] : [
-      'Clear lung fields observed',
-      'No suspicious nodules detected',
-      'Normal pulmonary architecture',
-      'No signs of malignancy'
-    ];
-    
     const riskLevel = hasCancer ? 'high' : 'low';
-    
+
+    // The classifier emits a binary label and a probability — nothing more. Findings
+    // are limited to what it actually produced. Radiological descriptors
+    // ("spiculated margins", "ground-glass opacity") are NOT model outputs and must
+    // not be synthesised here; they belong to the reviewing radiologist.
+    const findings = [
+      hasCancer
+        ? 'Model flagged this image as suspicious for lung malignancy'
+        : 'Model did not flag this image as suspicious for lung malignancy',
+      `Classifier probability: ${confidence.toFixed(1)}% for "${result.prediction}"`,
+      'Screening triage only — not a diagnosis. Radiologist review required.'
+    ];
+
     const analysisResult: AnalysisResult = {
       hasCancer,
       cancerType: hasCancer ? 'Lung Cancer' : 'No malignancy detected',
       confidence,
       riskLevel,
-      findings: [primaryFinding, ...detailedFindings],
+      findings,
       recommendations: hasCancer ? [
-        'URGENT: Immediate pulmonologist consultation required',
-        'CT-guided biopsy recommended',
-        'Staging workup if malignancy confirmed',
-        'Smoking cessation counseling if applicable'
+        'Priority radiologist review of this scan',
+        'Pulmonologist consultation for clinical correlation',
+        'Diagnostic imaging and tissue biopsy as clinically indicated',
+        'Smoking cessation counselling if applicable'
       ] : [
-        'Continue routine lung health monitoring',
-        'Annual chest imaging as recommended',
-        'Maintain healthy lifestyle habits',
-        'Report any respiratory symptoms promptly'
+        'Routine radiologist review of this scan',
+        'Continue screening at the interval recommended by the treating clinician',
+        'Report any new or worsening respiratory symptoms promptly'
       ],
-      clinicalGrade: 'diagnostic',
-      accuracyLevel: 91,
-      analysis: { 
+      // "screening" not "diagnostic": this model has not been clinically validated
+      // or regulator-cleared, and no held-out accuracy has been recorded for it.
+      clinicalGrade: 'screening',
+      accuracyLevel: Math.round(confidence),
+      analysis: {
         method: 'resnet50v2_lung_cancer',
         probabilities: result.probabilities,
-        modelAccuracy: 91,
-        noduleType: hasCancer ? 'Suspicious pulmonary nodule' : 'No nodules detected',
+        modelAccuracy: null,
         urgency: hasCancer ? 'urgent' : 'routine',
-        followUpPeriod: hasCancer ? 'Immediate' : '12 months'
+        requiresHumanReview: true
       },
-      malignancyIndicators: hasCancer ? [
-        'Irregular nodule margins',
-        'Heterogeneous density patterns',
-        'Spiculated appearance',
-        'Ground-glass opacity components'
-      ] : [],
+      malignancyIndicators: [],
       advancedMetrics: {
-        processingTime: '2.3s',
-        imageQuality: 'High Resolution MRI',
-        analysisDepth: 'ResNet50V2 Deep Learning Analysis',
+        processingTimeMs: Date.now() - startedAt,
+        analysisDepth: 'ResNet50V2 binary classifier',
         confidenceThreshold: 70.0,
-        modelVersion: 'v2.1.0',
-        totalPixelsAnalyzed: '224x224 pixels',
-        featureExtractionLayers: 175
+        modelVersion: 'resnet50v2-lung-v1',
+        inputResolution: '224x224'
       }
     };
-    
+
     return analysisResult;
   } catch (error) {
+    if (error instanceof ModelUnavailableError) throw error;
     console.error('ResNet50V2 lung cancer analysis failed:', error);
-    return generateMockLungAnalysis();
+    throw new ModelUnavailableError(
+      'lung',
+      error instanceof Error ? error.message : String(error)
+    );
   }
 }
 
 // TensorFlow model analysis for skin cancer using ResNet50V2
 async function performSkinCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisResult> {
   const { skinCancerService } = await import('./skin-cancer-service');
-  
+  const startedAt = Date.now();
+
   try {
     // Ensure uploads directory exists
     const uploadsDir = path.join(process.cwd(), 'uploads');
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
-    
+
     // Save image temporarily for analysis
     const tempImagePath = path.join(uploadsDir, `temp_skin_${randomUUID()}.jpg`);
     fs.writeFileSync(tempImagePath, imageBuffer);
-    
-    // Analyze with ResNet50V2 model
-    const result = await skinCancerService.analyzeSkinImage(tempImagePath);
-    
-    // Clean up temp file
+
+    let result;
     try {
-      fs.unlinkSync(tempImagePath);
-    } catch (cleanupError) {
-      console.warn('Failed to cleanup temp file:', cleanupError);
+      result = await skinCancerService.analyzeSkinImage(tempImagePath);
+    } finally {
+      try {
+        fs.unlinkSync(tempImagePath);
+      } catch (cleanupError) {
+        console.warn('Failed to cleanup temp file:', cleanupError);
+      }
     }
-    
-    if (result.prediction === 'Error') {
-      console.log('ResNet50V2 model unavailable, using fallback analysis');
-      return generateMockSkinAnalysis();
+
+    if (result.prediction === 'Error' || result.prediction === 'unavailable' || result.confidence == null) {
+      throw new ModelUnavailableError('skin', result.error || 'Skin cancer model did not return a prediction');
     }
-    
+
     const hasCancer = result.prediction === 'malignant';
+    const isUncertain = result.prediction === 'uncertain';
     const confidence = result.confidence;
-    
-    // Enhanced analysis with detailed findings
-    const primaryFinding = hasCancer ? 'Malignant lesion detected' : 
-                          result.prediction === 'uncertain' ? 'Atypical lesion characteristics' : 
-                          'Benign lesion characteristics';
-    
-    const detailedFindings = hasCancer ? [
-      'Irregular border patterns detected',
-      'Asymmetrical lesion structure',
-      'Color variation present',
-      'Suspicious morphological features'
-    ] : result.prediction === 'uncertain' ? [
-      'Some irregular features noted',
-      'Requires clinical correlation',
-      'Monitor for changes'
-    ] : [
-      'Regular border patterns',
-      'Symmetrical structure',
-      'Uniform coloration',
-      'Benign morphological features'
+    const riskLevel = hasCancer ? 'high' : isUncertain ? 'medium' : 'low';
+
+    // Only what the classifier produced. ABCDE criteria and morphological
+    // descriptors were previously invented from the binary label — the model does
+    // not measure asymmetry, border, colour or diameter, so it cannot report them.
+    const findings = [
+      hasCancer
+        ? 'Model flagged this lesion as suspicious for malignancy'
+        : isUncertain
+          ? 'Model result is indeterminate for this lesion'
+          : 'Model did not flag this lesion as suspicious for malignancy',
+      `Classifier probability: ${confidence.toFixed(1)}% for "${result.prediction}"`,
+      'Screening triage only — not a diagnosis. Clinician review required.'
     ];
-    
-    const riskLevel = hasCancer ? 'high' : 
-                     result.prediction === 'uncertain' ? 'medium' : 
-                     'low';
-    
+
     const analysisResult: AnalysisResult = {
       hasCancer,
       cancerType: hasCancer ? 'Melanoma/Skin Cancer' : 'No malignancy detected',
       confidence,
       riskLevel,
-      findings: [primaryFinding, ...detailedFindings],
+      findings,
       recommendations: hasCancer ? [
-        'URGENT: Consult dermatologist within 48 hours',
-        'Biopsy recommended for definitive diagnosis',
-        'Avoid sun exposure to lesion area',
-        'Document lesion changes with photos'
-      ] : result.prediction === 'uncertain' ? [
-        'Schedule dermatologist consultation within 2-4 weeks',
-        'Monitor lesion for changes in size, color, or shape',
-        'Follow ABCDE criteria for self-examination',
-        'Consider dermoscopy for detailed evaluation'
+        'Priority dermatologist consultation',
+        'Dermoscopy and biopsy as clinically indicated',
+        'Photograph the lesion to document any change'
+      ] : isUncertain ? [
+        'Dermatologist consultation — the model could not classify this lesion',
+        'Monitor for changes in size, colour or shape',
+        'Follow ABCDE criteria for self-examination'
       ] : [
         'Continue routine skin self-examinations',
-        'Annual dermatological screening recommended',
+        'Screening interval as advised by the treating clinician',
         'Use sun protection (SPF 30+)',
-        'Monitor for new or changing lesions'
+        'Report new or changing lesions'
       ],
-      clinicalGrade: 'diagnostic',
-      accuracyLevel: 96,
-      analysis: { 
+      // "screening" not "diagnostic": no clinical validation or regulatory
+      // clearance, and no held-out accuracy has been recorded for this model.
+      clinicalGrade: 'screening',
+      accuracyLevel: Math.round(confidence),
+      analysis: {
         method: 'resnet50v2_deep_learning',
         probabilities: result.probabilities,
-        modelAccuracy: 96,
-        lesionType: hasCancer ? 'Suspicious pigmented lesion' : 'Benign nevus',
-        urgency: hasCancer ? 'urgent' : result.prediction === 'uncertain' ? 'routine_followup' : 'routine',
-        followUpPeriod: hasCancer ? '48 hours' : result.prediction === 'uncertain' ? '2-4 weeks' : '12 months',
-        abcdeScore: {
-          asymmetry: hasCancer ? 'Present' : 'Absent',
-          border: hasCancer ? 'Irregular' : 'Regular',
-          color: hasCancer ? 'Varied' : 'Uniform',
-          diameter: result.prediction !== 'benign' ? '>6mm' : '<6mm',
-          evolving: hasCancer ? 'Likely' : 'Stable'
-        }
+        modelAccuracy: null,
+        urgency: hasCancer ? 'urgent' : isUncertain ? 'routine_followup' : 'routine',
+        requiresHumanReview: true
       },
-      malignancyIndicators: hasCancer ? [
-        'Irregular pigmentation patterns',
-        'Asymmetrical lesion morphology',
-        'Border irregularities detected',
-        'Color heterogeneity present'
-      ] : [],
+      malignancyIndicators: [],
       advancedMetrics: {
-        processingTime: '2.1s',
-        imageQuality: 'High Resolution',
-        analysisDepth: 'ResNet50V2 Deep Learning Analysis',
+        processingTimeMs: Date.now() - startedAt,
+        analysisDepth: 'ResNet50V2 binary classifier',
         confidenceThreshold: 70.0,
-        modelVersion: 'v2.1.0',
-        totalPixelsAnalyzed: '50,176 pixels',
-        featureExtractionLayers: 175
+        modelVersion: 'resnet50v2-skin-v1',
+        inputResolution: '224x224'
       }
     };
-    
+
     return analysisResult;
   } catch (error) {
+    if (error instanceof ModelUnavailableError) throw error;
     console.error('ResNet50V2 skin cancer analysis failed:', error);
-    return generateMockSkinAnalysis();
+    throw new ModelUnavailableError(
+      'skin',
+      error instanceof Error ? error.message : String(error)
+    );
   }
 }
 
-// Medical imaging analysis for other cancer types using Google Cloud
-async function performMedicalImagingAnalysis(imageBuffer: Buffer, scanType: string, patientData?: any): Promise<AnalysisResult> {
-  const scanTypeLower = scanType.toLowerCase();
-  
+
+/**
+ * Handles the case where no validated model could analyse an uploaded scan.
+ *
+ * The scan is still recorded — with an explicit "awaiting manual review" result —
+ * so it enters the radiologist queue rather than vanishing. The response is 503
+ * and carries no diagnostic content, because there is none to report.
+ */
+async function respondModelUnavailable(
+  error: ModelUnavailableError,
+  req: Request,
+  res: any
+): Promise<void> {
+  console.error(`Model unavailable for ${error.scanType}: ${error.reason}`);
+
+  let scanId: number | undefined;
   try {
-    // Try Google Cloud Vision API first
-    if (isGoogleCloudAvailable()) {
-      console.log('Using Google Cloud Vision API for medical imaging analysis');
-      const googleResult = await analyzeImageWithGoogleCloud(imageBuffer);
-      
-      const cancerType = scanTypeLower.includes('breast') ? 'breast cancer' :
-                        scanTypeLower.includes('lung') ? 'lung cancer' :
-                        scanTypeLower.includes('colon') ? 'colon cancer' :
-                        scanTypeLower.includes('prostate') ? 'prostate cancer' :
-                        'abnormal findings';
-      
-      const hasCancer = googleResult.riskAssessment?.level === 'high' || 
-                       googleResult.riskAssessment?.level === 'medium';
-      
-      const confidence = (googleResult.riskAssessment?.confidence || 0.5) * 100;
-      
-      const findings = googleResult.medicalFindings?.map(f => f.finding) || 
-                      (hasCancer ? [`Suspicious ${cancerType} patterns detected via Google Cloud analysis`] : 
-                       ['No abnormal findings detected via Google Cloud analysis']);
-      
-      const recommendations = hasCancer ? [
-        'Immediate specialist consultation recommended based on Google Cloud analysis',
-        'Further diagnostic imaging may be required',
-        ...googleResult.riskAssessment?.reasoning || []
-      ] : [
-        'Continue routine screening as recommended',
-        'Google Cloud analysis shows normal patterns'
-      ];
-      
-      return {
-        hasCancer,
-        cancerType,
-        confidence: Math.max(confidence, 85), // Ensure minimum confidence
-        riskLevel: googleResult.riskAssessment?.level || 'low',
-        findings,
-        recommendations,
-        clinicalGrade: 'diagnostic',
-        accuracyLevel: Math.round(confidence),
-        analysis: { 
-          method: 'google_cloud_vision',
-          labels: googleResult.labels,
-          objects: googleResult.objects
-        },
-        malignancyIndicators: googleResult.medicalFindings?.map(f => f.finding) || [],
-        advancedMetrics: {
-          processingTime: '1.8s',
-          imageQuality: 'High',
-          analysisDepth: 'Google Cloud Enhanced',
-          detectedLabels: googleResult.labels.length,
-          detectedObjects: googleResult.objects?.length || 0
-        }
-      };
-    }
-  } catch (error) {
-    console.error('Google Cloud analysis failed, using fallback:', error);
-  }
-  
-  // Enhanced fallback analysis with multiple AI techniques
-  console.log('Using enhanced multi-model medical imaging analysis');
-  
-  try {
-    const { performEnhancedMedicalAnalysis, assessImageQuality } = await import('./enhanced-medical-analysis');
-    
-    const enhancedResult = await performEnhancedMedicalAnalysis(imageBuffer, scanType, patientData);
-    const imageQuality = await assessImageQuality(imageBuffer);
-    
-    const cancerType = scanTypeLower.includes('breast') ? 'breast cancer' :
-                      scanTypeLower.includes('lung') ? 'lung cancer' :
-                      scanTypeLower.includes('colon') ? 'colon cancer' :
-                      scanTypeLower.includes('prostate') ? 'prostate cancer' :
-                      'abnormal findings';
-    
-    const hasCancer = enhancedResult.riskLevel === 'high' || enhancedResult.riskLevel === 'medium';
-    
-    return {
-      hasCancer,
-      cancerType,
-      confidence: enhancedResult.confidence,
-      riskLevel: enhancedResult.riskLevel,
-      findings: enhancedResult.findings,
-      recommendations: enhancedResult.recommendations,
-      clinicalGrade: 'diagnostic',
-      accuracyLevel: enhancedResult.confidence,
-      analysis: { 
-        method: 'enhanced_multi_model',
-        multiModelConsensus: enhancedResult.multiModelConsensus,
-        uncertaintyScore: enhancedResult.uncertaintyScore,
-        preprocessingApplied: enhancedResult.preprocessingApplied
-      },
-      malignancyIndicators: hasCancer ? enhancedResult.findings : [],
-      advancedMetrics: {
-        processingTime: '3.2s',
-        imageQuality: `${imageQuality}%`,
-        analysisDepth: 'Multi-Model Enhanced',
-        consensusReached: enhancedResult.multiModelConsensus,
-        uncertaintyScore: enhancedResult.uncertaintyScore
-      }
-    };
-  } catch (error) {
-    console.error('Enhanced analysis failed, using basic fallback:', error);
-    
-    // Basic fallback if enhanced analysis fails
-    const cancerType = scanTypeLower.includes('breast') ? 'breast cancer' :
-                      scanTypeLower.includes('lung') ? 'lung cancer' :
-                      scanTypeLower.includes('colon') ? 'colon cancer' :
-                      scanTypeLower.includes('prostate') ? 'prostate cancer' :
-                      'abnormal findings';
-    
-    const hasCancer = Math.random() > 0.75;
-    const confidence = 88 + Math.random() * 8;
-    
-    return {
-      hasCancer,
-      cancerType,
-      confidence,
-      riskLevel: hasCancer ? (Math.random() > 0.6 ? 'high' : 'medium') : 'low',
-      findings: hasCancer ? 
-        [`Suspicious ${cancerType} patterns detected`] : 
-        ['No abnormal findings detected'],
-      recommendations: hasCancer ? 
-        ['Immediate specialist consultation recommended', 'Further diagnostic imaging may be required'] :
-        ['Continue routine screening as recommended'],
-      clinicalGrade: 'diagnostic',
-      accuracyLevel: Math.round(confidence),
-      analysis: { method: 'basic_fallback' },
-      malignancyIndicators: hasCancer ? ['Irregular tissue patterns', 'Density variations'] : [],
-      advancedMetrics: {
-        processingTime: '2.3s',
-        imageQuality: 'Standard',
-        analysisDepth: 'Basic'
-      }
-    };
-  }
-}
+    const patientIdStr = (req.body as any)?.patientId;
+    const patientId = patientIdStr ? parseInt(patientIdStr) : ((req.session as any)?.user?.id);
 
-// Mock analysis for lung cancer when ResNet50V2 is unavailable
-function generateMockLungAnalysis(): AnalysisResult {
-  const hasCancer = Math.random() > 0.85; // 15% chance of malignant
-  const confidence = 88 + Math.random() * 7;
-  
-  const primaryFinding = hasCancer ? 'Suspicious pulmonary nodule detected' : 'No abnormal lung findings';
-  
-  const detailedFindings = hasCancer ? [
-    'Irregular nodular opacity in lung parenchyma',
-    'Suspicious morphological characteristics',
-    'Possible spiculated margins',
-    'Ground-glass opacity components'
-  ] : [
-    'Clear bilateral lung fields',
-    'No suspicious nodules identified',
-    'Normal pulmonary vascular markings',
-    'No signs of malignancy'
-  ];
-  
-  return {
-    hasCancer,
-    cancerType: hasCancer ? 'Lung Cancer' : 'No malignancy detected',
-    confidence,
-    riskLevel: hasCancer ? 'high' : 'low',
-    findings: [primaryFinding, ...detailedFindings],
-    recommendations: hasCancer ? [
-      'URGENT: Immediate pulmonologist consultation required',
-      'High-resolution CT scan recommended',
-      'Tissue biopsy for definitive diagnosis',
-      'Multidisciplinary team evaluation'
-    ] : [
-      'Continue routine lung health monitoring',
-      'Annual chest imaging screening',
-      'Maintain smoke-free lifestyle',
-      'Report respiratory symptoms promptly'
-    ],
-    clinicalGrade: 'diagnostic',
-    accuracyLevel: Math.round(confidence),
-    analysis: { 
-      method: 'mock_resnet50v2_lung',
-      noduleType: hasCancer ? 'Suspicious pulmonary nodule' : 'No nodules detected',
-      urgency: hasCancer ? 'urgent' : 'routine',
-      followUpPeriod: hasCancer ? 'Immediate' : '12 months'
-    },
-    malignancyIndicators: hasCancer ? [
-      'Irregular nodule contours',
-      'Heterogeneous attenuation',
-      'Spiculated morphology',
-      'Pleural retraction'
-    ] : [],
-    advancedMetrics: {
-      processingTime: '2.1s',
-      imageQuality: 'Standard MRI Resolution',
-      analysisDepth: 'Mock ResNet50V2 Analysis',
-      confidenceThreshold: 70.0,
-      modelVersion: 'v2.1.0-mock',
-      totalPixelsAnalyzed: '224x224 pixels',
-      featureExtractionLayers: 175
+    if (patientId && !isNaN(patientId)) {
+      const saved = await storage.createScan({
+        patientId,
+        scanType: error.scanType,
+        result: 'Awaiting manual review - automated analysis unavailable',
+        aiConfidence: 'N/A',
+        status: 'pending_manual_review',
+        notes: `Automated analysis did not run: ${error.reason}`
+      } as any);
+      scanId = (saved as any)?.id;
     }
-  };
-}
+  } catch (persistError) {
+    console.error('Failed to queue scan for manual review:', persistError);
+  }
 
-// Mock analysis for skin cancer when TensorFlow is unavailable
-function generateMockSkinAnalysis(): AnalysisResult {
-  const hasCancer = Math.random() > 0.8; // 20% chance of malignant
-  const confidence = 85 + Math.random() * 10;
-  const isUncertain = !hasCancer && Math.random() > 0.7;
-  
-  const primaryFinding = hasCancer ? 'Suspicious melanocytic lesion detected' : 
-                        isUncertain ? 'Atypical nevus characteristics' : 
-                        'Benign melanocytic nevus';
-  
-  const detailedFindings = hasCancer ? [
-    'Asymmetrical lesion morphology',
-    'Irregular border characteristics',
-    'Color heterogeneity observed',
-    'Diameter >6mm noted'
-  ] : isUncertain ? [
-    'Some irregular features present',
-    'Requires clinical evaluation',
-    'Monitor for morphological changes'
-  ] : [
-    'Symmetrical lesion structure',
-    'Well-defined borders',
-    'Uniform pigmentation',
-    'Stable appearance'
-  ];
-  
-  return {
-    hasCancer,
-    cancerType: hasCancer ? 'Melanoma/Skin Cancer' : 'No malignancy detected',
-    confidence,
-    riskLevel: hasCancer ? 'high' : isUncertain ? 'medium' : 'low',
-    findings: [primaryFinding, ...detailedFindings],
-    recommendations: hasCancer ? [
-      'URGENT: Immediate dermatologist consultation required',
-      'Excisional biopsy recommended',
-      'Staging workup if malignancy confirmed',
-      'Patient education on sun protection'
-    ] : isUncertain ? [
-      'Dermatologist evaluation within 4 weeks',
-      'Digital dermoscopy recommended',
-      'Serial photography for monitoring',
-      'Patient self-examination education'
-    ] : [
-      'Routine dermatological screening',
-      'Annual skin examination recommended',
-      'Sun protection measures',
-      'Self-monitoring for changes'
-    ],
-    clinicalGrade: 'diagnostic',
-    accuracyLevel: Math.round(confidence),
-    analysis: { 
-      method: 'mock_resnet50v2',
-      lesionType: hasCancer ? 'Suspicious pigmented lesion' : 'Benign nevus',
-      urgency: hasCancer ? 'urgent' : isUncertain ? 'routine_followup' : 'routine',
-      followUpPeriod: hasCancer ? 'Immediate' : isUncertain ? '4 weeks' : '12 months',
-      abcdeScore: {
-        asymmetry: hasCancer ? 'Present' : 'Absent',
-        border: hasCancer ? 'Irregular' : 'Regular',
-        color: hasCancer ? 'Heterogeneous' : 'Uniform',
-        diameter: hasCancer ? '>6mm' : '<6mm',
-        evolving: hasCancer ? 'Yes' : 'No'
-      }
-    },
-    malignancyIndicators: hasCancer ? [
-      'Melanin distribution irregularities',
-      'Architectural disorder',
-      'Cellular atypia patterns',
-      'Vascular irregularities'
-    ] : [],
-    advancedMetrics: {
-      processingTime: '1.8s',
-      imageQuality: 'Standard Resolution',
-      analysisDepth: 'Mock ResNet50V2 Analysis',
-      confidenceThreshold: 70.0,
-      modelVersion: 'v2.1.0-mock',
-      totalPixelsAnalyzed: '45,000 pixels',
-      featureExtractionLayers: 175
-    }
-  };
+  res.status(503).json({
+    success: false,
+    error: 'Automated analysis unavailable',
+    reason: error.reason,
+    scanType: error.scanType,
+    // Stated plainly so no client can mistake this for a negative result.
+    message:
+      'No validated model could analyse this scan, so no result was produced. ' +
+      'This is NOT a negative finding. The scan has been queued for manual review.',
+    queuedForManualReview: scanId !== undefined,
+    scanId
+  });
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Global API rate limiting (100 req/min per IP) to blunt abuse/scraping.
   app.use("/api", apiLimiter);
+
+  // Model cards: what each model is, how it was measured, and what it cannot do.
+  // Public by design — anyone relying on a result should be able to see the
+  // evidence behind it, including that the skin model is currently disabled.
+  app.get("/api/models/cards", (_req, res) => {
+    res.json({
+      models: Object.entries(MODEL_REGISTRY).map(([scanType, entry]) => ({
+        scanType,
+        enabled: entry.enabled,
+        disabledReason: entry.disabledReason ?? null,
+        evaluation: entry.evaluation,
+        intendedUse: 'Screening triage to prioritise human review. Not a diagnosis.',
+        humanReviewRequired: true
+      })),
+      reproduce: 'python scripts/evaluate-model.py <model.h5> <data_dir> <class0> <class1>'
+    });
+  });
 
   // Configure multer for image uploads
   const upload = multer({ 
@@ -1211,17 +968,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const allScans = await storage.getScans();
       const allUsers = await storage.getAllUsers();
-      const pendingScans = allScans.filter(scan => scan.result === 'Processing');
+      // Scans awaiting a human: still processing, or queued because automated
+      // analysis could not run at all. The second case must not be dropped —
+      // those scans have no AI result and depend entirely on this queue.
+      const pendingScans = allScans.filter(
+        scan => scan.result === 'Processing' || scan.status === 'pending_manual_review'
+      );
 
       const reviews = pendingScans.map(scan => {
         const patient = allUsers.find(user => user.id === scan.patientId);
+        const awaitingManualReview = scan.status === 'pending_manual_review';
         return {
           id: scan.id,
           patientName: patient ? patient.fullName : `Patient ${scan.patientId}`,
           scanType: scan.scanType,
-          priority: Math.random() > 0.7 ? 'urgent' : Math.random() > 0.5 ? 'high' : 'medium',
+          // Read the stored triage priority. This was previously randomised,
+          // which shuffled the order radiologists review patients in.
+          priority: scan.priority || 'medium',
+          awaitingManualReview,
           submittedAt: scan.createdAt,
-          aiPrediction: 'Analysis in progress',
+          aiPrediction: awaitingManualReview
+            ? 'No AI result - automated analysis unavailable'
+            : 'Analysis in progress',
           aiConfidence: (typeof scan.aiConfidence === 'string')
             ? (parseFloat(scan.aiConfidence.replace('%', '')) || 0)
             : (typeof scan.aiConfidence === 'number' ? scan.aiConfidence : 0),
@@ -2350,36 +2118,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Primary Results
           type: scanType.charAt(0).toUpperCase() + scanType.slice(1),
           confidence: Math.round(analysisResult.confidence),
-          accuracyLevel: Math.round(analysisResult.accuracyLevel || 90),
-          clinicalGrade: analysisResult.clinicalGrade || 'diagnostic',
+          accuracyLevel: Math.round(analysisResult.accuracyLevel),
+          clinicalGrade: analysisResult.clinicalGrade,
           status: analysisResult.hasCancer ? "abnormal" : "normal",
-          
+
           // Detailed Findings
           primaryFinding: analysisResult.findings?.[0] || 'Analysis completed',
           findings: analysisResult.findings || [],
           recommendations: analysisResult.recommendations || [],
-          
+
           // Cancer Assessment
           cancerType: analysisResult.cancerType,
           riskLevel: analysisResult.riskLevel?.toUpperCase() || 'LOW',
           riskAssessment: (analysisResult.riskLevel?.charAt(0).toUpperCase() + analysisResult.riskLevel?.slice(1) + ' Risk') || 'Low Risk',
-          
+
           // Clinical Details
-          lesionType: analysisResult.analysis?.lesionType,
           urgency: analysisResult.analysis?.urgency,
-          followUpPeriod: analysisResult.analysis?.followUpPeriod,
-          
-          // ABCDE Criteria (for skin cancer)
-          abcdeScore: analysisResult.analysis?.abcdeScore,
-          
+          requiresHumanReview: analysisResult.analysis?.requiresHumanReview ?? true,
+
           // Malignancy Indicators
           malignancyIndicators: analysisResult.malignancyIndicators || [],
-          
-          // Technical Metrics
-          processingTime: analysisResult.advancedMetrics?.processingTime || '2.1s',
-          modelVersion: analysisResult.advancedMetrics?.modelVersion || 'v2.1.0',
-          imageQuality: analysisResult.advancedMetrics?.imageQuality || 'High',
-          pixelsAnalyzed: analysisResult.advancedMetrics?.totalPixelsAnalyzed || '50,176',
+
+          // Technical Metrics. No `||` defaults: an absent measurement is reported
+          // as absent, not backfilled with a plausible-looking constant.
+          processingTimeMs: analysisResult.advancedMetrics?.processingTimeMs ?? null,
+          modelVersion: analysisResult.advancedMetrics?.modelVersion ?? null,
+          inputResolution: analysisResult.advancedMetrics?.inputResolution ?? null,
           
           // Summary for UI Display
           summary: {
@@ -2393,8 +2157,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
     } catch (error) {
+      if (error instanceof ModelUnavailableError) {
+        return respondModelUnavailable(error, req, res);
+      }
       console.error("Error processing image upload:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         error: "Failed to process image analysis",
         details: error instanceof Error ? error.message : String(error)
       });
@@ -2452,36 +2219,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Primary Results
           type: scanType.charAt(0).toUpperCase() + scanType.slice(1),
           confidence: Math.round(analysisResult.confidence),
-          accuracyLevel: Math.round(analysisResult.accuracyLevel || 90),
-          clinicalGrade: analysisResult.clinicalGrade || 'diagnostic',
+          accuracyLevel: Math.round(analysisResult.accuracyLevel),
+          clinicalGrade: analysisResult.clinicalGrade,
           status: analysisResult.hasCancer ? "abnormal" : "normal",
-          
+
           // Detailed Findings
           primaryFinding: analysisResult.findings?.[0] || 'Analysis completed',
           findings: analysisResult.findings || [],
           recommendations: analysisResult.recommendations || [],
-          
+
           // Cancer Assessment
           cancerType: analysisResult.cancerType,
           riskLevel: analysisResult.riskLevel?.toUpperCase() || 'LOW',
           riskAssessment: (analysisResult.riskLevel?.charAt(0).toUpperCase() + analysisResult.riskLevel?.slice(1) + ' Risk') || 'Low Risk',
-          
+
           // Clinical Details
-          lesionType: analysisResult.analysis?.lesionType,
           urgency: analysisResult.analysis?.urgency,
-          followUpPeriod: analysisResult.analysis?.followUpPeriod,
-          
-          // ABCDE Criteria (for skin cancer)
-          abcdeScore: analysisResult.analysis?.abcdeScore,
-          
+          requiresHumanReview: analysisResult.analysis?.requiresHumanReview ?? true,
+
           // Malignancy Indicators
           malignancyIndicators: analysisResult.malignancyIndicators || [],
-          
-          // Technical Metrics
-          processingTime: analysisResult.advancedMetrics?.processingTime || '2.1s',
-          modelVersion: analysisResult.advancedMetrics?.modelVersion || 'v2.1.0',
-          imageQuality: analysisResult.advancedMetrics?.imageQuality || 'High',
-          pixelsAnalyzed: analysisResult.advancedMetrics?.totalPixelsAnalyzed || '50,176',
+
+          // Technical Metrics. No `||` defaults: an absent measurement is reported
+          // as absent, not backfilled with a plausible-looking constant.
+          processingTimeMs: analysisResult.advancedMetrics?.processingTimeMs ?? null,
+          modelVersion: analysisResult.advancedMetrics?.modelVersion ?? null,
+          inputResolution: analysisResult.advancedMetrics?.inputResolution ?? null,
           
           // Summary for UI Display
           summary: {
@@ -2495,8 +2258,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
     } catch (error) {
+      if (error instanceof ModelUnavailableError) {
+        return respondModelUnavailable(error, req, res);
+      }
       console.error("Error processing image analysis:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         error: "Failed to process image analysis",
         details: error instanceof Error ? error.message : String(error)
       });

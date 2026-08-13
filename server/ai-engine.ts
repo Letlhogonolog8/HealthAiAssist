@@ -13,6 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { storage } from './storage';
+import { ModelUnavailableError } from './model-availability';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -63,6 +64,8 @@ interface MedicalContext {
 export class AIEngine {
   private models: Map<string, any> = new Map();
   private modelConfigs: Map<string, ModelConfig> = new Map();
+  /** Keys whose "model" is an untrained placeholder — never serve predictions from these. */
+  private mockModels: Set<string> = new Set();
   private isInitialized = false;
   private initializationPromise: Promise<void> | null = null;
 
@@ -188,9 +191,17 @@ export class AIEngine {
     console.log('🎉 AI Engine initialized successfully');
   }
 
+  /**
+   * Creates an untrained stand-in so the engine can boot without model artifacts.
+   *
+   * A mock model's output is noise from random weights. It is registered in
+   * `mockModels` and `predictMedicalCondition` refuses to serve predictions from
+   * it — previously these outputs were returned to callers as clinical results.
+   */
   private async createMockModel(modelKey: string, config: ModelConfig): Promise<void> {
-    console.log(`🔧 Creating mock model for ${config.name}...`);
-    
+    console.warn(`🔧 No artifact for ${config.name}; registering untrained placeholder (predictions disabled)`);
+    this.mockModels.add(modelKey);
+
     if (!tf) {
       // Create a simple mock function that returns random predictions
       const mockModel = {
@@ -243,6 +254,13 @@ export class AIEngine {
 
     if (!model || !config) {
       throw new Error(`Model '${modelType}' not found or not loaded`);
+    }
+
+    if (this.mockModels.has(modelType)) {
+      throw new ModelUnavailableError(
+        modelType,
+        `No trained artifact for ${config.name}; only an untrained placeholder is loaded.`
+      );
     }
 
     try {
@@ -298,10 +316,14 @@ export class AIEngine {
       };
 
     } catch (error) {
+      if (error instanceof ModelUnavailableError) throw error;
       console.error(`AI Prediction Error for ${modelType}:`, error);
-      
-      // Return fallback prediction
-      return this.generateFallbackPrediction(config, Date.now() - startTime);
+      // Previously returned a randomised "fallback prediction" here. Inference
+      // failure produces no result — the caller must handle the absence.
+      throw new ModelUnavailableError(
+        modelType,
+        `Inference failed: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -481,66 +503,49 @@ export class AIEngine {
     }
   }
 
-  private generateFallbackPrediction(config: ModelConfig, processingTime: number): PredictionResult {
-    const fallbackPredictions = config.outputClasses.map((className, index) => ({
-      class: className,
-      confidence: index === 0 ? 0.6 : Math.random() * 0.4,
-      probability: index === 0 ? 0.6 : Math.random() * 0.4
-    }));
-
-    fallbackPredictions.sort((a, b) => b.confidence - a.confidence);
-
-    return {
-      modelName: config.name,
-      predictions: fallbackPredictions,
-      topPrediction: {
-        class: fallbackPredictions[0].class,
-        confidence: fallbackPredictions[0].confidence,
-        riskLevel: 'medium'
-      },
-      metadata: {
-        processingTime,
-        imageSize: { width: 0, height: 0 },
-        modelVersion: config.version,
-        timestamp: new Date()
-      },
-      medicalInsights: {
-        findings: ['AI analysis completed with fallback model', 'Manual review recommended'],
-        recommendations: ['Professional medical evaluation advised', 'Consider additional diagnostic imaging'],
-        urgencyLevel: 2,
-        followUpRequired: true
-      }
-    };
-  }
-
   // Model management methods
-  async getModelStatus(): Promise<{ [key: string]: { loaded: boolean; version: string; specialty: string } }> {
-    const status: { [key: string]: { loaded: boolean; version: string; specialty: string } } = {};
-    
+  async getModelStatus(): Promise<{
+    [key: string]: { loaded: boolean; trained: boolean; version: string; specialty: string };
+  }> {
+    const status: {
+      [key: string]: { loaded: boolean; trained: boolean; version: string; specialty: string };
+    } = {};
+
     for (const [key, config] of this.modelConfigs) {
       status[key] = {
         loaded: this.models.has(key),
+        // `loaded` alone was misleading: an untrained placeholder also counts as
+        // loaded. `trained` distinguishes a real artifact from a placeholder.
+        trained: this.models.has(key) && !this.mockModels.has(key),
         version: config.version,
         specialty: config.medicalSpecialty
       };
     }
-    
+
     return status;
   }
 
+  /**
+   * Aggregate performance for a model.
+   *
+   * Prediction results are not yet persisted, so these are reported as null.
+   * They were previously randomised, which published an invented accuracy rate
+   * on the admin analytics dashboard.
+   */
   async getModelPerformanceMetrics(modelType: string): Promise<{
-    totalPredictions: number;
-    averageConfidence: number;
-    averageProcessingTime: number;
-    accuracyRate: number;
+    totalPredictions: number | null;
+    averageConfidence: number | null;
+    averageProcessingTime: number | null;
+    accuracyRate: number | null;
+    instrumented: boolean;
   }> {
-    // This would typically query a database of prediction results
-    // For now, return mock data
     return {
-      totalPredictions: Math.floor(Math.random() * 1000) + 100,
-      averageConfidence: Math.random() * 0.3 + 0.7,
-      averageProcessingTime: Math.random() * 500 + 200,
-      accuracyRate: Math.random() * 0.1 + 0.85
+      totalPredictions: null,
+      averageConfidence: null,
+      averageProcessingTime: null,
+      // Accuracy requires labelled ground truth, not just logged predictions.
+      accuracyRate: null,
+      instrumented: false
     };
   }
 

@@ -3,12 +3,14 @@ import path from 'path';
 import fs from 'fs';
 
 export interface SkinCancerPrediction {
-  prediction: 'benign' | 'malignant' | 'uncertain' | 'Error';
-  confidence: number;
+  // 'unavailable' means the model could not run. It is NOT a clinical finding and
+  // must never be rendered to a user as one.
+  prediction: 'benign' | 'malignant' | 'uncertain' | 'unavailable' | 'Error';
+  confidence: number | null;
   probabilities?: {
     benign: number;
     malignant: number;
-  };
+  } | null;
   error?: string;
 }
 
@@ -17,7 +19,9 @@ export class SkinCancerService {
   private pythonScript: string;
 
   constructor() {
-    this.modelPath = path.join(process.cwd(), 'dataset', 'data', 'resnet50v2_skin_cancer_model.h5');
+    this.modelPath =
+      process.env.SKIN_CANCER_MODEL_PATH ||
+      path.join(process.cwd(), 'dataset', 'data', 'resnet50v2_skin_cancer_model.h5');
     this.pythonScript = path.join(process.cwd(), 'server', 'skin_cancer_model.py');
   }
 
@@ -33,13 +37,10 @@ export class SkinCancerService {
         return;
       }
 
-      // Prepare Python command
-      const args = [this.pythonScript, imagePath];
-      
-      // Add model path if it exists
-      if (fs.existsSync(this.modelPath)) {
-        args.push(this.modelPath);
-      }
+      // Always pass the model path. If it is missing the Python side reports
+      // 'unavailable' with the path it looked in, rather than silently
+      // falling back to a default prediction.
+      const args = [this.pythonScript, imagePath, this.modelPath];
 
       const pythonProcess = spawn('python', args);
       
@@ -149,7 +150,9 @@ export class SkinCancerService {
       modelPath: this.modelPath,
       modelExists: this.isModelAvailable(),
       modelName: 'ResNet50V2 Skin Cancer Detector',
-      accuracy: 0.96,
+      // No accuracy is reported until the model is scored on a held-out set and
+      // the result recorded in a model card. Do not hardcode a figure here.
+      accuracy: null,
       confidenceThreshold: 70.0
     };
   }

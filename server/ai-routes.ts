@@ -3,6 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { aiEngine, MedicalConditionAnalyzer } from './ai-engine';
+import { ModelUnavailableError } from './model-availability';
 import { requireAuth, requireMedicalAccess, AuthenticatedRequest } from './security-config';
 import { storage } from './storage';
 
@@ -135,14 +136,25 @@ router.post('/analyze-scan', requireAuth, aiUpload.single('image'), async (req: 
 
   } catch (error) {
     console.error('AI Analysis Error:', error);
-    
+
     // Cleanup uploaded file on error
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
-    
-    res.status(500).json({ 
-      error: 'AI analysis failed', 
+
+    if (error instanceof ModelUnavailableError) {
+      return res.status(503).json({
+        error: 'Automated analysis unavailable',
+        reason: error.reason,
+        scanType: error.scanType,
+        message:
+          'No trained model could analyse this image, so no result was produced. ' +
+          'This is NOT a negative finding. Manual review is required.'
+      });
+    }
+
+    res.status(500).json({
+      error: 'AI analysis failed',
       details: error.message,
       fallback: 'Manual review recommended'
     });
@@ -153,33 +165,36 @@ router.post('/analyze-scan', requireAuth, aiUpload.single('image'), async (req: 
 router.get('/models/status', requireMedicalAccess, async (req, res) => {
   try {
     const modelStatus = await aiEngine.getModelStatus();
+    // `accuracy` is null for every model: none has a recorded held-out evaluation.
+    // These fields previously carried hardcoded figures (94.2%, 91.8%, 96.1%, 92.7%)
+    // that were not measured from anything. Populate them from a model card only.
     const capabilities = {
       'skin-cancer': {
         name: 'Skin Cancer Detection',
         description: 'Advanced dermatological analysis for skin lesion classification',
         conditions: ['Melanoma', 'Basal Cell Carcinoma', 'Squamous Cell Carcinoma', 'Benign Lesions'],
-        accuracy: '94.2%',
+        accuracy: null,
         specialty: 'Dermatology'
       },
       'lung-cancer': {
         name: 'Lung Cancer Detection',
         description: 'Chest X-ray and CT scan analysis for pulmonary conditions',
         conditions: ['Lung Cancer', 'Pneumonia', 'Tuberculosis', 'COVID-19'],
-        accuracy: '91.8%',
+        accuracy: null,
         specialty: 'Radiology'
       },
       'breast-cancer': {
         name: 'Breast Cancer Detection',
         description: 'Mammography analysis for breast cancer screening',
         conditions: ['Malignant Mass', 'Benign Mass', 'Calcifications'],
-        accuracy: '96.1%',
+        accuracy: null,
         specialty: 'Mammography'
       },
       'eye-disease': {
         name: 'Eye Disease Detection',
         description: 'Retinal imaging analysis for ocular conditions',
         conditions: ['Diabetic Retinopathy', 'Glaucoma', 'Macular Degeneration'],
-        accuracy: '92.7%',
+        accuracy: null,
         specialty: 'Ophthalmology'
       }
     };
@@ -458,19 +473,19 @@ function getEstimatedReviewTime(priority: string): string {
 }
 
 async function findSimilarCases(scan: any): Promise<any[]> {
-  // Mock similar cases - in production this would query historical data
-  return [
-    { id: 'similar-1', similarity: 0.85, outcome: 'Benign' },
-    { id: 'similar-2', similarity: 0.78, outcome: 'Requires follow-up' }
-  ];
+  // No case-similarity index exists. Returning invented "similar cases" with
+  // outcomes attached would imply evidence this system does not have.
+  return [];
 }
 
 function getPopulationData(scanType: string): any {
-  // Mock population data
+  // Prevalence must come from a cited epidemiological source (e.g. GLOBOCAN or a
+  // national cancer registry) and be specific to the population being served.
+  // It was previously randomised.
   return {
-    prevalence: Math.random() * 0.1,
-    ageGroup: '40-60 years',
-    demographics: 'General population'
+    prevalence: null,
+    source: null,
+    note: 'No epidemiological reference data configured for this scan type.'
   };
 }
 

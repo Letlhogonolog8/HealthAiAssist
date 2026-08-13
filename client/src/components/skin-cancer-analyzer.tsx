@@ -482,7 +482,11 @@ export default function SkinCancerAnalyzer() {
                 <Progress value={analysisResult.confidence} className="mt-2" />
               </div>
 
-              {/* ABCDE Analysis */}
+              {/* ABCDE Analysis. Rendered only when the backend actually supplies
+                  scores. The classifier does not measure ABCDE criteria, so the
+                  panel stays hidden rather than showing 0/2 across the board,
+                  which reads as a measured result of zero. */}
+              {analysisResult.abcdeScore && (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-lg">ABCDE Dermatoscopy Analysis</CardTitle>
@@ -525,6 +529,7 @@ export default function SkinCancerAnalyzer() {
                   </div>
                 </CardContent>
               </Card>
+              )}
 
               {/* Clinical Recommendations */}
               <Card>
