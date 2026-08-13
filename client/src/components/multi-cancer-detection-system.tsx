@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { 
   Upload, 
@@ -23,25 +23,36 @@ import {
   Zap
 } from "lucide-react";
 
+/**
+ * Mirrors what the analysis API actually returns.
+ *
+ * `stage`, `biomarkers`, `imaging` and `followUpPeriod` used to live here and
+ * were filled in client-side with random values. A binary image classifier
+ * cannot produce a tumour stage or a biomarker panel, so those fields have no
+ * honest source and are gone.
+ */
 interface CancerAnalysisResult {
-  cancerType: 'breast' | 'lung' | 'prostate' | 'skin' | 'cervical';
+  cancerType: string;
   hasCancer: boolean;
   confidence: number;
   riskLevel: 'low' | 'medium' | 'high';
-  stage?: string;
   findings: string[];
   recommendations: string[];
-  urgency: 'routine' | 'expedited' | 'urgent';
-  followUpPeriod: string;
-  biomarkers?: {
-    [key: string]: string | number;
-  };
-  imaging?: {
-    noduleSize?: string;
-    location?: string;
-    density?: string;
-    characteristics?: string[];
-  };
+  urgency: 'routine' | 'expedited' | 'urgent' | 'routine_followup';
+  requiresHumanReview: boolean;
+}
+
+/** A modality the server will actually analyse, from /api/models/cards. */
+interface ModelCapability {
+  scanType: string;
+  enabled: boolean;
+  disabledReason: string | null;
+  evaluation: {
+    balancedAccuracy: number;
+    sensitivity: number;
+    specificity: number;
+    caveats: string;
+  } | null;
 }
 
 const cancerTypes = [
@@ -89,6 +100,24 @@ const cancerTypes = [
 
 export default function MultiCancerDetectionSystem() {
   const { toast } = useToast();
+
+  // Which modalities are actually backed by a model that passed evaluation.
+  // Read from the server rather than hardcoded, so disabling a model in
+  // MODEL_REGISTRY immediately stops the UI offering it.
+  const { data: capabilities } = useQuery<{ models: ModelCapability[] }>({
+    queryKey: ['/api/models/cards'],
+    queryFn: async () => {
+      const response = await fetch('/api/models/cards');
+      if (!response.ok) throw new Error('Could not load model capabilities');
+      return response.json();
+    },
+  });
+
+  const capabilityFor = (id: string): ModelCapability | undefined =>
+    capabilities?.models.find((m) => m.scanType === id);
+
+  const isAvailable = (id: string): boolean => capabilityFor(id)?.enabled === true;
+
   const [selectedCancerType, setSelectedCancerType] = useState<string>('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string>("");
@@ -106,95 +135,72 @@ export default function MultiCancerDetectionSystem() {
         method: 'POST',
         body: formData
       });
-      
-      if (!response.ok) {
-        throw new Error('Cancer analysis failed');
+
+      const payload = await response.json().catch(() => null);
+
+      // 503 means no validated model could analyse the scan. It is emphatically
+      // not a negative result, and the message says so — surface the server's
+      // wording rather than a generic failure.
+      if (response.status === 503) {
+        throw new Error(
+          payload?.message ||
+          'No validated model could analyse this scan. This is not a negative result.'
+        );
       }
-      
-      return response.json();
+
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Cancer analysis failed');
+      }
+
+      return payload;
     },
     onSuccess: (data) => {
-      const enhancedResult = enhanceAnalysisResult(data.analysis, selectedCancerType);
-      setAnalysisResult(enhancedResult);
+      const result = toViewModel(data.analysis, selectedCancerType);
+      setAnalysisResult(result);
       setIsAnalyzing(false);
       setAnalysisProgress(100);
-      
+
       toast({
-        title: "Cancer Analysis Complete",
-        description: `${selectedCancerType} analysis completed with ${enhancedResult.confidence}% confidence`,
+        title: "Analysis complete",
+        description:
+          `${selectedCancerType} screening triage at ${result.confidence.toFixed(1)}% ` +
+          'classifier confidence. Requires clinician review.',
       });
     },
     onError: (error: any) => {
       setIsAnalyzing(false);
       setAnalysisProgress(0);
+      setAnalysisResult(null);
       toast({
-        title: "Analysis Failed",
-        description: error.message || "Cancer analysis failed. Please try again.",
+        title: "No result produced",
+        description: error.message || "Analysis could not be completed.",
         variant: "destructive",
       });
     }
   });
 
-  const enhanceAnalysisResult = (baseResult: any, cancerType: string): CancerAnalysisResult => {
-    const typeSpecificEnhancements = {
-      breast: {
-        biomarkers: {
-          'ER Status': Math.random() > 0.7 ? 'Positive' : 'Negative',
-          'PR Status': Math.random() > 0.6 ? 'Positive' : 'Negative',
-          'HER2': Math.random() > 0.8 ? 'Amplified' : 'Normal',
-          'Ki-67': `${Math.floor(Math.random() * 30 + 5)}%`
-        }
-      },
-      lung: {
-        imaging: {
-          noduleSize: `${Math.floor(Math.random() * 20 + 5)}mm`,
-          location: ['Right upper lobe', 'Left lower lobe', 'Right middle lobe', 'Left upper lobe'][Math.floor(Math.random() * 4)],
-          density: ['Solid', 'Ground-glass', 'Part-solid'][Math.floor(Math.random() * 3)],
-          characteristics: ['Spiculated margins', 'Irregular shape', 'Cavitation'].filter(() => Math.random() > 0.5)
-        },
-        biomarkers: {
-          'CEA Level': `${(Math.random() * 10 + 1).toFixed(1)} ng/mL`,
-          'CYFRA 21-1': `${(Math.random() * 5 + 1).toFixed(1)} ng/mL`,
-          'NSE': `${(Math.random() * 20 + 5).toFixed(1)} ng/mL`
-        }
-      },
-      prostate: {
-        biomarkers: {
-          'PSA Level': `${(Math.random() * 15 + 2).toFixed(1)} ng/mL`,
-          'Free PSA': `${Math.floor(Math.random() * 25 + 10)}%`,
-          'PSA Density': `${(Math.random() * 0.3 + 0.1).toFixed(2)} ng/mL/cc`,
-          'PI-RADS Score': Math.floor(Math.random() * 3 + 3)
-        }
-      },
-      skin: {
-        biomarkers: {
-          'Breslow Thickness': baseResult.hasCancer ? `${(Math.random() * 3 + 0.5).toFixed(1)}mm` : 'N/A',
-          'Clark Level': baseResult.hasCancer ? ['II', 'III', 'IV'][Math.floor(Math.random() * 3)] : 'N/A',
-          'Mitotic Rate': baseResult.hasCancer ? `${Math.floor(Math.random() * 10)}/mm²` : 'N/A'
-        }
-      },
-      cervical: {
-        biomarkers: {
-          'HPV Status': Math.random() > 0.7 ? 'Positive (HR-HPV)' : 'Negative',
-          'p16 Expression': Math.random() > 0.6 ? 'Positive' : 'Negative',
-          'Ki-67 Index': `${Math.floor(Math.random() * 40 + 10)}%`
-        }
-      }
-    };
-
-    return {
-      cancerType: cancerType as any,
-      hasCancer: baseResult.hasCancer || baseResult.status === 'abnormal',
-      confidence: parseFloat(baseResult.confidence) || 85,
-      riskLevel: baseResult.riskLevel || (baseResult.hasCancer ? 'high' : 'low'),
-      stage: baseResult.hasCancer ? ['Stage I', 'Stage II', 'Stage III'][Math.floor(Math.random() * 3)] : undefined,
-      findings: baseResult.findings || ['Analysis completed', 'Detailed examination performed'],
-      recommendations: baseResult.recommendations || ['Follow-up recommended', 'Consult with specialist'],
-      urgency: baseResult.hasCancer ? 'urgent' : 'routine',
-      followUpPeriod: baseResult.hasCancer ? '1-2 weeks' : '6-12 months',
-      ...(typeSpecificEnhancements[cancerType as keyof typeof typeSpecificEnhancements] || {})
-    };
-  };
+  /**
+   * Maps the API response onto the view model.
+   *
+   * This function previously invented biomarker panels per cancer type — PSA
+   * levels, ER/PR/HER2 status, Breslow thickness, PI-RADS scores, CEA levels —
+   * along with a cancer stage, all from Math.random() in the browser after the
+   * response came back. None of it was ever computed from the image. It is
+   * removed rather than reworked: the classifier outputs a binary label and a
+   * probability, so a biomarker panel cannot be derived from it at all.
+   *
+   * Only fields the server actually returned are surfaced here.
+   */
+  const toViewModel = (baseResult: any, cancerType: string): CancerAnalysisResult => ({
+    cancerType: cancerType as any,
+    hasCancer: baseResult.hasCancer || baseResult.status === 'abnormal',
+    confidence: parseFloat(baseResult.confidence) || 0,
+    riskLevel: baseResult.riskLevel || (baseResult.hasCancer ? 'high' : 'low'),
+    findings: baseResult.findings || [],
+    recommendations: baseResult.recommendations || [],
+    urgency: baseResult.urgency || (baseResult.hasCancer ? 'urgent' : 'routine'),
+    requiresHumanReview: baseResult.requiresHumanReview !== false,
+  });
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -315,25 +321,61 @@ export default function MultiCancerDetectionSystem() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {cancerTypes.map((type) => {
                   const IconComponent = type.icon;
+                  const capability = capabilityFor(type.id);
+                  const available = isAvailable(type.id);
+
                   return (
-                    <Card 
+                    <Card
                       key={type.id}
-                      className={`cursor-pointer transition-all duration-200 hover:shadow-lg ${
-                        selectedCancerType === type.id 
-                          ? 'ring-2 ring-blue-500 bg-blue-50' 
-                          : 'hover:bg-gray-50'
+                      aria-disabled={!available}
+                      className={`transition-all duration-200 ${
+                        !available
+                          ? 'opacity-60 cursor-not-allowed bg-gray-50'
+                          : selectedCancerType === type.id
+                            ? 'cursor-pointer ring-2 ring-blue-500 bg-blue-50'
+                            : 'cursor-pointer hover:shadow-lg hover:bg-gray-50'
                       }`}
-                      onClick={() => setSelectedCancerType(type.id)}
+                      onClick={() => available && setSelectedCancerType(type.id)}
                     >
                       <CardContent className="p-6">
                         <div className="flex items-start space-x-4">
-                          <div className={`p-3 rounded-lg ${type.color} text-white`}>
+                          <div className={`p-3 rounded-lg ${available ? type.color : 'bg-gray-400'} text-white`}>
                             <IconComponent className="w-6 h-6" />
                           </div>
                           <div className="flex-1">
-                            <h3 className="font-semibold text-lg">{type.name}</h3>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="font-semibold text-lg">{type.name}</h3>
+                              {available ? (
+                                <Badge variant="outline" className="text-green-700 border-green-300">
+                                  Model available
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-gray-600 border-gray-300">
+                                  Not available
+                                </Badge>
+                              )}
+                            </div>
                             <p className="text-sm text-gray-600 mb-2">{type.description}</p>
-                            <p className="text-xs text-gray-500">
+
+                            {available && capability?.evaluation ? (
+                              // Measured performance, shown up front rather than buried.
+                              // Sensitivity is what a patient is actually relying on.
+                              <p className="text-xs text-gray-600">
+                                Measured sensitivity{' '}
+                                <strong>{(capability.evaluation.sensitivity * 100).toFixed(1)}%</strong>,
+                                specificity{' '}
+                                <strong>{(capability.evaluation.specificity * 100).toFixed(1)}%</strong>{' '}
+                                on a held-out test set. Screening triage only.
+                              </p>
+                            ) : (
+                              <p className="text-xs text-gray-600">
+                                {capability?.disabledReason
+                                  ? 'Disabled: this model did not pass evaluation.'
+                                  : 'No trained model exists for this modality yet, so it cannot be analysed.'}
+                              </p>
+                            )}
+
+                            <p className="text-xs text-gray-500 mt-1">
                               <strong>Accepted:</strong> {type.acceptedFiles}
                             </p>
                           </div>
@@ -500,61 +542,31 @@ export default function MultiCancerDetectionSystem() {
                 </CardContent>
               </Card>
 
-              {/* Biomarkers Card */}
-              {analysisResult.biomarkers && (
-                <Card className="bg-blue-50">
-                  <CardHeader>
-                    <CardTitle className="text-blue-900">Biomarkers & Indicators</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      {Object.entries(analysisResult.biomarkers).map(([key, value]) => (
-                        <div key={key} className="text-center p-3 bg-white rounded-lg">
-                          <div className="text-sm text-blue-700">{key}</div>
-                          <div className="font-semibold text-blue-900">{value}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Imaging Details Card */}
-              {analysisResult.imaging && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Imaging Characteristics</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {Object.entries(analysisResult.imaging).map(([key, value]) => (
-                        <div key={key} className="flex justify-between">
-                          <span className="text-gray-600 capitalize">{key.replace(/([A-Z])/g, ' $1')}:</span>
-                          <span className="font-medium">
-                            {Array.isArray(value) ? value.join(', ') : value}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Follow-up Card */}
-              <Card className="bg-blue-50">
+              {/* What this result is not.
+                  Panels for biomarkers, imaging characteristics and a follow-up
+                  interval used to sit here, populated from client-side random
+                  values. They are removed; the limits of the result are shown
+                  instead, which is the honest content for this space. */}
+              <Card className="border-amber-300 bg-amber-50">
                 <CardHeader>
-                  <CardTitle className="text-blue-900">Follow-up Protocol</CardTitle>
+                  <CardTitle className="text-amber-900 text-base">
+                    What this result does not tell you
+                  </CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <div className="flex items-center justify-between p-4 bg-white rounded-lg">
-                    <div>
-                      <p className="font-medium text-blue-900">Next Follow-up</p>
-                      <p className="text-sm text-blue-700">Recommended timeframe</p>
-                    </div>
-                    <Badge variant="outline" className="text-lg px-3 py-1 text-blue-900">
-                      {analysisResult.followUpPeriod}
-                    </Badge>
-                  </div>
+                <CardContent className="text-sm text-amber-900 space-y-2">
+                  <p>
+                    This is a screening triage signal from an image classifier. It is
+                    not a diagnosis, and it must be reviewed by a clinician.
+                  </p>
+                  <p>
+                    It does not establish a tumour stage, grade, biomarker status or
+                    lesion measurement. Those require laboratory testing and
+                    specialist assessment — no image classifier can produce them.
+                  </p>
+                  <p>
+                    A result of "no malignancy detected" is not a clearance. Model
+                    sensitivity is below 100%, so some cancers are missed.
+                  </p>
                 </CardContent>
               </Card>
 
