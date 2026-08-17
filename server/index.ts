@@ -1,7 +1,25 @@
 // Load environment variables from .env only in non-production environments
 import dotenv from 'dotenv';
 if (process.env.NODE_ENV !== 'production') {
-  dotenv.config();
+  const parsed = dotenv.config().parsed ?? {};
+
+  // dotenv never overwrites a variable that is already set. On Windows a User-
+  // or Machine-level environment variable therefore silently beats .env, so
+  // editing the file appears to work and changes nothing. That is how a
+  // SESSION_SECRET of "dev_secret_123" survived being "fixed" in .env.
+  //
+  // Values are never printed — only the key names, and only when they diverge.
+  const shadowed = Object.keys(parsed).filter((key) => process.env[key] !== parsed[key]);
+  if (shadowed.length) {
+    console.warn(
+      `⚠️  ${shadowed.length} variable(s) in .env are being IGNORED because they are ` +
+      `already set in the environment:\n     ${shadowed.join(', ')}\n` +
+      '     The pre-existing value wins. Editing .env will not change these.\n' +
+      '     Inspect with: [Environment]::GetEnvironmentVariable(\'NAME\',\'User\'|\'Machine\')\n' +
+      '     Note that a terminal opened before a system variable changed still ' +
+      'carries the old value — reopen it.'
+    );
+  }
 }
 
 import { randomBytes } from "crypto";
