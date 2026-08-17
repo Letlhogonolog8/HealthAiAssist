@@ -64,6 +64,21 @@ export interface PrsResult {
 export const MIN_COVERAGE_PCT = 80;
 
 /**
+ * Maps the several names each human reference assembly goes by onto one label.
+ * hg19 and GRCh37 are the same coordinates; so are hg38 and GRCh38.
+ * Returns null for an unrecognised or absent build, which callers treat as
+ * "unknown" rather than as a mismatch.
+ */
+export function normaliseBuild(build: string | null | undefined): string | null {
+  if (!build) return null;
+  const value = build.trim().toLowerCase();
+  if (/grch38|hg38/.test(value)) return 'GRCh38';
+  if (/grch37|hg19|build\s*37/.test(value)) return 'GRCh37';
+  if (/ncbi36|hg18|build\s*36/.test(value)) return 'NCBI36';
+  return null;
+}
+
+/**
  * Counts copies of the effect allele in a diploid call.
  * Returns null for no-calls, which are excluded rather than imputed as 0 —
  * treating a missing genotype as "no risk alleles" biases every score downward.
@@ -140,7 +155,10 @@ export function parsePgsScoringFile(content: string, condition: string): Scoring
     provenance: 'pgs_catalog',
     pgsId: meta.pgs_id || null,
     genomeBuild: meta.genome_build || null,
-    discoveryAncestry: meta.trait_mapped ? null : null,
+    // PGS Catalog scoring-file headers do not carry the discovery-cohort
+    // ancestry; it lives in the REST metadata. Recorded in the reference
+    // distribution's `population` field instead, which is where it matters.
+    discoveryAncestry: meta.ancestry || null,
     citation: meta.citation || meta.pgs_name || null,
     variants,
   };
@@ -243,16 +261,19 @@ export function computePrs(
   // A scoring file built on one reference assembly applied to genotypes called
   // on another produces a number, silently, and it is wrong: coordinates and in
   // some cases strand differ between builds. Refuse rather than report.
-  const buildMismatch =
-    !!panel.genomeBuild &&
-    !!profileGenomeBuild &&
-    panel.genomeBuild.toLowerCase() !== profileGenomeBuild.toLowerCase();
+  //
+  // Compared after normalisation, because the same assembly has two common
+  // names: PGS Catalog files say "hg19" where a 23andMe header says "build 37",
+  // and treating those as different would reject a perfectly valid pairing.
+  const panelBuild = normaliseBuild(panel.genomeBuild);
+  const profileBuild = normaliseBuild(profileGenomeBuild);
+  const buildMismatch = !!panelBuild && !!profileBuild && panelBuild !== profileBuild;
 
   if (buildMismatch) {
     warnings.push(
-      `Genome build mismatch: the panel is ${panel.genomeBuild} but this genotype ` +
-      `file is ${profileGenomeBuild}. The score below is not valid and no ` +
-      'percentile is reported.'
+      `Genome build mismatch: the panel is ${panel.genomeBuild} (${panelBuild}) but ` +
+      `this genotype file is ${profileGenomeBuild} (${profileBuild}). The score ` +
+      'below is not valid and no percentile is reported.'
     );
   } else if (panel.genomeBuild && !profileGenomeBuild) {
     warnings.push(
@@ -281,8 +302,8 @@ export function computePrs(
 
   if (buildMismatch) {
     percentileWithheldReason =
-      `Genome build mismatch (panel ${panel.genomeBuild} vs genotypes ` +
-      `${profileGenomeBuild}). Positions are not comparable across builds.`;
+      `Genome build mismatch (panel ${panelBuild} vs genotypes ${profileBuild}). ` +
+      'Positions are not comparable across builds.';
   } else if (coveragePct < MIN_COVERAGE_PCT) {
     percentileWithheldReason =
       `Only ${coveragePct}% of the panel's ${panel.variants.length} variants were ` +

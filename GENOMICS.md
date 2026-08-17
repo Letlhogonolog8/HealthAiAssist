@@ -63,8 +63,23 @@ coefficients, and they only ever reduce confidence — never rescale a score upw
 
 ## Panels are not authored here
 
-`server/genomics/panels/` ships **no real effect sizes and no real pathogenicity
-assertions**. See [the panel README](server/genomics/panels/README.md).
+Effect sizes and pathogenicity classifications come from published sources, never
+from this repository. See [the panel README](server/genomics/panels/README.md).
+
+**Installed:** `melanoma.txt` is PGS Catalog **PGS000339** — 22 variants,
+GRCh37/hg19, Law MH et al., *Hum Mol Genet* 2020 (PMID 32716505). Its GWAS,
+development and evaluation cohorts are **100% European**, which is the
+transferability problem stated by the score's own metadata.
+
+Its reference distribution is derived analytically from the allele frequencies in
+the scoring file (`mean = sum(2*p*w)`, `var = sum(2*p*(1-p)*w^2)`), verified
+against a 200,000-draw Monte Carlo simulation to four decimal places. The
+assumptions — Hardy-Weinberg, approximate independence, normality — are recorded
+in the generated file.
+
+**Still synthetic:** the actionable variant panel. Its classifications are not
+verified against ClinVar, so every risk response still carries
+`clinicalUseAllowed: false`.
 
 - **Polygenic scores** load from [PGS Catalog](https://www.pgscatalog.org/)
   scoring files, which are versioned and citable.
@@ -74,8 +89,9 @@ assertions**. See [the panel README](server/genomics/panels/README.md).
 
 A panel not sourced that way is marked `synthetic`, and the flag propagates all
 the way out: `clinicalUseAllowed: false` on the risk response, and a caveat at
-the top of the list. The repo ships synthetic panels so the pipeline can be
-exercised end to end — **delete them before any real deployment.**
+the top of the list. That is currently what the actionable panel does — replace
+it with a ClinVar-derived table, or delete it so the engine reports "not
+screened" instead of screening against invented data.
 
 Inventing weights would have produced a working demo indistinguishable from a
 real one. That is exactly the failure this codebase already had with fabricated
@@ -132,9 +148,22 @@ for data nothing will ever read.
 
 ```bash
 npm run db:migrate-genomics   # additive, idempotent
-npm run test:genomics         # 36 unit tests, no database needed
-npm run smoke:genomics -- http://localhost:5000   # 22 end-to-end checks
+npm run test:genomics         # 41 unit tests, no database needed
+npm run smoke:genomics -- http://localhost:5000   # 27 end-to-end checks
+
+# Demonstrates the ancestry gate: identical genotypes, three ancestries
+npx tsx scripts/check-ancestry-gating.ts http://localhost:5000
 ```
+
+With the real panel installed, that last script produces:
+
+| Self-reported ancestry | Transferability | Percentile |
+|---|---|---|
+| European | 1.0 | 100th, interval 90–100 |
+| Black South African | 0.25 | **withheld** |
+| (not stated) | 0.4 | **withheld** |
+
+Same genotypes, same raw score, 100% panel coverage in all three cases.
 
 **Schema note:** the risk table is `genomic_risk_assessments`, not
 `risk_assessments`. The target database already contains an unrelated
@@ -150,7 +179,9 @@ list. Ports like 5060 are unreachable and fail with an unhelpful "bad port".
   it is a separate, consequential claim that would need its own validation.
 - Transferability groups are coarse buckets; real ancestry is continuous and
   admixture is common.
-- No reference distribution ships with the repo, so percentiles are withheld
-  until an operator installs one.
+- The melanoma reference distribution is an analytic approximation, not an
+  empirically scored cohort. Scoring 1000 Genomes would be more accurate.
+- The installed score is 22 variants, which is a modest predictor. Larger scores
+  exist but fall below the coverage floor on consumer arrays.
 - No imputation. Only directly genotyped positions are scored, so consumer arrays
   will fall below the coverage floor for large panels.

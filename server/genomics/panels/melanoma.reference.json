@@ -1,6 +1,17 @@
 {
-  "mean": 1.0,
-  "sd": 0.45,
-  "population": "SYNTHETIC - not a real reference population. Paired with melanoma.synthetic.json so the percentile path can be exercised in tests. Any percentile derived from this is meaningless.",
-  "source": "none - synthetic test fixture"
+  "mean": -1.721508,
+  "sd": 0.440587,
+  "population": "Analytic approximation for the PGS000339 discovery population (100% European (PGS Catalog: GWAS, development and evaluation cohorts all EUR)), derived from the effect allele frequencies in the scoring file. Not an empirically scored cohort.",
+  "source": "Law MH et al. Hum Mol Genet (2020). doi:10.1093/hmg/ddaa156",
+  "method": {
+    "formula": "mean = sum(2*p*w); var = sum(2*p*(1-p)*w^2)",
+    "assumptions": [
+      "Hardy-Weinberg equilibrium at each variant",
+      "Variants independent (approximately true for a clumped score)",
+      "Score approximately normally distributed"
+    ],
+    "variantsUsed": 22,
+    "variantsWithoutFrequency": 0,
+    "generatedAt": "2026-08-17T20:19:16.015Z"
+  }
 }

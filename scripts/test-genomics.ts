@@ -14,7 +14,7 @@
 import assert from 'node:assert/strict';
 
 import { parseConsumerRawFile, parseVcf, parseGenotypeFile, GenotypeParseError } from '../server/genomics/parsers';
-import { dosage, computePrs, parsePgsScoringFile, type ScoringPanel } from '../server/genomics/prs';
+import { dosage, computePrs, parsePgsScoringFile, normaliseBuild, type ScoringPanel } from '../server/genomics/prs';
 import { getTransferability, percentileInterval, resolveAncestryGroup } from '../server/genomics/ancestry';
 import { screenActionableVariants, type ActionablePanel } from '../server/genomics/actionable-variants';
 import { fuseRisk } from '../server/genomics/fusion';
@@ -184,6 +184,25 @@ test('prs excludes no-calls from coverage instead of scoring them as zero', () =
   const result = computePrs(PANEL, withNoCall, { mean: 1.0, sd: 0.5 });
   assert.equal(result.matchedVariants, 4, 'no-call must not count as genotyped');
   assert.equal(result.coveragePct, 80);
+});
+
+test('build aliases resolve to one label', () => {
+  // PGS Catalog files say hg19; 23andMe headers say build 37. Same assembly.
+  assert.equal(normaliseBuild('hg19'), 'GRCh37');
+  assert.equal(normaliseBuild('GRCh37'), 'GRCh37');
+  assert.equal(normaliseBuild('build 37'), 'GRCh37');
+  assert.equal(normaliseBuild('hg38'), 'GRCh38');
+  assert.equal(normaliseBuild('GRCh38'), 'GRCh38');
+  assert.equal(normaliseBuild(null), null);
+  assert.equal(normaliseBuild('NR'), null, 'unrecognised must be unknown, not a guess');
+});
+
+test('hg19 panel against a build-37 genotype file is NOT a mismatch', () => {
+  const hg19Panel: ScoringPanel = { ...PANEL, genomeBuild: 'hg19' };
+  const genotypes = new Map(PANEL.variants.map((v) => [v.rsid, `${v.effectAllele}${v.effectAllele}`]));
+  const result = computePrs(hg19Panel, genotypes, { mean: 1.0, sd: 0.5 }, 'GRCh37');
+  assert.notEqual(result.percentile, null, 'hg19 and GRCh37 are the same assembly');
+  assert.ok(!result.warnings.some((w) => /mismatch/i.test(w)));
 });
 
 test('prs refuses a percentile when genome builds disagree', () => {
