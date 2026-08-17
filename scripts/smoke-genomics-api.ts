@@ -96,10 +96,11 @@ const GENOTYPE_FILE = [
   'rs291671	20	31950845	GG',
   'rs45430	21	42746081	TT',
   'rs11570734	22	38518622	AA',
-  // actionable panel variants
-  'rs80357906	17	41244000	AG',
-  'rs80359550	13	32914438	CC',
-  'rs28897743	13	32912299	AA',
+  // Real ClinVar pathogenic variants from the installed panel. rs1057519558 is
+  // BRCA1 (ClinVar 375546); rs104894094 is CDKN2A (ClinVar 9412), which is the
+  // melanoma predisposition gene, so it is the relevant one for this condition.
+  'rs1057519558	17	41209079	AG',
+  'rs104894094	9	21971120	AA',
 ].join('\n');
 
 async function main() {
@@ -122,8 +123,10 @@ async function main() {
     )
   );
   check(
-    'synthetic actionable panel is still marked not-clinical',
-    panels.json?.actionablePanel?.clinicalUseAllowed === false
+    'actionable panel is real ClinVar data',
+    panels.json?.actionablePanel?.synthetic === false &&
+    panels.json?.actionablePanel?.clinicalUseAllowed === true,
+    JSON.stringify(panels.json?.actionablePanel)
   );
 
   const transfer = await call('GET', '/api/genomics/transferability');
@@ -171,16 +174,17 @@ async function main() {
   // Self-access is permitted without an explicit grant, so upload should work.
   const upload = await call('POST', '/api/genomics/profile/upload', undefined, form);
   check('upload succeeds for self', upload.status === 200, JSON.stringify(upload.json));
-  check('only panel-relevant variants stored', upload.json?.variantsStored === 25,
+  check('only panel-relevant variants stored', upload.json?.variantsStored === 24,
     `stored ${upload.json?.variantsStored}`);
   check('build detected', upload.json?.genomeBuild === 'GRCh37');
 
   // --- risk computation ---
   const risk = await call('POST', `/api/genomics/risk/${patientId}`, { condition: 'melanoma' });
   check('risk computation returns 200', risk.status === 200, JSON.stringify(risk.json).slice(0, 300));
-  // The polygenic panel is real now; the actionable panel is still synthetic, so
-  // the combined result is correctly still refused for clinical use.
-  check('synthetic actionable panel still blocks clinical use', risk.json?.clinicalUseAllowed === false);
+  // Both panels are now sourced, so nothing synthetic remains to block use.
+  check('no synthetic data remains in the result',
+    risk.json?.containsSyntheticData === false && risk.json?.clinicalUseAllowed === true,
+    `synthetic=${risk.json?.containsSyntheticData} allowed=${risk.json?.clinicalUseAllowed}`);
   check('clinician review always required', risk.json?.requiresClinicianReview === true);
   check('polygenic component came from the real panel',
     risk.json?.polygenic?.provenance === 'pgs_catalog',
@@ -197,7 +201,11 @@ async function main() {
   check('actionable finding surfaced', (risk.json?.actionableVariants?.findings?.length ?? 0) >= 1);
   check('band raised to high by pathogenic finding', risk.json?.band === 'high',
     `band was ${risk.json?.band}`);
-  check('synthetic warning leads caveats', /SYNTHETIC/i.test(risk.json?.caveats?.[0] ?? ''));
+  check('no synthetic caveat is emitted',
+    !risk.json?.caveats?.some((c: string) => /SYNTHETIC/i.test(c)));
+  check('un-assayed panel positions reported as unknown',
+    (risk.json?.actionableVariants?.notAssayedCount ?? 0) > 1000,
+    `notAssayed ${risk.json?.actionableVariants?.notAssayedCount}`);
 
   // --- audit trail ---
   const log = await call('GET', `/api/genomics/access-log/${patientId}`);

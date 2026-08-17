@@ -77,9 +77,24 @@ against a 200,000-draw Monte Carlo simulation to four decimal places. The
 assumptions — Hardy-Weinberg, approximate independence, normality — are recorded
 in the generated file.
 
-**Still synthetic:** the actionable variant panel. Its classifications are not
-verified against ClinVar, so every risk response still carries
-`clinicalUseAllowed: false`.
+**Installed:** `actionable-variants.json` is derived from the **ClinVar** GRCh37
+VCF, release 2026-08-08 — 7,565 pathogenic and likely-pathogenic single-nucleotide
+variants carrying an rsID, across 35 hereditary cancer predisposition genes (the
+ACMG Secondary Findings v3.2 cancer set plus melanoma genes CDKN2A, CDK4, BAP1,
+POT1, MITF). Regenerate with:
+
+```bash
+curl -sL https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh37/clinvar.vcf.gz   | python scripts/build-actionable-panel.py
+```
+
+Nothing synthetic remains, so risk responses now return
+`clinicalUseAllowed: true`.
+
+Worth noting what regenerating caught: the placeholder panel had listed
+`rs28897743` as a variant of uncertain significance with risk allele G. ClinVar
+records it as **pathogenic** in BRCA2 with risk allele **A**. Wrong on both
+counts — which is the argument for generating this from a dated release rather
+than transcribing it.
 
 - **Polygenic scores** load from [PGS Catalog](https://www.pgscatalog.org/)
   scoring files, which are versioned and citable.
@@ -87,11 +102,10 @@ verified against ClinVar, so every risk response still carries
   Pathogenicity classifications get revised; the loader records which release was
   used.
 
-A panel not sourced that way is marked `synthetic`, and the flag propagates all
-the way out: `clinicalUseAllowed: false` on the risk response, and a caveat at
-the top of the list. That is currently what the actionable panel does — replace
-it with a ClinVar-derived table, or delete it so the engine reports "not
-screened" instead of screening against invented data.
+A panel not sourced that way would be marked `synthetic`, and the flag propagates
+all the way out: `clinicalUseAllowed: false` on the risk response, and a caveat at
+the top of the list. Both installed panels are sourced, so that path is currently
+dormant — it stays in place because the next panel someone adds might not be.
 
 Inventing weights would have produced a working demo indistinguishable from a
 real one. That is exactly the failure this codebase already had with fabricated
@@ -183,5 +197,12 @@ list. Ports like 5060 are unreachable and fail with an unhelpful "bad port".
   empirically scored cohort. Scoring 1000 Genomes would be more accurate.
 - The installed score is 22 variants, which is a modest predictor. Larger scores
   exist but fall below the coverage floor on consumer arrays.
+- The actionable panel covers only single-nucleotide variants with an rsID. Many
+  pathogenic BRCA variants are indels or large rearrangements and are therefore
+  absent — a clean screen is emphatically not a clearance, and the API reports
+  the un-assayed count alongside every result to make that visible.
+- Allele matching assumes the genotype file reports on the reference forward
+  strand, as ClinVar and the major consumer exports do. A file using the opposite
+  strand convention would mis-call variants.
 - No imputation. Only directly genotyped positions are scored, so consumer arrays
   will fall below the coverage floor for large panels.
