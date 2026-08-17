@@ -221,7 +221,7 @@ export default function DemoWalkthrough({ onClose }: DemoWalkthroughProps) {
             </Button>
           ) : (
             <Button onClick={onClose} className="bg-green-600 hover:bg-green-700">
-              Start Free Trial
+              Access platform
             </Button>
           )}
         </div>

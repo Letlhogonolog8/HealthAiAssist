@@ -774,7 +774,7 @@ export default function FloatingChatbot({ user, onActionClick }: FloatingChatbot
   const initializeChatSession = (session: any) => {
     const chatMessage: ChatMessage = {
       id: Date.now().toString(),
-      content: `💬 Real-time chat started with ${session.doctorName}\n\nYou can now communicate directly with your healthcare provider. Messages are secure and HIPAA compliant.`,
+      content: `💬 Real-time chat started with ${session.doctorName}\n\nYou can now communicate directly with your healthcare provider. Messages are transmitted over TLS and access is authenticated.`,
       sender: 'assistant',
       timestamp: new Date(),
       actions: [

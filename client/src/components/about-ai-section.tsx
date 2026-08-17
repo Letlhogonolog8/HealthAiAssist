@@ -115,7 +115,7 @@ export default function AboutAISection() {
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
                 <Button className="bg-white text-blue-800 hover:bg-slate-100">
-                  Start Free Trial
+                  Access platform
                 </Button>
                 <Button
                   variant="outline"

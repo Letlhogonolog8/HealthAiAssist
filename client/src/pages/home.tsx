@@ -1,210 +1,243 @@
-import { useState, useEffect } from "react";
+/**
+ * Public homepage.
+ *
+ * Rewritten to remove claims the system cannot support. What was here before:
+ * "97.5% Detection Accuracy", "10,000+ Scans Analyzed", "500+ Healthcare
+ * Providers", "30% Earlier Detection", "FDA Compliant", "HIPAA compliant
+ * infrastructure", "HIPAA & SOC 2 compliant", "Trusted by 500+ Healthcare
+ * Institutions", federated learning, an offline mobile app, multi-language
+ * support, 24/7 clinical assistance, and a free trial. None of it was true, and
+ * the compliance claims are regulatory assertions the project does not hold.
+ *
+ * The sections below take their numbers from the API so the page cannot drift
+ * away from the system again.
+ */
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import Navigation from "@/components/navigation";
 import EnhancedHeroSection from "@/components/enhanced-hero-section";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import AIFeaturesSection from "@/components/ai-features-section";
 import CancerDetectionSection from "@/components/cancer-detection-section";
-
 import Footer from "@/components/footer";
 import LoginDialog from "@/components/login-dialog";
-import { Brain, Shield, Users, TrendingUp, Heart, Activity, Zap, CheckCircle, Star, Award, Microscope, Clock, Globe, ArrowRight, Play } from "lucide-react";
-import DemoWalkthrough from "@/components/demo-walkthrough";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Link } from "wouter";
+import { Dna, Scale, Lock, Ban, ArrowRight, AlertTriangle } from "lucide-react";
 
 interface HomeProps {
   onLoginSuccess: (user: any) => void;
 }
 
-export default function Home({ onLoginSuccess, userId }: HomeProps & { userId?: number }) {
+interface TransferabilityGroup {
+  group: string;
+  approximateRelativeAccuracy: number;
+  percentileReported: boolean;
+}
+
+const prettyGroup = (group: string) =>
+  group.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+/**
+ * Things the system declines to do. Stated positively, because each one is a
+ * design decision rather than a missing feature.
+ */
+const REFUSALS = [
+  {
+    title: "It will not guess when a model is unavailable",
+    body:
+      "If no validated model can analyse a scan, the response carries no diagnostic content at all and the scan is queued for a human. An earlier version filled that gap with random values.",
+  },
+  {
+    title: "It will not rank you against a population that is not yours",
+    body:
+      "Polygenic scores are derived overwhelmingly from European-ancestry cohorts. Where that reference does not describe you, no percentile is shown and the genomic component is dropped from the result entirely.",
+  },
+  {
+    title: "It will not report what it did not measure",
+    body:
+      "No tumour stage, no grade, no biomarker panel, no lesion dimensions. An image classifier produces a label and a probability; anything beyond that would be invented.",
+  },
+  {
+    title: "It will not treat a missing answer as a negative one",
+    body:
+      "Un-genotyped positions are reported as unknown, not as absent variants. A clean screen is not a clearance, and the interface says so.",
+  },
+];
+
+export default function Home({ onLoginSuccess }: HomeProps & { userId?: number }) {
   const [showLoginDialog, setShowLoginDialog] = useState(false);
-  const [showDemo, setShowDemo] = useState(false);
-  const [statsVisible, setStatsVisible] = useState(false);
-  const [featuresVisible, setFeaturesVisible] = useState(false);
 
-  useEffect(() => {
-    const timer1 = setTimeout(() => setStatsVisible(true), 500);
-    const timer2 = setTimeout(() => setFeaturesVisible(true), 1000);
-    return () => { clearTimeout(timer1); clearTimeout(timer2); };
-  }, []);
+  const { data: transferability } = useQuery<{
+    citation: string;
+    groups: TransferabilityGroup[];
+  }>({
+    queryKey: ["/api/genomics/transferability"],
+    queryFn: async () => (await fetch("/api/genomics/transferability")).json(),
+  });
 
-  const stats = [
-    { value: "10,000+", label: "Scans Analyzed", icon: Brain, color: "text-blue-400" },
-    { value: "97.5%", label: "Detection Accuracy", icon: Shield, color: "text-green-400" },
-    { value: "500+", label: "Healthcare Providers", icon: Users, color: "text-purple-400" },
-    { value: "30%", label: "Earlier Detection", icon: TrendingUp, color: "text-cyan-400" }
-  ];
-
-  const features = [
-    { title: "Multi-Cancer Detection", desc: "Breast, Lung, Skin, Colon & Prostate", icon: Heart, color: "bg-red-600" },
-    { title: "Real-Time Analysis", desc: "Instant AI-powered results", icon: Zap, color: "bg-yellow-600" },
-    { title: "Medical Grade", desc: "FDA compliant accuracy", icon: Award, color: "bg-green-600" },
-    { title: "24/7 Availability", desc: "Always accessible platform", icon: Activity, color: "bg-blue-600" }
-  ];
+  const withheld = transferability?.groups.filter((g) => !g.percentileReported) ?? [];
 
   return (
-    <div className="min-h-screen bg-slate-900">
+    <div className="min-h-screen bg-slate-950">
       <Navigation onLoginSuccess={onLoginSuccess} />
       <EnhancedHeroSection onLoginClick={() => setShowLoginDialog(true)} />
-      
-
-
-
-
-      {/* Features Grid */}
-      <section className="bg-slate-800 py-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <Badge className="bg-blue-600/20 text-blue-400 border-blue-600/30 px-4 py-2 text-sm font-medium mb-6">
-              Platform Capabilities
-            </Badge>
-            <h2 className="text-4xl font-bold text-white mb-6">Advanced AI-Powered Healthcare</h2>
-            <p className="text-xl text-slate-400 max-w-4xl mx-auto leading-relaxed">
-              Our comprehensive platform combines cutting-edge artificial intelligence with medical expertise 
-              to deliver unprecedented accuracy in cancer detection and diagnosis.
-            </p>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {[
-              { 
-                title: "Multi-Modal AI Detection", 
-                desc: "Advanced neural networks analyze medical images across 5 cancer types with 97.5% accuracy", 
-                icon: Brain, 
-                color: "from-blue-600 to-cyan-600" 
-              },
-              { 
-                title: "Real-Time Analysis", 
-                desc: "Instant processing and results delivery with comprehensive diagnostic insights", 
-                icon: Zap, 
-                color: "from-yellow-600 to-orange-600" 
-              },
-              { 
-                title: "Medical Grade Security", 
-                desc: "HIPAA compliant infrastructure with enterprise-level data protection", 
-                icon: Shield, 
-                color: "from-green-600 to-emerald-600" 
-              },
-              { 
-                title: "Clinical Integration", 
-                desc: "Seamless workflow integration with existing hospital management systems", 
-                icon: Activity, 
-                color: "from-purple-600 to-pink-600" 
-              },
-              { 
-                title: "Global Accessibility", 
-                desc: "24/7 platform availability with multi-language support for worldwide access", 
-                icon: Globe, 
-                color: "from-indigo-600 to-blue-600" 
-              },
-              { 
-                title: "Continuous Learning", 
-                desc: "AI models continuously improve through federated learning and expert validation", 
-                icon: TrendingUp, 
-                color: "from-teal-600 to-cyan-600" 
-              }
-            ].map((feature, index) => {
-              const IconComponent = feature.icon;
-              return (
-                <div 
-                  key={index}
-                  className={`transform transition-all duration-700 delay-${index * 150} ${
-                    featuresVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'
-                  }`}
-                >
-                  <Card className="bg-slate-700 border-slate-600 hover:border-slate-500 transition-all duration-300 hover:scale-105 group h-full">
-                    <CardContent className="p-8">
-                      <div className="flex items-start space-x-4">
-                        <div className={`w-14 h-14 bg-gradient-to-br ${feature.color} rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform duration-300 flex-shrink-0`}>
-                          <IconComponent className="w-7 h-7 text-white" />
-                        </div>
-                        <div className="flex-1">
-                          <h3 className="text-xl font-semibold text-white mb-3 group-hover:text-blue-400 transition-colors">
-                            {feature.title}
-                          </h3>
-                          <p className="text-slate-400 leading-relaxed">{feature.desc}</p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-      
-
-
-
 
       <AIFeaturesSection />
       <CancerDetectionSection />
-      
-      {/* Call to Action Section */}
-      <section className="bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900 py-24 relative overflow-hidden">
-        <div className="absolute inset-0 opacity-20">
-          <div className="w-full h-full bg-gradient-to-br from-white/5 to-transparent"></div>
-        </div>
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center relative z-10">
-          <div className="space-y-10">
-            <div className="space-y-6">
-              <div className="inline-flex items-center space-x-2 bg-white/10 backdrop-blur-sm rounded-full px-6 py-3 border border-white/20">
-                <CheckCircle className="w-5 h-5 text-green-400" />
-                <span className="text-white font-medium">Trusted by 500+ Healthcare Institutions</span>
+
+      {/* ---------------- Equity: the differentiator ---------------- */}
+      <section className="bg-slate-900 py-20 border-b border-slate-800">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="grid gap-12 lg:grid-cols-2 lg:items-start">
+            <div>
+              <div className="inline-flex items-center gap-2 text-cyan-400 text-sm font-medium">
+                <Scale className="w-4 h-4" />
+                Who this works for
               </div>
-              <h2 className="text-5xl md:text-6xl font-bold text-white mb-6 leading-tight">
-                Transform Cancer Detection
-                <span className="block text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-400">
-                  with AI Precision
-                </span>
+              <h2 className="mt-3 text-3xl font-bold text-white">
+                Most genomic research describes a minority of the world
               </h2>
-              <p className="text-xl text-slate-200 mb-8 max-w-3xl mx-auto leading-relaxed">
-                Join the revolution in medical diagnostics. Experience 97.5% accuracy, real-time analysis, 
-                and seamless integration with your existing healthcare infrastructure.
+              <p className="mt-4 text-slate-300 leading-relaxed">
+                Around 80–90% of genome-wide association study participants are of
+                European ancestry. A risk score built there does not transfer intact
+                elsewhere — and the failure is quiet. The score keeps producing a
+                confident-looking number that means considerably less than it appears
+                to.
               </p>
+              <p className="mt-4 text-slate-300 leading-relaxed">
+                This platform measures that gap and acts on it. Where a score does not
+                transfer, the percentile is withheld rather than shown with a footnote,
+                and the genomic component is excluded from the result instead of being
+                quietly down-weighted.
+              </p>
+              {transferability?.citation && (
+                <p className="mt-4 text-xs text-slate-500">{transferability.citation}</p>
+              )}
+              <Link href="/genomics">
+                <Button variant="outline" className="mt-6 border-slate-700 text-slate-200 hover:bg-slate-800">
+                  See the full transferability table
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+              </Link>
             </div>
-            
-            <div className="flex flex-col sm:flex-row gap-6 justify-center items-center">
-              <Button 
-                onClick={() => setShowLoginDialog(true)}
-                size="lg"
-                className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white px-10 py-4 text-lg font-semibold transform hover:scale-105 transition-all duration-300 shadow-2xl hover:shadow-cyan-500/25 group"
-              >
-                Start Free Trial
-                <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
-              </Button>
-              <Button 
-                variant="outline"
-                size="lg"
-                className="border-2 border-white/30 text-white hover:bg-white/10 hover:border-white/50 px-10 py-4 text-lg font-semibold transition-all duration-300 backdrop-blur-sm"
-                onClick={() => setShowDemo(true)}
-              >
-                <Play className="w-5 h-5 mr-2" />
-                View Demo
-              </Button>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-16 pt-16 border-t border-white/20">
-              {[
-                { icon: Clock, title: "Quick Setup", desc: "Deploy in under 24 hours" },
-                { icon: Shield, title: "Enterprise Security", desc: "HIPAA & SOC 2 compliant" },
-                { icon: Users, title: "Expert Support", desc: "24/7 clinical assistance" }
-              ].map((item, index) => {
-                const IconComponent = item.icon;
-                return (
-                  <div key={index} className="text-center">
-                    <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
-                      <IconComponent className="w-6 h-6 text-cyan-400" />
+
+            <Card className="bg-slate-800/60 border-slate-700">
+              <CardContent className="p-6">
+                <h3 className="text-sm font-semibold text-slate-200">
+                  Accuracy retained, relative to the discovery population
+                </h3>
+                <div className="mt-5 space-y-4">
+                  {transferability?.groups.map((group) => (
+                    <div key={group.group}>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-slate-200">{prettyGroup(group.group)}</span>
+                        <span className="text-slate-400 tabular-nums">
+                          ~{Math.round(group.approximateRelativeAccuracy * 100)}%
+                        </span>
+                      </div>
+                      <div className="mt-1.5 h-2 rounded bg-slate-700 overflow-hidden">
+                        <div
+                          className={
+                            group.approximateRelativeAccuracy >= 0.8
+                              ? "h-full bg-green-500"
+                              : group.approximateRelativeAccuracy >= 0.5
+                                ? "h-full bg-amber-500"
+                                : "h-full bg-red-500"
+                          }
+                          style={{ width: `${group.approximateRelativeAccuracy * 100}%` }}
+                        />
+                      </div>
                     </div>
-                    <h3 className="text-white font-semibold mb-2">{item.title}</h3>
-                    <p className="text-slate-300 text-sm">{item.desc}</p>
-                  </div>
-                );
-              })}
-            </div>
+                  ))}
+                </div>
+
+                {withheld.length > 0 && (
+                  <p className="mt-5 text-xs text-slate-400">
+                    No percentile is reported for{" "}
+                    {withheld.map((g) => prettyGroup(g.group)).join(", ")} — the
+                    reference distribution does not describe those populations.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
           </div>
+        </div>
+      </section>
+
+      {/* ---------------- Refusals ---------------- */}
+      <section className="bg-slate-950 py-20 border-b border-slate-800">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="max-w-2xl">
+            <div className="inline-flex items-center gap-2 text-cyan-400 text-sm font-medium">
+              <Ban className="w-4 h-4" />
+              Deliberate limits
+            </div>
+            <h2 className="mt-3 text-3xl font-bold text-white">What it will not do</h2>
+            <p className="mt-3 text-slate-300">
+              A screening tool is only as trustworthy as its willingness to say
+              nothing. These are enforced in code and covered by tests.
+            </p>
+          </div>
+
+          <div className="mt-10 grid gap-6 md:grid-cols-2">
+            {REFUSALS.map((refusal) => (
+              <div key={refusal.title} className="rounded-xl border border-slate-800 bg-slate-900 p-6">
+                <h3 className="font-semibold text-white">{refusal.title}</h3>
+                <p className="mt-2 text-sm text-slate-400 leading-relaxed">{refusal.body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ---------------- Genomics + governance ---------------- */}
+      <section className="bg-slate-900 py-20 border-b border-slate-800">
+        <div className="max-w-6xl mx-auto px-6 grid gap-8 md:grid-cols-2">
+          <Card className="bg-slate-800/60 border-slate-700">
+            <CardContent className="p-6">
+              <Dna className="w-6 h-6 text-cyan-400" />
+              <h3 className="mt-4 text-xl font-semibold text-white">Genomics</h3>
+              <p className="mt-2 text-sm text-slate-300 leading-relaxed">
+                Consumer genotype exports and single-sample VCFs, scored against a
+                published PGS Catalog panel and screened against a ClinVar-derived
+                list of pathogenic variants in hereditary cancer genes. No effect
+                size or classification is authored here — everything traces to a
+                dated release.
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800/60 border-slate-700">
+            <CardContent className="p-6">
+              <Lock className="w-6 h-6 text-cyan-400" />
+              <h3 className="mt-4 text-xl font-semibold text-white">Consent and audit</h3>
+              <p className="mt-2 text-sm text-slate-300 leading-relaxed">
+                Three revocable consent scopes, checked at every access rather than at
+                upload, so withdrawal applies to data already stored. Every access is
+                logged including refusals, and deleting your genome keeps the log —
+                who read it is the part you most need afterwards.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
+      {/* ---------------- Status ---------------- */}
+      <section className="bg-slate-950 py-16">
+        <div className="max-w-4xl mx-auto px-6">
+          <Alert className="border-amber-800/60 bg-amber-950/30">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription className="text-amber-100 text-sm leading-relaxed">
+              <strong className="block mb-1">Current status</strong>
+              A research prototype. It is not a registered medical device, holds no
+              regulatory clearance in any jurisdiction, and has not been clinically or
+              prospectively validated. It must not be used to make decisions about
+              anyone's care. Model performance across skin tones is unmeasured, and the
+              training data's demographic composition is unrecorded.
+            </AlertDescription>
+          </Alert>
         </div>
       </section>
 
@@ -215,12 +248,6 @@ export default function Home({ onLoginSuccess, userId }: HomeProps & { userId?: 
         onOpenChange={setShowLoginDialog}
         onLoginSuccess={onLoginSuccess}
       />
-
-      <Dialog open={showDemo} onOpenChange={setShowDemo}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden p-0">
-          <DemoWalkthrough onClose={() => setShowDemo(false)} />
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

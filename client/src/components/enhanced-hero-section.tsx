@@ -1,132 +1,135 @@
-import { useState, useEffect } from "react";
+/**
+ * Homepage hero.
+ *
+ * Every headline figure here is read from the live API rather than written into
+ * the copy. The previous version advertised "97% Detection Confidence", "30%
+ * Earlier Detection", "60% Workflow Efficiency" and an "FDA Compliant" badge —
+ * none of which were measured, and the FDA claim was simply false. Hardcoded
+ * marketing numbers drift away from the system the moment either changes; these
+ * cannot, because they come from /api/models/cards.
+ */
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { LogIn, Info, Brain, Plus, Check, Microscope, Activity, Zap } from "lucide-react";
+import { LogIn, Info, ShieldAlert, FlaskConical, UserCheck } from "lucide-react";
 
 interface EnhancedHeroSectionProps {
   onLoginClick: () => void;
 }
 
+interface ModelCard {
+  scanType: string;
+  enabled: boolean;
+  evaluation: {
+    balancedAccuracy: number;
+    sensitivity: number;
+    specificity: number;
+  } | null;
+}
+
 export default function EnhancedHeroSection({ onLoginClick }: EnhancedHeroSectionProps) {
-  const [animateStats, setAnimateStats] = useState(false);
+  const { data } = useQuery<{ models: ModelCard[] }>({
+    queryKey: ["/api/models/cards"],
+    queryFn: async () => (await fetch("/api/models/cards")).json(),
+  });
 
-  useEffect(() => {
-    setTimeout(() => setAnimateStats(true), 1000);
-  }, []);
+  const enabled = data?.models.filter((m) => m.enabled) ?? [];
+  const disabled = data?.models.filter((m) => !m.enabled) ?? [];
+  const best = enabled
+    .map((m) => m.evaluation?.sensitivity ?? 0)
+    .reduce((max, value) => Math.max(max, value), 0);
 
-  const stats = [
-    { value: "5", label: "Cancer Types", color: "text-blue-400" },
-    { value: "97%", label: "Detection Confidence", color: "text-green-400" },
-    { value: "30%", label: "Earlier Detection", color: "text-cyan-400" },
-    { value: "60%", label: "Workflow Efficiency", color: "text-purple-400" },
+  const facts = [
+    {
+      value: enabled.length ? String(enabled.length) : "—",
+      label: "modalities with a working model",
+      detail: disabled.length ? `${disabled.length} disabled after evaluation` : "",
+    },
+    {
+      value: best ? `${(best * 100).toFixed(1)}%` : "—",
+      label: "best measured sensitivity",
+      detail: "on a held-out test set",
+    },
+    {
+      value: "100%",
+      label: "of results require clinician review",
+      detail: "no path bypasses it",
+    },
   ];
 
   return (
-    <section className="relative bg-gradient-to-br from-slate-900 via-blue-900 to-slate-800 py-20 overflow-hidden">
-      <div className="absolute inset-0 opacity-10">
-        <div className="absolute top-20 left-10 w-32 h-32 bg-blue-500 rounded-full animate-pulse"></div>
-        <div className="absolute bottom-20 right-10 w-24 h-24 bg-cyan-500 rounded-full animate-bounce"></div>
-        <div className="absolute top-1/2 left-1/4 w-16 h-16 bg-purple-500 rounded-full animate-ping"></div>
-        <div className="absolute top-1/3 right-1/3 w-20 h-20 bg-green-500 rounded-full animate-pulse delay-1000"></div>
-        <div className="absolute bottom-1/3 left-1/3 w-12 h-12 bg-yellow-500 rounded-full animate-bounce delay-500"></div>
-      </div>
+    <section className="relative overflow-hidden bg-slate-950 border-b border-slate-800">
+      {/* One soft light source rather than five animated blobs. */}
+      <div
+        className="pointer-events-none absolute inset-0 opacity-40"
+        style={{
+          background:
+            "radial-gradient(60rem 30rem at 20% -10%, rgba(37,99,235,0.25), transparent 60%)",
+        }}
+      />
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-          <div className="space-y-8">
-            <div className="space-y-4">
-              <div className="flex items-center space-x-2 mb-4">
-                <Activity className="w-6 h-6 text-cyan-500 animate-pulse" />
-                <span className="text-cyan-400 font-semibold">AI-Powered Healthcare</span>
-              </div>
-              
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white leading-tight animate-fade-in-up">
-                <span className="bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent animate-pulse">
-                  HAI
-                </span>
-              </h1>
-              
-              <h2 className="text-2xl md:text-3xl lg:text-4xl font-semibold text-blue-300 animate-fade-in-up delay-200">
-                Comprehensive Cancer Detection Platform
-              </h2>
-              
-              <p className="text-lg text-slate-300 leading-relaxed max-w-2xl animate-fade-in-up delay-300">
-                Advanced multi-modal AI technology for precise cancer detection across five major 
-                types: breast, lung, skin, colon, and prostate. Enhancing early detection to improve 
-                patient outcomes with cutting-edge machine learning algorithms.
-              </p>
-
-              <div className="grid grid-cols-2 gap-4 mt-6">
-                <div className="flex items-center space-x-2">
-                  <Zap className="w-4 h-4 text-yellow-400" />
-                  <span className="text-slate-300 text-sm">Real-time Analysis</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Brain className="w-4 h-4 text-purple-400" />
-                  <span className="text-slate-300 text-sm">AI-Powered Insights</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Microscope className="w-4 h-4 text-blue-400" />
-                  <span className="text-slate-300 text-sm">Medical Grade Accuracy</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Check className="w-4 h-4 text-green-400" />
-                  <span className="text-slate-300 text-sm">FDA Compliant</span>
-                </div>
-              </div>
-            </div>
-            
-            <div className="flex flex-col sm:flex-row gap-4 animate-fade-in-up delay-500">
-              <Button 
-                onClick={onLoginClick}
-                size="lg"
-                className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white px-8 py-3 font-semibold transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-2xl animate-pulse"
-              >
-                <LogIn className="w-5 h-5 mr-2" />
-                Access Platform
-              </Button>
-              <Button 
-                variant="outline"
-                size="lg"
-                className="border-blue-400 text-blue-300 hover:bg-blue-800 hover:border-blue-300 px-8 py-3 font-semibold transition-all duration-200 hover:scale-105"
-                onClick={() => {
-                  const aboutSection = document.getElementById('ai-features-section');
-                  if (aboutSection) {
-                    aboutSection.scrollIntoView({ behavior: 'smooth' });
-                  }
-                }}
-              >
-                <Info className="w-5 h-5 mr-2" />
-                Learn More
-              </Button>
-            </div>
-
-
+      <div className="relative max-w-6xl mx-auto px-6 py-20 lg:py-28">
+        <div className="max-w-3xl">
+          <div className="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/80 px-3 py-1 text-xs text-slate-300">
+            <FlaskConical className="w-3.5 h-3.5 text-cyan-400" />
+            Research prototype — not a medical device
           </div>
-          
-          <div className="relative animate-fade-in-right delay-700">
-            <div className="bg-gradient-to-br from-blue-600 to-blue-800 rounded-full w-80 h-80 mx-auto flex items-center justify-center shadow-2xl hover:shadow-3xl transition-all duration-500 hover:scale-105 animate-float">
-              <div className="relative">
-                <div className="w-48 h-48 bg-blue-700 rounded-full flex items-center justify-center relative animate-spin-slow">
-                  <div className="w-24 h-24 bg-cyan-500 rounded-full flex items-center justify-center animate-pulse">
-                    <Brain className="w-12 h-12 text-white animate-bounce" />
-                  </div>
-                  <div className="absolute -top-2 -right-2 w-8 h-8 bg-white rounded-full flex items-center justify-center animate-ping">
-                    <Plus className="w-4 h-4 text-blue-600" />
-                  </div>
-                  <div className="absolute -bottom-4 -left-4 w-8 h-8 bg-green-400 rounded-full flex items-center justify-center animate-bounce delay-300">
-                    <Check className="w-4 h-4 text-white" />
-                  </div>
-                  <div className="absolute top-8 -left-8 w-6 h-6 bg-cyan-400 rounded-full flex items-center justify-center animate-pulse delay-500">
-                    <Microscope className="w-3 h-3 text-white" />
-                  </div>
-                </div>
-              </div>
-            </div>
+
+          <h1 className="mt-6 text-4xl lg:text-6xl font-bold tracking-tight text-white">
+            Cancer screening triage,
+            <span className="block text-cyan-400">with the evidence attached.</span>
+          </h1>
+
+          <p className="mt-6 text-lg text-slate-300 leading-relaxed">
+            Two imaging models and a consented genomics pipeline. Every number this
+            system reports traces to a measurement you can reproduce, and it refuses
+            to answer where it has no basis to.
+          </p>
+
+          <div className="mt-8 flex flex-wrap gap-3">
+            <Button
+              onClick={onLoginClick}
+              className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold"
+            >
+              <LogIn className="w-4 h-4 mr-2" />
+              Access platform
+            </Button>
+            <Button
+              variant="outline"
+              className="border-slate-700 text-slate-200 hover:bg-slate-800"
+              onClick={() => document.getElementById("performance")?.scrollIntoView({ behavior: "smooth" })}
+            >
+              <Info className="w-4 h-4 mr-2" />
+              See measured performance
+            </Button>
+          </div>
+
+          {/* Honest counterparts to the old trust badges. */}
+          <div className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-sm text-slate-400">
+            <span className="inline-flex items-center gap-2">
+              <UserCheck className="w-4 h-4 text-slate-500" />
+              Clinician sign-off required
+            </span>
+            <span className="inline-flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-slate-500" />
+              No regulatory clearance
+            </span>
+            <span className="inline-flex items-center gap-2">
+              <FlaskConical className="w-4 h-4 text-slate-500" />
+              Reproducible evaluation
+            </span>
           </div>
         </div>
-      </div>
 
-      <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-slate-800 to-transparent"></div>
+        <dl className="mt-14 grid gap-6 sm:grid-cols-3 border-t border-slate-800 pt-10">
+          {facts.map((fact) => (
+            <div key={fact.label}>
+              <dt className="text-3xl font-semibold text-white tabular-nums">{fact.value}</dt>
+              <dd className="mt-1 text-sm text-slate-300">{fact.label}</dd>
+              {fact.detail && <dd className="text-xs text-slate-500">{fact.detail}</dd>}
+            </div>
+          ))}
+        </dl>
+      </div>
     </section>
   );
 }
