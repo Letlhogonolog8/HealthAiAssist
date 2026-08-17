@@ -17,7 +17,7 @@ import {
   BundleOptimizer,
   AssetOptimizer
 } from './performance-optimizer';
-import { requireAuth, requireMedicalAccess, bypassAuthForDebug, AuthenticatedRequest } from './security-config';
+import { requireAuth, requireMedicalAccess, AuthenticatedRequest } from './security-config';
 
 const router = express.Router();
 
@@ -266,7 +266,7 @@ router.get('/analytics/user-behavior', requireMedicalAccess, async (req, res) =>
 });
 
 // System Performance Metrics
-router.get('/analytics/performance', bypassAuthForDebug, requireAuth, requireMedicalAccess, async (req, res) => {
+router.get('/analytics/performance', requireAuth, requireMedicalAccess, async (req, res) => {
   try {
     const metrics = await analyticsEngine.getSystemPerformanceMetrics();
     const performanceMetrics = PerformanceMonitor.getMetricsSummary();

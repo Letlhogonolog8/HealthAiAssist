@@ -8,6 +8,7 @@ import Home from "@/pages/home";
 import About from "@/pages/about";
 import NotFound from "@/pages/not-found";
 import ChatPage from "@/pages/chat";
+import GenomicsPage from "@/pages/genomics";
 import DashboardLayout from "@/components/dashboard-layout";
 import ForgotPassword from "@/components/forgot-password";
 import AppErrorBoundary from "@/components/app-error-boundary";
@@ -25,6 +26,10 @@ function Router({ user, onLogin, onLogout }: { user: any; onLogin: (user: any) =
         }
         return <Home onLoginSuccess={onLogin} userId={user?.id} />;
       }} />
+      {/* Public by design: the transferability table and panel provenance are
+          statements about the system's limits, and hiding them behind a login
+          would defeat the purpose. Consent and upload tabs still require a user. */}
+      <Route path="/genomics" component={() => <GenomicsPage user={user} />} />
       <Route path="/about" component={() => <About onLoginSuccess={onLogin} />} />
       <Route path="/forgot-password" component={() => {
         const [, setLocation] = useLocation();

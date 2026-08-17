@@ -7,7 +7,6 @@ import { Badge } from "@/components/ui/badge";
 import AIFeaturesSection from "@/components/ai-features-section";
 import CancerDetectionSection from "@/components/cancer-detection-section";
 
-import MobileQRAccess from "@/components/mobile-qr-access";
 import Footer from "@/components/footer";
 import LoginDialog from "@/components/login-dialog";
 import { Brain, Shield, Users, TrendingUp, Heart, Activity, Zap, CheckCircle, Star, Award, Microscope, Clock, Globe, ArrowRight, Play } from "lucide-react";
@@ -209,22 +208,6 @@ export default function Home({ onLoginSuccess, userId }: HomeProps & { userId?: 
         </div>
       </section>
 
-      {/* Mobile Access Section */}
-      <section className="bg-slate-900 py-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center space-y-4 mb-12">
-            <h2 className="text-3xl md:text-4xl font-bold text-white">Access Anywhere</h2>
-            <p className="text-xl text-slate-400 max-w-3xl mx-auto">
-              Use HAI on your smartphone or tablet for convenient health monitoring
-            </p>
-          </div>
-          
-          <div className="flex justify-center">
-            <MobileQRAccess />
-          </div>
-        </div>
-      </section>
-      
       <Footer />
 
       <LoginDialog

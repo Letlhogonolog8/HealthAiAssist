@@ -26,10 +26,7 @@ import {
   Eye
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
-import MedicalTranslator from "./medical-translator";
-import AmbientSoundTherapy from "./ambient-sound-therapy";
 import AIScanSimulator from "./ai-scan-simulator-fixed";
-import MedicalVisualization3D from "./3d-medical-visualization";
 import GoogleAIScanner from "./google-ai-scanner";
 import PatientPortalFinal from "./patient-portal-final";
 import AppointmentScheduler from "./appointment-scheduler";
@@ -83,7 +80,7 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
       icon: User,
       title: "Patient Portal",
       color: "bg-green-600",
-      tabs: ["overview", "scan", "results", "appointments", "therapy", "blood-tests", "questionnaire", "skin-scanner"]
+      tabs: ["overview", "scan", "results", "appointments", "blood-tests", "questionnaire", "skin-scanner"]
     }
   };
 
@@ -445,8 +442,6 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                   'overview': <BarChart3 className="w-4 h-4" />,
                   'cancer-detection': <Brain className="w-4 h-4" />,
                   'google-ai': <Brain className="w-4 h-4" />,
-                  'translator': <FileText className="w-4 h-4" />,
-                  'therapy': <Heart className="w-4 h-4" />,
                   'simulator': <Activity className="w-4 h-4" />,
                   'visualization': <TrendingUp className="w-4 h-4" />,
                   'patients': <Users className="w-4 h-4" />,
@@ -471,8 +466,6 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                   'overview': 'Overview',
                   'cancer-detection': 'Cancer Detection',
                   'google-ai': 'Google AI',
-                  'translator': 'Translator',
-                  'therapy': 'Therapy',
                   'simulator': 'Simulator',
                   'visualization': 'Visualization',
                   'patients': 'Patients',
@@ -522,11 +515,6 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                 ) : null}
               </TabsContent>
 
-              {config.tabs.includes("translator") && (
-                <TabsContent value="translator">
-                  <MedicalTranslator />
-                </TabsContent>
-              )}
             </>
 
           {/* Patient-specific tabs */}
@@ -675,19 +663,10 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
             </>
           )}
 
-          {config.tabs.includes("therapy") && (
-            <TabsContent value="therapy">
-              <AmbientSoundTherapy />
-            </TabsContent>
-          )}
-
             {config.tabs.includes("scans") && (
               <TabsContent value="scans">
                 <div className="space-y-6">
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <AIScanSimulator />
-                    <MedicalVisualization3D />
-                  </div>
+                  <AIScanSimulator />
                 </div>
               </TabsContent>
             )}

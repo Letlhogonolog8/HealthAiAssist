@@ -14,7 +14,6 @@ import {
   requireRole,
   requireMedicalAccess,
   requirePatientDataAccess,
-  bypassAuthForDebug,
   AuthenticatedRequest
 } from "./security-config";
 import { 
@@ -529,7 +528,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/auth/me", bypassAuthForDebug, async (req: AuthenticatedRequest, res) => {
+  app.get("/api/auth/me", async (req: AuthenticatedRequest, res) => {
     try {
       console.log('Auth check - Session exists:', !!req.session);
       console.log('Auth check - User in session:', !!req.session?.user);
@@ -725,7 +724,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Google Medical AI image analysis route
 
   // Administrator dashboard API endpoints
-  app.get("/api/admin/stats", bypassAuthForDebug, requireAuth, requireAdmin, async (req, res) => {
+  app.get("/api/admin/stats", requireAuth, requireAdmin, async (req, res) => {
     try {
       const allUsers = await storage.getAllUsers();
       const allScans = await storage.getScans();
@@ -815,7 +814,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/users/metrics", bypassAuthForDebug, requireAuth, requireAdmin, async (req, res) => {
+  app.get("/api/admin/users/metrics", requireAuth, requireAdmin, async (req, res) => {
     try {
       const allUsers = await storage.getAllUsers();
       const today = new Date();
@@ -848,7 +847,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/scans/metrics", bypassAuthForDebug, requireAuth, requireAdmin, async (req, res) => {
+  app.get("/api/admin/scans/metrics", requireAuth, requireAdmin, async (req, res) => {
     try {
       const allScans = await storage.getScans();
       const todayScans = allScans.filter(scan => {
@@ -882,7 +881,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // New endpoint for scan type distribution
-  app.get("/api/admin/scans/type-distribution", bypassAuthForDebug, async (req, res) => {
+  app.get("/api/admin/scans/type-distribution", requireAuth, requireAdmin, async (req, res) => {
     try {
       const allScans = await storage.getScans();
       const totalScans = allScans.length;
@@ -907,7 +906,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/activities/recent", bypassAuthForDebug, requireAuth, requireAdmin, async (req, res) => {
+  app.get("/api/admin/activities/recent", requireAuth, requireAdmin, async (req, res) => {
     try {
       const allScans = await storage.getScans();
       const recentActivities = allScans.slice(-10).map(scan => ({
@@ -924,7 +923,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // System/WebSocket stats for admin
-  app.get("/api/system/ws-stats", bypassAuthForDebug, requireAuth, requireAdmin, async (req, res) => {
+  app.get("/api/system/ws-stats", requireAuth, requireAdmin, async (req, res) => {
     try {
       const stats = enhancedWsManager?.getStats?.() || { connections: 0, messages: 0, onlineUsers: 0, roles: {} };
       res.json(stats);
@@ -1376,7 +1375,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Patient dashboard API endpoints
   // Unified, authenticated patient profile route with comprehensive response shape
-  app.get("/api/patient/profile/:id", bypassAuthForDebug, requireAuth, requirePatientDataAccess, async (req, res) => {
+  app.get("/api/patient/profile/:id", requireAuth, requirePatientDataAccess, async (req, res) => {
     try {
       const patientId = parseInt(req.params.id);
       if (isNaN(patientId)) {
@@ -2304,7 +2303,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Patient recent activities API endpoint (DB-backed)
-  app.get("/api/patient/activities/recent", bypassAuthForDebug, requireAuth, async (req: AuthenticatedRequest, res) => {
+  app.get("/api/patient/activities/recent", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const patientId = (req.session as any)?.user?.id;
       if (!patientId) return res.status(401).json({ error: 'Authentication required' });
@@ -2455,7 +2454,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin staff creation endpoint
-  app.post("/api/admin/staff", bypassAuthForDebug, requireAuth, requireAdmin, sensitiveOperationLimit, validateInput, auditLog('CREATE_STAFF'), async (req, res) => {
+  app.post("/api/admin/staff", requireAuth, requireAdmin, sensitiveOperationLimit, validateInput, auditLog('CREATE_STAFF'), async (req, res) => {
     try {
       const { username, password, fullName, email, phone, role, specialization, licenseNumber } = req.body;
       
@@ -2534,7 +2533,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin staff listing endpoint
-  app.get("/api/admin/staff", bypassAuthForDebug, requireAuth, requireAdmin, async (req, res) => {
+  app.get("/api/admin/staff", requireAuth, requireAdmin, async (req, res) => {
     try {
       const allUsers = await storage.getAllUsers();
       const staffMembers = allUsers
@@ -2563,7 +2562,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin staff deletion endpoint
-  app.delete("/api/admin/staff/:id", bypassAuthForDebug, requireAuth, requireAdmin, sensitiveOperationLimit, auditLog('DELETE_STAFF'), async (req, res) => {
+  app.delete("/api/admin/staff/:id", requireAuth, requireAdmin, sensitiveOperationLimit, auditLog('DELETE_STAFF'), async (req, res) => {
     try {
       const staffId = parseInt(req.params.id);
       
@@ -2622,7 +2621,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin staff permanent deletion endpoint
-  app.delete("/api/admin/staff/:id/permanent", bypassAuthForDebug, requireAuth, requireAdmin, sensitiveOperationLimit, auditLog('PERMANENT_DELETE_STAFF'), async (req, res) => {
+  app.delete("/api/admin/staff/:id/permanent", requireAuth, requireAdmin, sensitiveOperationLimit, auditLog('PERMANENT_DELETE_STAFF'), async (req, res) => {
     try {
       const staffId = parseInt(req.params.id);
       
@@ -2673,7 +2672,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin staff update endpoint
-  app.put("/api/admin/staff/:id", bypassAuthForDebug, requireAuth, requireAdmin, validateInput, auditLog('UPDATE_STAFF'), async (req, res) => {
+  app.put("/api/admin/staff/:id", requireAuth, requireAdmin, validateInput, auditLog('UPDATE_STAFF'), async (req, res) => {
     try {
       const staffId = parseInt(req.params.id);
       if (isNaN(staffId)) {

@@ -157,36 +157,14 @@ export const requirePatientDataAccess = (req: AuthenticatedRequest, res: express
   });
 };
 
-// Temporary bypass for debugging - remove in production
-export const bypassAuthForDebug = (req: AuthenticatedRequest, res: express.Response, next: express.NextFunction) => {
-  const enabled = (process.env.DEBUG_BYPASS_AUTH || 'false').toLowerCase() === 'true';
-  if (!enabled) return next();
-  if (!req.session?.user && !req.session?.userId) {
-    const isAdminEndpoint = req.path.includes('/admin') || req.path.includes('/system');
-    
-    if (isAdminEndpoint) {
-      req.session.userId = 24;
-      req.session.user = {
-        id: 24,
-        role: 'admin',
-        username: 'debug_admin',
-        fullName: 'Debug Admin',
-        email: 'debug@admin.com'
-      };
-      console.log('DEBUG: Admin session created');
-    } else {
-      req.session.userId = 28;
-      req.session.user = {
-        id: 28,
-        role: 'patient',
-        username: 'debug_patient',
-        fullName: 'Debug Patient',
-        email: 'debug@patient.com'
-      };
-      console.log('DEBUG: Patient session created');
-    }
-  }
-  next();
-};
+// `bypassAuthForDebug` used to live here. It fabricated an admin or patient
+// session for any unauthenticated request when DEBUG_BYPASS_AUTH=true, and it was
+// attached to 14 endpoints including admin staff creation and deletion, patient
+// profile reads, and system stats. One environment variable stood between a
+// deployment and unauthenticated administrative access.
+//
+// It is deleted rather than kept-but-disabled. A switch like that in a health
+// application is a finding whether or not it happens to be off, and a disabled
+// bypass tends not to stay disabled. Use a seeded test account for local work.
 
 export { AuthenticatedRequest };

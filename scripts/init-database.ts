@@ -1,9 +1,37 @@
+import { randomBytes } from "crypto";
 import { db, pool } from "../server/db";
 import { users, medicalScans, medicalTerms, appointments } from "@shared/schema";
 import { hashPassword } from "../server/auth-middleware";
 
+/**
+ * Generates a strong password for a seeded account.
+ *
+ * Seed accounts previously shipped with admin/admin123, doctor/doctor123 and so
+ * on, documented in the README. Those are the first credentials anyone tries,
+ * and on any reachable deployment they are an open administrative login.
+ *
+ * Each run now mints a random password, printed once. Set SEED_<ROLE>_PASSWORD
+ * to pin one for repeatable local work.
+ */
+function generatePassword(role: string): string {
+  const override = process.env[`SEED_${role.toUpperCase()}_PASSWORD`];
+  if (override) return override;
+  // base64url of 18 bytes: 24 chars, satisfies the upper/lower/digit rule below.
+  return `${randomBytes(18).toString("base64url")}A1`;
+}
+
 async function initializeDatabase() {
   try {
+    // Seeding creates known accounts. That is fine locally and dangerous in
+    // production, so it is refused there unless explicitly forced.
+    if (process.env.NODE_ENV === "production" && process.env.ALLOW_PROD_SEED !== "true") {
+      console.error(
+        "Refusing to seed in production. Set ALLOW_PROD_SEED=true only if you " +
+        "genuinely intend to create these accounts on a live system."
+      );
+      process.exit(1);
+    }
+
     console.log("Initializing database...");
 
     // Create tables if they don't exist
@@ -87,7 +115,8 @@ async function initializeDatabase() {
     `);
 
     // Create default admin user
-    const adminPassword = await hashPassword("admin123");
+    const adminPlain = generatePassword("admin");
+    const adminPassword = await hashPassword(adminPlain);
     await db.execute(`
       INSERT INTO users (username, password, role, full_name, email)
       VALUES ('admin', '${adminPassword}', 'admin', 'System Administrator', 'admin@healthai.com')
@@ -95,7 +124,8 @@ async function initializeDatabase() {
     `);
 
     // Create sample doctor
-    const doctorPassword = await hashPassword("doctor123");
+    const doctorPlain = generatePassword("doctor");
+    const doctorPassword = await hashPassword(doctorPlain);
     await db.execute(`
       INSERT INTO users (username, password, role, full_name, email, specialization, license_number)
       VALUES ('doctor', '${doctorPassword}', 'doctor', 'Dr. John Smith', 'doctor@healthai.com', 'General Practice', 'MD12345')
@@ -103,7 +133,8 @@ async function initializeDatabase() {
     `);
 
     // Create sample radiologist
-    const radiologistPassword = await hashPassword("radiologist123");
+    const radiologistPlain = generatePassword("radiologist");
+    const radiologistPassword = await hashPassword(radiologistPlain);
     await db.execute(`
       INSERT INTO users (username, password, role, full_name, email, specialization, license_number)
       VALUES ('radiologist', '${radiologistPassword}', 'radiologist', 'Dr. Sarah Johnson', 'radiologist@healthai.com', 'Radiology', 'RD12345')
@@ -111,7 +142,8 @@ async function initializeDatabase() {
     `);
 
     // Create default patient account
-    const patientPassword = await hashPassword("patient123");
+    const patientPlain = generatePassword("patient");
+    const patientPassword = await hashPassword(patientPlain);
     await db.execute(`
       INSERT INTO users (username, password, role, full_name, email)
       VALUES ('patient', '${patientPassword}', 'patient', 'Patient User', 'patient@healthai.com')
@@ -120,12 +152,18 @@ async function initializeDatabase() {
 
 
 
-    console.log("Database initialized successfully!");
-    console.log("Default credentials:");
-    console.log("Admin: admin / admin123");
-    console.log("Doctor: doctor / doctor123");
-    console.log("Radiologist: radiologist / radiologist123");
-    console.log("Patient: patient / patient123");
+    console.log("");
+    console.log("Database initialized successfully.");
+    console.log("");
+    console.log("=== Seeded account passwords - shown once, not stored ===");
+    console.log(`  admin        ${adminPlain}`);
+    console.log(`  doctor       ${doctorPlain}`);
+    console.log(`  radiologist  ${radiologistPlain}`);
+    console.log(`  patient      ${patientPlain}`);
+    console.log("");
+    console.log("Save these now. Accounts already present were left unchanged");
+    console.log("(ON CONFLICT DO NOTHING), so their existing passwords still apply.");
+    console.log("");
 
   } catch (error) {
     console.error("Error initializing database:", error);

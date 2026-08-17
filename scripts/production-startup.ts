@@ -56,8 +56,11 @@ try {
 
 // Security checks
 if (process.env.DEBUG_BYPASS_AUTH === 'true') {
-  console.warn('⚠️  DEBUG_BYPASS_AUTH is enabled in production!');
-  console.warn('💡 Set DEBUG_BYPASS_AUTH=false for security');
+  // The bypass middleware this flag controlled has been removed, so the variable
+  // no longer grants anything. Still worth flagging: its presence means a
+  // deployment config is carrying over from when it did.
+  console.warn('⚠️  DEBUG_BYPASS_AUTH is set but no longer has any effect.');
+  console.warn('💡 Remove it from your environment configuration.');
 }
 
 if (!process.env.HTTPS_ONLY) {

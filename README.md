@@ -74,12 +74,22 @@ A comprehensive AI-powered healthcare platform for multi-modal cancer detection 
 
 ## 🏥 Default User Accounts
 
-| Role | Username | Password | Description |
-|------|----------|----------|-------------|
-| Admin | admin | admin123 | System administration |
-| Doctor | doctor | doctor123 | Medical professional |
-| Radiologist | radiologist | radiologist123 | Imaging specialist |
-| Patient | patient | patient123 | Patient portal |
+`npx tsx scripts/init-database.ts` creates one account per role — `admin`,
+`doctor`, `radiologist`, `patient` — each with a **randomly generated password
+printed once** at the end of the run. Save them then; they are not stored
+anywhere in plaintext.
+
+To pin a password for repeatable local work, set it before seeding:
+
+```bash
+SEED_ADMIN_PASSWORD=your-dev-password npx tsx scripts/init-database.ts
+```
+
+Seeding refuses to run when `NODE_ENV=production` unless `ALLOW_PROD_SEED=true`.
+
+> Earlier versions shipped fixed credentials (`admin`/`admin123` and similar) and
+> documented them here. Those are the first passwords anyone tries. If you seeded
+> a database with a previous version, change those passwords now.
 
 ## 🔧 Features
 

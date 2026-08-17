@@ -39,9 +39,6 @@ export { default as BloodTestAnalyzer } from './blood-test-analyzer';
 export { default as MultiCancerDetectionSystem } from './multi-cancer-detection-system';
 
 // Specialized Components
-export { default as MedicalTranslator } from './medical-translator';
-export { default as AmbientSoundTherapy } from './ambient-sound-therapy';
-export { default as MobileQRAccess } from './mobile-qr-access';
 export { WebSocketProvider } from './websocket-provider';
 export { default as OptimizedQueryClient } from './optimized-query-client';
 export { NotificationCenter, NotificationButton } from './notification-center';
@@ -62,4 +59,3 @@ export { default as MedicalProfessionalScheduler } from './medical-professional-
 export { default as ScheduleDermatologistDialog } from './schedule-dermatologist-dialog';
 
 // 3D Visualization
-export { default as MedicalVisualization3D } from './3d-medical-visualization';

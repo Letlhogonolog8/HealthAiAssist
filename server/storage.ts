@@ -464,53 +464,24 @@ export class DatabaseStorage implements IStorage {
 }
 
 // Create storage instance with fallback mechanism
+/**
+ * In-memory storage used when the database is unreachable.
+ *
+ * It ships with NO accounts. It previously carried four — admin, doctor,
+ * radiologist, patient — all sharing one hardcoded bcrypt hash copied from a
+ * tutorial. Since this class is both the default export and the failure path
+ * when the database drops, a database outage silently swapped a real user table
+ * for a fixed set of credentials, including an administrator. Whoever knows that
+ * hash's plaintext could log in as admin during any outage. (The inline comments
+ * claimed the password was "admin123"; it is not, which made the risk harder to
+ * assess rather than smaller.)
+ *
+ * With no users, authentication simply fails while the database is down. That is
+ * the correct behaviour: a health system that cannot reach its user table should
+ * refuse logins, not accept a built-in one.
+ */
 class FallbackStorage implements IStorage {
-  private mockUsers: User[] = ([
-    {
-      id: 1,
-      username: 'admin',
-      password: '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj3QJflLxQjm', // admin123
-      fullName: 'System Administrator',
-      email: 'admin@healthai.com',
-      role: 'admin',
-      isActive: true,
-      createdAt: new Date()
-    },
-    {
-      id: 2,
-      username: 'doctor',
-      password: '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj3QJflLxQjm', // doctor123
-      fullName: 'Dr. Sarah Johnson',
-      email: 'doctor@healthai.com',
-      role: 'doctor',
-      specialization: 'General Practice',
-      isActive: true,
-      createdAt: new Date()
-    },
-    {
-      id: 3,
-      username: 'radiologist',
-      password: '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj3QJflLxQjm', // radiologist123
-      fullName: 'Dr. Michael Chen',
-      email: 'radiologist@healthai.com',
-      role: 'radiologist',
-      specialization: 'Medical Imaging',
-      isActive: true,
-      createdAt: new Date()
-    },
-    {
-      id: 4,
-      username: 'patient',
-      password: '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj3QJflLxQjm', // patient123
-      fullName: 'John Patient',
-      email: 'patient@healthai.com',
-      role: 'patient',
-      age: 35,
-      gender: 'male',
-      isActive: true,
-      createdAt: new Date()
-    }
-  ] as unknown) as User[];
+  private mockUsers: User[] = [];
 
   async getUser(id: number): Promise<User | undefined> {
     return this.mockUsers.find(u => u.id === id);
@@ -526,7 +497,7 @@ class FallbackStorage implements IStorage {
 
   async createUser(user: InsertUser): Promise<User> {
     const newUser: User = {
-      id: Math.max(...this.mockUsers.map(u => u.id)) + 1,
+      id: this.mockUsers.length ? Math.max(...this.mockUsers.map(u => u.id)) + 1 : 1,
       ...user,
       role: user.role || 'patient',
       isActive: true,
@@ -611,7 +582,9 @@ export async function initializeStorage(): Promise<IStorage> {
     console.log('✅ Using database storage');
     return storage;
   } catch (error) {
-    console.warn('⚠️ Database storage failed, using fallback storage:', error);
+    console.error('❌ Database unavailable. Falling back to in-memory storage:', error);
+    console.error('   No accounts exist in fallback storage, so all logins will fail');
+    console.error('   until the database is restored. This is intentional.');
     storage = new FallbackStorage();
     return storage;
   }

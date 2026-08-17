@@ -82,10 +82,9 @@ GOOGLE_CALENDAR_CREDENTIALS={"type":"service_account"...}
 ```
 
 ## 🏥 Default Login Credentials
-- **Admin**: admin / admin123
-- **Doctor**: doctor / doctor123
-- **Patient**: patient / patient123
-- **Radiologist**: radiologist / radiologist123
+Seeded accounts (`admin`, `doctor`, `patient`, `radiologist`) get randomly
+generated passwords, printed once when `scripts/init-database.ts` runs. Seeding
+is refused under `NODE_ENV=production` unless `ALLOW_PROD_SEED=true`.
 
 ## 📱 Features Available
 - ✅ Multi-cancer AI detection

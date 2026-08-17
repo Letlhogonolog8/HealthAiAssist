@@ -19,6 +19,7 @@ export default function Navigation({ user, onLoginSuccess }: NavigationProps) {
     { href: "/", label: "Home" },
     { href: "/#features", label: "AI Performance" },
     { href: "/#detection", label: "Cancer Types" },
+    { href: "/genomics", label: "Genomics" },
     { href: "/about", label: "About AI" },
   ];
 
