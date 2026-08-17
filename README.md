@@ -185,6 +185,50 @@ GOOGLE_CALENDAR_ID=your-calendar-id@group.calendar.google.com  # Optional
 NODE_ENV=production
 ```
 
+### Careful: system environment variables override `.env`
+
+`dotenv` does **not** overwrite variables that are already set. On Windows, a
+User- or Machine-level environment variable therefore wins over anything in
+`.env`, silently — editing `.env` appears to work and changes nothing.
+
+This bit us: a User-level `SESSION_SECRET=dev_secret_123` and a Machine-level
+`SESSION_SECRET=xyz789...` were shadowing the `.env` value, so the app signed
+every session cookie with a trivially guessable key regardless of the file.
+
+Check what the process actually sees before trusting `.env`:
+
+```powershell
+[Environment]::GetEnvironmentVariable('SESSION_SECRET','User')
+[Environment]::GetEnvironmentVariable('SESSION_SECRET','Machine')
+```
+
+Generate a strong secret with:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+```
+
+The server refuses to start in production if `SESSION_SECRET` is missing, shorter
+than 64 characters, or still a placeholder. In development it warns and uses an
+ephemeral secret rather than a known one.
+
+### Backing up model artifacts
+
+`dataset/` is gitignored, so the trained models are not version controlled. The
+skin model is rebuildable from `scripts/train-skin-cancer-model.py`; **the lung
+model is not** — no working training script for it remains. Losing that file
+loses the lung modality permanently.
+
+```bash
+npm run backup:models                    # copy + checksum to ../HealthAiAssist-model-backups
+npm run backup:models -- <destination>   # somewhere else
+npm run backup:models -- --verify        # re-hash an existing backup
+```
+
+The script refuses a copy whose hash does not match the source, and warns when the
+destination is on the same volume — which protects against an accidental delete
+but not against the disk failure that would actually lose the model.
+
 ### System Environment Variables (Production)
 
 In production, the app reads from System/Platform environment variables. `.env` is only used in development.

@@ -4,6 +4,7 @@ if (process.env.NODE_ENV !== 'production') {
   dotenv.config();
 }
 
+import { randomBytes } from "crypto";
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
@@ -50,8 +51,43 @@ if (httpsOnly) {
   });
 }
 
+/**
+ * Resolves the session signing secret.
+ *
+ * There is deliberately no hardcoded fallback. The previous default —
+ * 'your-secure-session-secret-here-dev-only' — is a literal published in this
+ * repository, so any deployment missing the environment variable signed its
+ * session cookies with a value an attacker could read here and forge.
+ *
+ * Production refuses to start without one. Development mints an ephemeral random
+ * secret: sessions do not survive a restart, which is mildly annoying and far
+ * better than a known key.
+ */
+function resolveSessionSecret(): string {
+  const configured = process.env.SESSION_SECRET;
+
+  if (configured && configured.length >= 64 && !configured.startsWith('CHANGE_ME')) {
+    return configured;
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    console.error(
+      'FATAL: SESSION_SECRET is missing, too short (min 64 chars), or still the ' +
+      'placeholder. Generate one with:\n' +
+      "  node -e \"console.log(require('crypto').randomBytes(64).toString('hex'))\""
+    );
+    process.exit(1);
+  }
+
+  console.warn(
+    '⚠️  SESSION_SECRET not set or too short. Using an ephemeral secret for this ' +
+    'process; sessions will be invalidated on restart.'
+  );
+  return randomBytes(64).toString('hex');
+}
+
 let sessionConfig: any = {
-  secret: process.env.SESSION_SECRET || 'your-secure-session-secret-here-dev-only',
+  secret: resolveSessionSecret(),
   resave: false,
   saveUninitialized: false,
   cookie: {
