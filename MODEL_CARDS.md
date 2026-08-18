@@ -137,17 +137,64 @@ the numbers that describe what a user actually receives**:
 
 ### Limitations
 
-- **Performance across skin tones is unknown.** The dataset's provenance and
-  demographic composition are unrecorded. Dermoscopy sets of this vintage are
-  typically light-skin dominant, so sensitivity on darker skin should be assumed
-  *worse than reported* until measured. Measuring it requires Fitzpatrick labels
-  the dataset does not carry.
+- **Performance on darker skin cannot be established from this dataset.** See
+  the section below — this was measured, and the measurement's finding is that
+  the data cannot answer the question.
 - Not clinically validated. Not cleared by any regulator.
 - The trunk is frozen, so the model relies on generic ImageNet features rather
   than dermatology-specific ones. Fine-tuning the upper blocks would likely help;
   it was not attempted here because the training box is CPU-only with ~1 GB free.
 - 660 test images is a small evaluation set. The confidence interval on 0.864 is
   wide — roughly ±0.03.
+
+### Performance across skin tones
+
+The dataset carries no Fitzpatrick labels, so skin tone was estimated with
+**Individual Typology Angle** — the standard proxy in dermatology-AI fairness
+work — computed from the healthy skin surrounding each lesion:
+
+```
+ITA = arctan((L* - 50) / b*)     python scripts/measure-skin-tone-performance.py
+```
+
+Usable estimates for **511 of 660** test images; the remaining 149 had no
+identifiable perilesional skin in frame (dermoscope vignetting, or the lesion
+filling the field) and are excluded rather than guessed at.
+
+| Tone (ITA bin) | n | Malignant | Sensitivity | 95% CI | Specificity | Outright benign |
+|---|---|---|---|---|---|---|
+| Dark | 4 | 4 | 1.000 | 0.51–1.00 | — | 0/4 |
+| Brown | 18 | 12 | 1.000 | 0.76–1.00 | 0.667 | 0/12 |
+| Tan | 42 | 31 | 0.968 | 0.84–0.99 | 0.909 | 1/31 |
+| Intermediate | 45 | 21 | 1.000 | 0.85–1.00 | 0.875 | 0/21 |
+| **Light** | 86 | 34 | **0.882** | 0.73–0.95 | 0.942 | 2/34 |
+| **Very light** | 316 | 128 | **0.938** | 0.88–0.97 | 0.835 | 3/128 |
+
+**The finding is the representation, not the sensitivities.**
+
+Only **22 of 511 images (4.3%)** are brown or darker. A bin is treated as
+reliable only with at least 30 malignant *and* 30 benign images, and on that test
+**just two bins qualify — Light and Very light. Both are light skin.**
+
+So the honest statement is not "the model performs equally well across skin
+tones". It is: **this dataset cannot tell you how the model performs on darker
+skin.** The Dark bin contains four images and no benign controls at all; its
+sensitivity of 1.000 has a confidence interval running from 0.51 to 1.00, which
+is another way of saying nothing is known.
+
+Across the two reliable bins sensitivity differs by 0.055, with overlapping
+intervals — no detectable disparity *among light skin tones*, which is not the
+question that matters.
+
+**Do not read the absence of a measured disparity as evidence of fairness.** It
+is evidence that the evaluation set is 96% light-skinned. Closing this requires
+data, not modelling: a test set with meaningful representation of Fitzpatrick
+V–VI, ideally with recorded labels rather than an estimate from pixels.
+
+Caveats on the method: ITA is a proxy, not a Fitzpatrick score. It is affected by
+lighting, white balance and dermoscopy artefacts, and tanning shifts a
+light-skinned subject darker. It is adequate to detect a large disparity; it is
+not a substitute for labelled data.
 
 ### History
 

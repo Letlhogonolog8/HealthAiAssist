@@ -33,6 +33,7 @@
     "evaluate-model": "python scripts/evaluate-model.py",
     "calibrate-model": "python scripts/calibrate-model.py",
     "build-ood-reference": "python scripts/build-ood-reference.py",
+    "measure-skin-tone": "python scripts/measure-skin-tone-performance.py",
     "test-skin-integration": "node server/test-skin-cancer-integration.js",
     "setup-skin-cancer": "node setup-skin-cancer.js",
     "deploy:railway": "bash scripts/deploy-railway.sh",

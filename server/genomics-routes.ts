@@ -533,9 +533,28 @@ router.get('/equity-report', requireAuth, requireMedicalAccess, async (_req, res
       approximateRelativeAccuracy: t.factor,
       percentileReported: t.percentileReportable,
     })),
+    measuredGaps: {
+      skinToneCoverage: {
+        method: 'Individual Typology Angle estimated from perilesional skin',
+        imagesAssessed: 511,
+        imagesTotal: 660,
+        brownOrDarkerShare: 0.043,
+        binsWithEnoughDataToJudge: ['light', 'very_light'],
+        finding:
+          'The evaluation set is 96% light-skinned. Only two tone bins hold enough ' +
+          'images to support a reliable estimate, and both are light skin. This ' +
+          'dataset cannot establish how the model performs on darker skin — the ' +
+          'Dark bin contains four images and no benign controls.',
+        doNotMisread:
+          'No disparity was detected among light tones. That is not evidence of ' +
+          'fairness; it is evidence of an unrepresentative test set.',
+        remedy:
+          'Requires data, not modelling: a test set with meaningful Fitzpatrick ' +
+          'V-VI representation, ideally labelled rather than estimated.',
+        reproduce: 'python scripts/measure-skin-tone-performance.py',
+      },
+    },
     knownGaps: [
-      'Skin cancer imaging model: performance by Fitzpatrick skin type is ' +
-      'unmeasured. The training data carries no skin-tone labels. See MODEL_CARDS.md.',
       'Lung imaging model: demographic composition of training data unrecorded.',
       'Polygenic scores: derived predominantly in European-ancestry cohorts. ' +
       'Percentiles are withheld for groups where the reference population does ' +

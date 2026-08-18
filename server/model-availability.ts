@@ -128,9 +128,14 @@ export const MODEL_REGISTRY: Record<string, ModelRegistryEntry> = {
         'banded thresholds (>0.70 malignant, 0.30-0.70 uncertain, <=0.30 benign), ' +
         'at which 10 of 300 malignant lesions (3.3%) receive an outright benign ' +
         'result, 96.7% are flagged or escalated, and 17% of all scans land in the ' +
-        'uncertain band. Training data provenance and demographic composition are ' +
-        'unrecorded, so performance across skin tones is UNKNOWN and must not be ' +
-        'assumed uniform. Screening triage only; not clinically validated.'
+        'uncertain band. ' +
+        'Skin-tone performance was measured using Individual Typology Angle on 511 ' +
+        'of 660 test images. Only 4.3% are brown or darker, and only the Light and ' +
+        'Very light bins hold enough data to be reliable, so THIS DATASET CANNOT ' +
+        'ESTABLISH performance on darker skin. The Dark bin holds 4 images and no ' +
+        'benign controls. Absence of a measured disparity is evidence of an ' +
+        'unrepresentative test set, not of fairness. ' +
+        'Screening triage only; not clinically validated.'
     }
   }
 };
