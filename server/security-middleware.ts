@@ -114,16 +114,55 @@ export const validateInput = (req: Request, res: Response, next: NextFunction) =
   next();
 };
 
-// Audit logging for sensitive operations
+/**
+ * Audit logging for sensitive operations.
+ *
+ * Writes to the `audit_events` table. This previously only called console.log,
+ * which is terminal output, not an audit trail — it vanished with the process
+ * and could not be queried, so the twelve endpoints using it were effectively
+ * unaudited.
+ *
+ * The row is written on response finish so the outcome is captured: an attempted
+ * staff deletion that was rejected with 403 is exactly the event an audit trail
+ * exists to record, and logging on the way in would show it as if it succeeded.
+ *
+ * A failed audit write is logged loudly but never blocks the request. Losing an
+ * audit row is bad; refusing clinical work because the audit table is briefly
+ * unreachable is worse.
+ */
 export const auditLog = (action: string) => {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    const userId = req.session?.user?.id;
-    const username = req.session?.user?.username;
-    const timestamp = new Date().toISOString();
-    
-    console.log(`[AUDIT] ${timestamp} - User ${username} (ID: ${userId}) performed: ${action}`);
-    
-    // In production, log to secure audit system
+    const actorUserId = req.session?.user?.id ?? null;
+    const actorUsername = req.session?.user?.username ?? null;
+    const actorRole = req.session?.user?.role ?? null;
+
+    res.on('finish', () => {
+      void (async () => {
+        try {
+          const { getDb } = await import('./db');
+          const { auditEvents } = await import('@shared/schema');
+          const db = getDb() as any;
+          if (!db) return;
+
+          await db.insert(auditEvents).values({
+            action,
+            actorUserId,
+            actorUsername,
+            actorRole,
+            method: req.method,
+            path: req.originalUrl?.split('?')[0] ?? req.path,
+            statusCode: res.statusCode,
+            ipAddress: req.ip ?? null,
+          });
+        } catch (error) {
+          console.error(
+            `[AUDIT] FAILED TO PERSIST "${action}" by ${actorUsername ?? 'anonymous'}:`,
+            error
+          );
+        }
+      })();
+    });
+
     next();
   };
 };

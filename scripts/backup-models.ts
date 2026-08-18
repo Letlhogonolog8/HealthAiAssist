@@ -31,8 +31,15 @@ interface Artifact {
 const ARTIFACTS: Artifact[] = [
   {
     source: 'dataset/lung_cancer_MRI_dataset/resnet50v2_lung_cancer_model.h5',
-    reproducible: false,
-    note: 'IRREPLACEABLE. No working training script exists for this model.',
+    // Was irreplaceable until it was retrained with a working script. Losing it
+    // now costs a training run rather than the modality.
+    reproducible: true,
+    note: 'Rebuildable with: python scripts/train-lung-cancer-model.py',
+  },
+  {
+    source: 'dataset/lung_cancer_MRI_dataset/lung_model_training.json',
+    reproducible: true,
+    note: 'Split counts, held-out metrics and the deployed decision threshold.',
   },
   {
     source: 'dataset/data/resnet50v2_skin_cancer_model.h5',

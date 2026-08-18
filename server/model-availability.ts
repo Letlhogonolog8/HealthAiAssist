@@ -81,15 +81,27 @@ export const MODEL_REGISTRY: Record<string, ModelRegistryEntry> = {
   lung: {
     enabled: true,
     evaluation: {
-      dataset: 'dataset/dataset/lung_cancer_MRI_dataset/validate (752 cancer / 492 no_cancer)',
-      balancedAccuracy: 0.75,
-      sensitivity: 0.904,  // cancer correctly flagged
-      specificity: 0.596,  // no_cancer correctly cleared
-      preprocessing: 'RGB, resize 224x224, divide by 255',
+      dataset:
+        'Held-out test split, 554 images (282 cancer / 272 no_cancer), never used ' +
+        'in training or model selection',
+      balancedAccuracy: 0.7921,
+      sensitivity: 0.8121,  // cancer correctly flagged, at the deployed threshold
+      specificity: 0.7721,  // no_cancer correctly cleared
+      preprocessing: 'raw RGB 0-255 — normalisation is fused into the model graph',
       caveats:
-        'Measured on the validation split, which was likely seen during training — ' +
-        'these figures are optimistic. No held-out test set exists for this model. ' +
-        'Specificity of 0.596 means roughly 4 in 10 healthy scans are flagged. ' +
+        'Retrained 2026-08-18 with a genuine three-way split. The previous figures ' +
+        '(0.75 balanced accuracy) came from the directory used as the validation ' +
+        'generator during that model\'s own training, so they were optimistic; no ' +
+        'untouched data existed, which is why retraining was necessary rather than ' +
+        'just splitting off a test set. Test AUC 0.88. ' +
+        'The decision threshold is 0.28 on P(cancer), not argmax: argmax scores a ' +
+        'higher balanced accuracy (0.838) but misses 86 of 282 cancers, against 53 ' +
+        'at the deployed threshold. That trade is deliberate for screening and is ' +
+        'configurable via LUNG_CANCER_THRESHOLD. Even so, roughly 1 in 5 cancers is ' +
+        'missed and 1 in 4 healthy scans is flagged. ' +
+        'No input screening exists for this modality yet — unlike the skin model, ' +
+        'an unrelated image will still be classified. ' +
+        'Demographic composition of the training data is unrecorded. ' +
         'Screening triage only; not clinically validated or regulator-cleared.'
     }
   },

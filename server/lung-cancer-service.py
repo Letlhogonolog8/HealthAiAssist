@@ -22,7 +22,26 @@ class LungCancerDetector:
         self.load_error = None
         self.class_labels = ['cancer', 'no_cancer']
         self.img_size = (224, 224)
+        # Decision threshold on P(cancer). NOT argmax: argmax implicitly weights a
+        # missed cancer the same as a false alarm, which is wrong for screening.
+        # Selected on the validation split, recorded in lung_model_training.json.
+        self.cancer_threshold = self._load_threshold()
         self.load_model()
+
+    def _load_threshold(self):
+        override = os.environ.get("LUNG_CANCER_THRESHOLD")
+        if override:
+            try:
+                return float(override)
+            except ValueError:
+                pass
+        meta_path = os.path.join(os.path.dirname(self.model_path), "lung_model_training.json")
+        try:
+            with open(meta_path) as f:
+                return float(json.load(f)["operatingPoint"]["cancerThreshold"])
+        except Exception:
+            # Falls back to argmax. Higher specificity, more missed cancers.
+            return 0.5
 
     def load_model(self):
         """Load the trained lung cancer detection model"""
@@ -41,23 +60,20 @@ class LungCancerDetector:
             print(self.load_error, file=sys.stderr)
     
     def preprocess_image(self, image_data):
-        """Preprocess image for prediction"""
+        """Load as raw RGB 0-255 at the model's input size.
+
+        No normalisation here: the retrained model begins with a Rescaling layer
+        that applies resnet_v2's x/127.5-1 inside the graph. Dividing by 255 here
+        would double-scale the input — the same class of bug that made the
+        previous skin artifact unusable.
+        """
         try:
-            # Open image
             image = Image.open(io.BytesIO(image_data))
-            
-            # Convert to RGB if needed
             if image.mode != 'RGB':
                 image = image.convert('RGB')
-            
-            # Resize image
             image = image.resize(self.img_size)
-            
-            # Convert to array and normalize
-            img_array = np.array(image) / 255.0
-            img_array = np.expand_dims(img_array, axis=0)
-            
-            return img_array
+            img_array = np.array(image, dtype=np.float32)
+            return np.expand_dims(img_array, axis=0)
         except Exception as e:
             raise Exception(f"Error preprocessing image: {str(e)}")
     
@@ -87,10 +103,13 @@ class LungCancerDetector:
             predictions = self.model.predict(processed_image, verbose=0)
             probabilities = predictions[0]
             
-            # Get predicted class
-            predicted_class_idx = np.argmax(probabilities)
-            predicted_class = self.class_labels[predicted_class_idx]
-            confidence = float(probabilities[predicted_class_idx])
+            # Threshold on P(cancer) rather than argmax. On the held-out test set
+            # argmax misses 86 of 282 cancers; the selected threshold misses 53,
+            # at the cost of more false alarms.
+            cancer_prob = float(probabilities[0])
+            is_cancer = cancer_prob >= self.cancer_threshold
+            predicted_class = 'cancer' if is_cancer else 'no_cancer'
+            confidence = cancer_prob if is_cancer else float(probabilities[1])
             
             # Create probability dictionary
             prob_dict = {
@@ -101,6 +120,7 @@ class LungCancerDetector:
                 'prediction': predicted_class,
                 'confidence': confidence,
                 'probabilities': prob_dict,
+                'threshold': self.cancer_threshold,
                 'status': 'success',
                 'timestamp': datetime.now().isoformat()
             }
@@ -144,5 +164,6 @@ if __name__ == "__main__":
         print(json.dumps({
             'status': 'ready' if lung_cancer_detector.model is not None else 'model_unavailable',
             'modelPath': lung_cancer_detector.model_path,
+            'cancerThreshold': lung_cancer_detector.cancer_threshold,
             'message': lung_cancer_detector.load_error or 'Lung cancer model loaded'
         }))

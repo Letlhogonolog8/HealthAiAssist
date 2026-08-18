@@ -46,6 +46,15 @@ export const medicalScans = pgTable("medical_scans", {
   riskLevel: text("risk_level").default("low"),
   processingTime: integer("processing_time_ms"),
   imageSize: integer("image_size_bytes"),
+  /**
+   * Which model produced this result, e.g. "resnet50v2-skin-v1".
+   *
+   * Without it a stored result cannot be explained later: models get retrained
+   * and thresholds change, so a figure from six months ago may not be
+   * reproducible from today's artifact. Null on rows written before this column
+   * existed, and on scans queued for manual review where no model ran.
+   */
+  modelVersion: text("model_version"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow(),
   reviewedAt: timestamp("reviewed_at"),
@@ -105,6 +114,34 @@ export const chatMessages = pgTable("chat_messages", {
   receiverIdx: index("idx_chat_receiver").on(table.receiverId),
   createdAtIdx: index("idx_chat_created").on(table.createdAt),
 }));
+
+/**
+ * Append-only audit trail for sensitive non-genomic operations.
+ *
+ * `auditLog()` previously wrote to console.log only, so there was no audit trail
+ * — just terminal output that vanished with the process. Genomic access already
+ * had a proper table; this gives everything else the same treatment.
+ */
+export const auditEvents = pgTable("audit_events", {
+  id: serial("id").primaryKey(),
+  action: text("action").notNull(),
+  actorUserId: integer("actor_user_id").references(() => users.id),
+  actorUsername: text("actor_username"),
+  actorRole: text("actor_role"),
+  method: text("method"),
+  path: text("path"),
+  /** Populated once the response is known, so failed attempts are distinguishable. */
+  statusCode: integer("status_code"),
+  ipAddress: text("ip_address"),
+  occurredAt: timestamp("occurred_at").defaultNow().notNull(),
+}, (table) => ({
+  actionIdx: index("idx_audit_events_action").on(table.action),
+  actorIdx: index("idx_audit_events_actor").on(table.actorUserId),
+  occurredAtIdx: index("idx_audit_events_occurred").on(table.occurredAt),
+}));
+
+export type AuditEvent = typeof auditEvents.$inferSelect;
+export type InsertAuditEvent = typeof auditEvents.$inferInsert;
 
 // ---------------------------------------------------------------------------
 // Genomics
@@ -319,6 +356,11 @@ export const insertScanSchema = createInsertSchema(medicalScans).pick({
   notes: true,
   status: true,
   findings: true,
+  // Traceability: which model produced the result, how long it took, and the
+  // band it landed in. Omitted previously, so results were unattributable.
+  modelVersion: true,
+  processingTime: true,
+  riskLevel: true,
 });
 
 export const insertTermSchema = createInsertSchema(medicalTerms).pick({

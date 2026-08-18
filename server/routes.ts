@@ -98,7 +98,19 @@ async function performLungCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisR
     fs.writeFileSync(tempImagePath, imageBuffer);
     
     // Analyze with Python lung cancer model (use venv if available)
-    const pythonCmd = fs.existsSync('venv/Scripts/python.exe') ? 'venv/Scripts/python.exe' : 'python';
+    // Interpreter selection. This previously preferred `venv/Scripts/python.exe`
+    // as a bare relative path, which the Windows shell does not resolve — every
+    // lung request failed with "'venv' is not recognized". It went unnoticed
+    // because the model was not loading either, so the failure looked like the
+    // model being unavailable rather than the command being wrong.
+    //
+    // PYTHON_BIN overrides; otherwise the interpreter on PATH is used, matching
+    // how the skin service already spawns Python. A venv is only used when it is
+    // pointed at explicitly, since a venv missing TensorFlow silently disables
+    // the modality.
+    const pythonCmd = process.env.PYTHON_BIN
+      ? `"${process.env.PYTHON_BIN}"`
+      : 'python';
     let result: any;
     try {
       result = await new Promise<any>((resolve, reject) => {
@@ -175,7 +187,9 @@ async function performLungCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisR
         processingTimeMs: Date.now() - startedAt,
         analysisDepth: 'ResNet50V2 binary classifier',
         confidenceThreshold: 70.0,
-        modelVersion: 'resnet50v2-lung-v1',
+        // Bumped on retrain: v2 is the model with a genuine held-out test set and
+        // a threshold of 0.28. A stored result must name the artifact that made it.
+        modelVersion: 'resnet50v2-lung-v2',
         inputResolution: '224x224'
       }
     };
@@ -709,7 +723,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/scans/:id", requireAuth, auditLog('DELETE_SCAN'), async (req: AuthenticatedRequest, res) => {
+  app.delete("/api/scans/:id", auditLog('DELETE_SCAN'), requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -787,7 +801,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // New endpoint to create doctor or radiologist
-  app.post("/api/admin/doctors", requireAuth, requireAdmin, sensitiveOperationLimit, validateInput, auditLog('CREATE_MEDICAL_STAFF'), async (req, res) => {
+  app.post("/api/admin/doctors", auditLog('CREATE_MEDICAL_STAFF'), requireAuth, requireAdmin, sensitiveOperationLimit, validateInput, async (req, res) => {
     try {
       const { username, password, fullName, email, specialization, licenseNumber, role } = req.body;
 
@@ -2131,6 +2145,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           `${analysisResult.cancerType || 'Abnormal findings'} detected - ${analysisResult.riskLevel} risk` : 
           "No abnormal findings detected",
         aiConfidence: `${Math.round(analysisResult.confidence)}%`,
+        // Pin the model that produced this. Models get retrained and thresholds
+        // move, so without it a stored result cannot be explained or reproduced
+        // later.
+        modelVersion: analysisResult.advancedMetrics?.modelVersion ?? null,
+        processingTime: analysisResult.advancedMetrics?.processingTimeMs ?? null,
+        riskLevel: analysisResult.riskLevel ?? null,
         notes: analysisResult.findings ? analysisResult.findings.join('. ') : 'Analysis completed'
       };
 
@@ -2235,6 +2255,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           `${analysisResult.cancerType || 'Abnormal findings'} detected - ${analysisResult.riskLevel} risk` : 
           "No abnormal findings detected",
         aiConfidence: `${Math.round(analysisResult.confidence)}%`,
+        // Pin the model that produced this. Models get retrained and thresholds
+        // move, so without it a stored result cannot be explained or reproduced
+        // later.
+        modelVersion: analysisResult.advancedMetrics?.modelVersion ?? null,
+        processingTime: analysisResult.advancedMetrics?.processingTimeMs ?? null,
+        riskLevel: analysisResult.riskLevel ?? null,
         notes: analysisResult.findings ? analysisResult.findings.join('. ') : 'Analysis completed'
       };
 
@@ -2486,7 +2512,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin staff creation endpoint
-  app.post("/api/admin/staff", requireAuth, requireAdmin, sensitiveOperationLimit, validateInput, auditLog('CREATE_STAFF'), async (req, res) => {
+  app.post("/api/admin/staff", auditLog('CREATE_STAFF'), requireAuth, requireAdmin, sensitiveOperationLimit, validateInput, async (req, res) => {
     try {
       const { username, password, fullName, email, phone, role, specialization, licenseNumber } = req.body;
       
@@ -2594,7 +2620,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin staff deletion endpoint
-  app.delete("/api/admin/staff/:id", requireAuth, requireAdmin, sensitiveOperationLimit, auditLog('DELETE_STAFF'), async (req, res) => {
+  app.delete("/api/admin/staff/:id", auditLog('DELETE_STAFF'), requireAuth, requireAdmin, sensitiveOperationLimit, async (req, res) => {
     try {
       const staffId = parseInt(req.params.id);
       
@@ -2653,7 +2679,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin staff permanent deletion endpoint
-  app.delete("/api/admin/staff/:id/permanent", requireAuth, requireAdmin, sensitiveOperationLimit, auditLog('PERMANENT_DELETE_STAFF'), async (req, res) => {
+  app.delete("/api/admin/staff/:id/permanent", auditLog('PERMANENT_DELETE_STAFF'), requireAuth, requireAdmin, sensitiveOperationLimit, async (req, res) => {
     try {
       const staffId = parseInt(req.params.id);
       
@@ -2704,7 +2730,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin staff update endpoint
-  app.put("/api/admin/staff/:id", requireAuth, requireAdmin, validateInput, auditLog('UPDATE_STAFF'), async (req, res) => {
+  app.put("/api/admin/staff/:id", auditLog('UPDATE_STAFF'), requireAuth, requireAdmin, validateInput, async (req, res) => {
     try {
       const staffId = parseInt(req.params.id);
       if (isNaN(staffId)) {
@@ -2907,7 +2933,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Update user
-  app.put("/api/admin/users/:id", requireAuth, requireAdmin, validateInput, auditLog('UPDATE_USER'), async (req, res) => {
+  app.put("/api/admin/users/:id", auditLog('UPDATE_USER'), requireAuth, requireAdmin, validateInput, async (req, res) => {
     try {
       const userId = parseInt(req.params.id);
       if (isNaN(userId)) {
@@ -2968,7 +2994,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Delete user
-  app.delete("/api/admin/users/:id", requireAuth, requireAdmin, sensitiveOperationLimit, auditLog('DELETE_USER'), async (req, res) => {
+  app.delete("/api/admin/users/:id", auditLog('DELETE_USER'), requireAuth, requireAdmin, sensitiveOperationLimit, async (req, res) => {
     try {
       const userId = parseInt(req.params.id);
       if (isNaN(userId)) {
@@ -3004,7 +3030,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Reset user password
-  app.post("/api/admin/users/:id/reset-password", requireAuth, requireAdmin, sensitiveOperationLimit, validateInput, auditLog('RESET_PASSWORD'), async (req, res) => {
+  app.post("/api/admin/users/:id/reset-password", auditLog('RESET_PASSWORD'), requireAuth, requireAdmin, sensitiveOperationLimit, validateInput, async (req, res) => {
     try {
       const userId = parseInt(req.params.id);
       if (isNaN(userId)) {
@@ -3512,7 +3538,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Skin cancer model training endpoint (admin only)
-  app.post("/api/admin/train-skin-model", requireAuth, requireAdmin, sensitiveOperationLimit, auditLog('TRAIN_AI_MODEL'), async (req, res) => {
+  app.post("/api/admin/train-skin-model", auditLog('TRAIN_AI_MODEL'), requireAuth, requireAdmin, sensitiveOperationLimit, async (req, res) => {
     try {
       const { skinCancerService } = await import('./skin-cancer-service');
       

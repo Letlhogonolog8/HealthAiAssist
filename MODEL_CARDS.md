@@ -2,10 +2,10 @@
 
 > **Artifacts are not in git.** `dataset/` is gitignored (it was stripped from
 > history), so the `.h5` files these cards describe are not version-controlled and
-> must be provisioned onto any machine that serves them. The skin model is
-> rebuildable from source with `python scripts/train-skin-cancer-model.py`; the
-> lung model is not — its training script is stale and no equivalent exists, so
-> **that artifact is currently irreplaceable if lost.** Back it up.
+> must be provisioned onto any machine that serves them. Both are now rebuildable
+> from source — `scripts/train-skin-cancer-model.py` and
+> `scripts/train-lung-cancer-model.py` — so losing one costs a training run rather
+> than the modality. Back them up anyway: `npm run backup:models`.
 
 Every model this system can serve, what it was measured at, and what it must not
 be used for. The authoritative machine-readable copy lives in
@@ -25,35 +25,66 @@ accuracy scores that degenerate case at 0.5, which is chance.
 
 ---
 
-## Lung cancer — ResNet50V2 — **ENABLED**
+## Lung cancer — ResNet50V2 — **ENABLED** (retrained 2026-08-18)
 
 | | |
 |---|---|
 | Artifact | `dataset/lung_cancer_MRI_dataset/resnet50v2_lung_cancer_model.h5` |
-| Task | Binary classification, `cancer` vs `no_cancer` |
-| Input | RGB, resized to 224×224, divided by 255 |
-| Evaluation set | `dataset/dataset/lung_cancer_MRI_dataset/validate` — 752 cancer / 492 no_cancer |
-| **Balanced accuracy** | **0.75** (chance = 0.50) |
-| Sensitivity (cancer detected) | 0.904 — 680 of 752 |
-| Specificity (healthy cleared) | 0.596 — 293 of 492 |
-| Raw accuracy | 0.782 (majority-class baseline 0.605) |
+| Architecture | ResNet50V2 ImageNet trunk, **frozen**; trained Dense(256)+Dropout head |
+| Input | Raw RGB 0–255, 224×224. Normalisation **fused into the graph** |
+| Splits | 2575 train / 551 validation / **554 test**, stratified, seed 4242 |
+| Evaluation set | 554 images (282 cancer / 272 no_cancer), **never used in training or model selection** |
+| Test AUC | **0.88** |
+| **Deployed operating point** | threshold 0.28 on P(cancer) — *not* argmax |
+| Sensitivity @ 0.28 | **0.812** — 229 of 282 |
+| Specificity @ 0.28 | **0.772** — 210 of 272 |
+| Balanced accuracy @ 0.28 | **0.792** |
 
-**Intended use.** Screening triage: ordering a radiologist's review queue.
+Reproduce: `python scripts/train-lung-cancer-model.py` then
+`python scripts/choose-lung-threshold.py`
 
-**Limitations, stated plainly.**
+### Why the threshold is not argmax
 
-- Measured on the *validation* split, which was in all likelihood seen during
-  training. **These figures are optimistic.** No held-out test set exists for this
-  model; building one is the single highest-value next step.
-- Specificity of 0.596 means roughly **4 in every 10 healthy scans are flagged**.
-  At population screening volumes that is a large false-positive burden, with the
-  anxiety and follow-up cost that implies.
+Argmax implicitly says a missed cancer and a false alarm cost the same. They do
+not in screening. The full sweep on the held-out set:
+
+| Threshold | Sensitivity | Specificity | Balanced acc. | **Missed cancers** | False alarms |
+|---|---|---|---|---|---|
+| 0.50 (argmax) | 0.695 | 0.982 | **0.838** | **86** | 5 |
+| 0.40 | 0.730 | 0.941 | 0.836 | 76 | 16 |
+| 0.35 | 0.762 | 0.901 | 0.832 | 67 | 27 |
+| **0.28 (deployed)** | **0.812** | **0.772** | 0.792 | **53** | 62 |
+| 0.25 | 0.826 | 0.654 | 0.740 | 49 | 94 |
+| 0.19 | 0.911 | 0.474 | 0.693 | 25 | 143 |
+
+Argmax has the best balanced accuracy and is the wrong choice: it misses 86 of
+282 cancers. The deployed point trades 57 extra false alarms for 33 fewer missed
+cancers. Override with `LUNG_CANCER_THRESHOLD`.
+
+Note what the table shows about the model itself: there is no region with both
+high sensitivity and high specificity. **Roughly 1 in 5 cancers is still missed
+and 1 in 4 healthy scans is still flagged.**
+
+### Why it was retrained rather than just re-measured
+
+The previous figures — 0.75 balanced accuracy, 0.904 sensitivity — came from
+`lung_cancer_MRI_dataset/validate`, which was the validation generator during
+that model's own training. The model had been selected against it, so the numbers
+were optimistic. No untouched data existed anywhere in the repository, so a
+"held-out test set" could only be created by pooling both directories and
+re-splitting. The test file list is recorded in `lung_splits.json` so the claim
+is auditable.
+
+The honest comparison is therefore *not* 0.904 → 0.812. The old sensitivity was
+measured on data the model had been tuned on and never meant what it said.
+
+### Limitations
+
+- **No input screening for this modality.** Unlike the skin model, an unrelated
+  image will still be classified. The OOD detector has not been built for lung.
+- Calibration has not been measured for this model.
+- Demographic composition of the training data is unrecorded.
 - Not clinically validated. Not cleared by any regulator.
-- Trained on an MRI dataset of unrecorded provenance. The demographic composition
-  of the training data is **unknown**, so performance across ancestry, sex and age
-  groups is also unknown and cannot be assumed uniform.
-
-**Out of scope.** Diagnosis. Staging. Any use without radiologist sign-off.
 
 ---
 
