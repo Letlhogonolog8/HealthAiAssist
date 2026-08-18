@@ -65,7 +65,7 @@ import { dirname } from 'path';
 
 import { randomUUID } from 'crypto';
 import { uploadToGoogleCloudStorage } from './google-cloud-service';
-import { ModelUnavailableError, assertModelEnabled, MODEL_REGISTRY } from './model-availability';
+import { ModelUnavailableError, InputRejectedError, assertModelEnabled, MODEL_REGISTRY } from './model-availability';
 
 async function performRealTimeAnalysis(imageBuffer: Buffer, scanType: string, patientData?: any): Promise<AnalysisResult> {
   // Throws for modalities with no model (breast, colon, prostate) and for models
@@ -218,6 +218,14 @@ async function performSkinCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisR
       }
     }
 
+    // The image failed a quality or domain check. The model is fine; the input is
+    // not something it is competent to assess, so nothing is classified.
+    if (result.prediction === 'rejected_input') {
+      throw new InputRejectedError('skin', result.reasons?.length
+        ? result.reasons
+        : ['This image could not be assessed.']);
+    }
+
     if (result.prediction === 'Error' || result.prediction === 'unavailable' || result.confidence == null) {
       throw new ModelUnavailableError('skin', result.error || 'Skin cancer model did not return a prediction');
     }
@@ -283,7 +291,7 @@ async function performSkinCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisR
 
     return analysisResult;
   } catch (error) {
-    if (error instanceof ModelUnavailableError) throw error;
+    if (error instanceof ModelUnavailableError || error instanceof InputRejectedError) throw error;
     console.error('ResNet50V2 skin cancer analysis failed:', error);
     throw new ModelUnavailableError(
       'skin',
@@ -300,6 +308,24 @@ async function performSkinCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisR
  * so it enters the radiologist queue rather than vanishing. The response is 503
  * and carries no diagnostic content, because there is none to report.
  */
+/**
+ * The submitted image was not assessable. 422 rather than 503: nothing is wrong
+ * with the service, and retrying the same image will fail identically. No scan
+ * record is created, because no analysis was attempted.
+ */
+function respondInputRejected(error: InputRejectedError, res: any): void {
+  res.status(422).json({
+    success: false,
+    error: 'Image rejected',
+    scanType: error.scanType,
+    reasons: error.reasons,
+    message:
+      'This image was not analysed because it is not something the model can ' +
+      'assess. This is NOT a negative result. Submit a clear, correctly framed ' +
+      'image of the intended type.',
+  });
+}
+
 async function respondModelUnavailable(
   error: ModelUnavailableError,
   req: Request,
@@ -2157,6 +2183,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
     } catch (error) {
+      if (error instanceof InputRejectedError) {
+        return respondInputRejected(error, res);
+      }
       if (error instanceof ModelUnavailableError) {
         return respondModelUnavailable(error, req, res);
       }
@@ -2258,6 +2287,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
     } catch (error) {
+      if (error instanceof InputRejectedError) {
+        return respondInputRejected(error, res);
+      }
       if (error instanceof ModelUnavailableError) {
         return respondModelUnavailable(error, req, res);
       }

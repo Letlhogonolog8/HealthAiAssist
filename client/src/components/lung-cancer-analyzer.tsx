@@ -90,6 +90,12 @@ export default function LungCancerAnalyzer() {
       
       const payload = await response.json().catch(() => null);
 
+      // 422 = the image itself was refused (wrong subject, blank, blurred).
+      if (response.status === 422) {
+        const reasons = Array.isArray(payload?.reasons) ? payload.reasons.join(' ') : '';
+        throw new Error(`${payload?.message ?? 'Image rejected.'} ${reasons}`.trim());
+      }
+
       // 503 = no validated model could run. Not a negative result.
       if (response.status === 503) {
         throw new Error(

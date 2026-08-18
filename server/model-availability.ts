@@ -24,6 +24,28 @@ export class ModelUnavailableError extends Error {
   }
 }
 
+/**
+ * Signals that the submitted image is not something the model can assess.
+ *
+ * Distinct from `ModelUnavailableError`: the model is fine, the input is not.
+ * A classifier answers whatever it is given — fed a chest X-ray, the skin model
+ * returns a confident melanoma verdict — so inputs are screened before
+ * classification. The remedy is different too: submit a usable image, rather
+ * than wait for a model to come back.
+ */
+export class InputRejectedError extends Error {
+  readonly scanType: string;
+  /** Human-readable reasons, safe to show the person who uploaded the image. */
+  readonly reasons: string[];
+
+  constructor(scanType: string, reasons: string[]) {
+    super(`Input rejected for "${scanType}": ${reasons.join(' ')}`);
+    this.name = 'InputRejectedError';
+    this.scanType = scanType;
+    this.reasons = reasons;
+  }
+}
+
 export interface ModelRegistryEntry {
   /** Whether this model may serve predictions to users. */
   enabled: boolean;
@@ -80,7 +102,13 @@ export const MODEL_REGISTRY: Record<string, ModelRegistryEntry> = {
       specificity: 0.8139,
       preprocessing: 'raw RGB 0-255 — normalisation is fused into the model graph',
       caveats:
-        'Retrained 2026-08-13 (frozen ResNet50V2 + trained head); the previous ' +
+        'Calibration measured on the held-out set: expected calibration error 0.024, '
+        + 'Brier 0.098. Temperature scaling was fitted and deliberately NOT applied — '
+        + 'it did not improve validation ECE, so the raw output is already usable as a '
+        + 'probability. Inputs are screened before classification: images unlike the '
+        + 'training distribution are refused rather than classified (chest images flag '
+        + 'at 100%, held-out lesions at 0.8%). '
+        + 'Retrained 2026-08-13 (frozen ResNet50V2 + trained head); the previous ' +
         'artifact scored at chance. Figures above are at argmax. The service uses ' +
         'banded thresholds (>0.70 malignant, 0.30-0.70 uncertain, <=0.30 benign), ' +
         'at which 10 of 300 malignant lesions (3.3%) receive an outright benign ' +

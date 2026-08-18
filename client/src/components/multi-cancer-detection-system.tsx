@@ -138,6 +138,13 @@ export default function MultiCancerDetectionSystem() {
 
       const payload = await response.json().catch(() => null);
 
+      // 422 means the image itself was refused — wrong subject, blank, blurred.
+      // Distinct from 503: retrying the same file will fail the same way.
+      if (response.status === 422) {
+        const reasons = Array.isArray(payload?.reasons) ? payload.reasons.join(' ') : '';
+        throw new Error(`${payload?.message ?? 'Image rejected.'} ${reasons}`.trim());
+      }
+
       // 503 means no validated model could analyse the scan. It is emphatically
       // not a negative result, and the message says so — surface the server's
       // wording rather than a generic failure.

@@ -3,15 +3,20 @@ import path from 'path';
 import fs from 'fs';
 
 export interface SkinCancerPrediction {
-  // 'unavailable' means the model could not run. It is NOT a clinical finding and
-  // must never be rendered to a user as one.
-  prediction: 'benign' | 'malignant' | 'uncertain' | 'unavailable' | 'Error';
+  // 'unavailable' means the model could not run; 'rejected_input' means it could
+  // but the image is not something it is competent to assess. Neither is a
+  // clinical finding and neither may be rendered to a user as one.
+  prediction: 'benign' | 'malignant' | 'uncertain' | 'unavailable' | 'rejected_input' | 'Error';
   confidence: number | null;
   probabilities?: {
     benign: number;
     malignant: number;
   } | null;
   error?: string;
+  /** Present when prediction is 'rejected_input': why the image was refused. */
+  reasons?: string[];
+  /** Distance from the training distribution, when the domain check ran. */
+  oodScore?: { score: number; threshold: number };
 }
 
 export class SkinCancerService {

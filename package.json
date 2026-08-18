@@ -28,6 +28,8 @@
     "smoke:genomics": "tsx scripts/smoke-genomics-api.ts",
     "train-skin-model": "python scripts/train-skin-cancer-model.py",
     "evaluate-model": "python scripts/evaluate-model.py",
+    "calibrate-model": "python scripts/calibrate-model.py",
+    "build-ood-reference": "python scripts/build-ood-reference.py",
     "test-skin-integration": "node server/test-skin-cancer-integration.js",
     "setup-skin-cancer": "node setup-skin-cancer.js",
     "deploy:railway": "bash scripts/deploy-railway.sh",
