@@ -31,11 +31,38 @@ export class EnhancedWebSocketManager {
   private heartbeatInterval: NodeJS.Timeout;
 
   constructor(server: Server) {
-    this.wss = new WebSocketServer({ 
-      server, 
-      path: '/ws',
-      verifyClient: this.verifyClient.bind(this)
+    // `noServer` plus a manual upgrade route, rather than `{ server, path }`.
+    //
+    // With `{ server, path: '/ws' }` the ws library attaches its own upgrade
+    // listener and calls abortHandshake(400) on any upgrade whose path does not
+    // match — it rejects them rather than ignoring them. In development Vite
+    // serves HMR over this same HTTP server at `/?token=...`, so every HMR
+    // connection was being killed by this class before Vite could see it. The
+    // browser then fell back to the configured Vite port and failed there too,
+    // which is the "failed to connect to websocket" the client reports.
+    //
+    // Routing upgrades by hand lets anything that is not ours pass through
+    // untouched.
+    this.wss = new WebSocketServer({
+      noServer: true,
+      verifyClient: this.verifyClient.bind(this),
     });
+
+    server.on('upgrade', (request, socket, head) => {
+      let pathname: string;
+      try {
+        pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
+      } catch {
+        return; // Malformed target — leave it for another listener to handle.
+      }
+
+      if (pathname !== '/ws') return; // Not ours: Vite's HMR, or anything else.
+
+      this.wss.handleUpgrade(request, socket as any, head, (ws) => {
+        this.wss.emit('connection', ws, request);
+      });
+    });
+
     this.setupWebSocket();
     this.startHeartbeat();
   }

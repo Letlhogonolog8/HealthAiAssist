@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -112,7 +112,7 @@ export default function LoginDialog({ open, onOpenChange, onLoginSuccess }: Logi
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl w-[95vw] max-h-[92vh] bg-gradient-to-br from-slate-900 via-slate-800 to-blue-900 border-slate-600 overflow-hidden flex flex-col shadow-2xl" aria-describedby="login-dialog-description">
+      <DialogContent className="max-w-5xl w-[95vw] max-h-[92vh] bg-gradient-to-br from-slate-900 via-slate-800 to-blue-900 border-slate-600 overflow-hidden flex flex-col shadow-2xl">
         <DialogHeader className="flex-shrink-0 text-center py-6">
           <div className="flex items-center justify-center mb-4">
             <div className="p-3 bg-blue-600 rounded-full">
@@ -120,9 +120,15 @@ export default function LoginDialog({ open, onOpenChange, onLoginSuccess }: Logi
             </div>
           </div>
           <DialogTitle className="text-2xl md:text-3xl text-white font-bold">Welcome to Health AI</DialogTitle>
-          <p id="login-dialog-description" className="text-slate-300 text-base mt-2">
-            Advanced AI-powered medical diagnosis platform
-          </p>
+          {/* Must be Radix's DialogDescription, not a <p> with a hand-written id.
+              Radix looks up its own generated description id to decide whether the
+              dialog is described; a custom aria-describedby pointing at a plain
+              element satisfies the browser but not that check, which is why the
+              warning fired even though the markup looked correct. */}
+          <DialogDescription className="text-slate-300 text-base mt-2">
+            Sign in to your account, or register a new one, to access screening
+            triage and your results.
+          </DialogDescription>
         </DialogHeader>
         
         <div className="flex-1 overflow-y-auto px-6">

@@ -191,7 +191,7 @@ export default function PatientManagement() {
                     Add Patient
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="bg-slate-800 border-slate-600">
+                <DialogContent aria-describedby={undefined} className="bg-slate-800 border-slate-600">
                   <DialogHeader>
                     <DialogTitle className="text-white">Add New Patient</DialogTitle>
                   </DialogHeader>
@@ -375,7 +375,7 @@ export default function PatientManagement() {
       {/* Patient Details Modal */}
       {selectedPatient && (
         <Dialog open={!!selectedPatient} onOpenChange={() => setSelectedPatient(null)}>
-          <DialogContent className="bg-slate-800 border-slate-600 max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogContent aria-describedby={undefined} className="bg-slate-800 border-slate-600 max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="text-white flex items-center">
                 <Users className="w-5 h-5 mr-2" />
@@ -527,7 +527,7 @@ export default function PatientManagement() {
       {/* Edit Patient Dialog */}
       {editingPatient && (
         <Dialog open={!!editingPatient} onOpenChange={() => setEditingPatient(null)}>
-          <DialogContent className="bg-slate-800 border-slate-600">
+          <DialogContent aria-describedby={undefined} className="bg-slate-800 border-slate-600">
             <DialogHeader>
               <DialogTitle className="text-white">Edit Patient</DialogTitle>
             </DialogHeader>

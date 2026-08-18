@@ -711,7 +711,7 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
 
       {/* Enhanced Scan Review Modal */}
       <Dialog open={!!selectedScan} onOpenChange={() => setSelectedScan(null)}>
-        <DialogContent className="bg-slate-800 border-slate-600 max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent aria-describedby={undefined} className="bg-slate-800 border-slate-600 max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-white flex items-center">
               <Brain className="w-5 h-5 mr-2" />
@@ -818,7 +818,7 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
 
       {/* Stats Modal */}
       <Dialog open={showStatsModal} onOpenChange={setShowStatsModal}>
-        <DialogContent className="bg-slate-800 border-slate-600 max-w-4xl">
+        <DialogContent aria-describedby={undefined} className="bg-slate-800 border-slate-600 max-w-4xl">
           <DialogHeader>
             <DialogTitle className="text-white flex items-center">
               <TrendingUp className="w-5 h-5 mr-2" />

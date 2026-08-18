@@ -458,7 +458,7 @@ export default function AppointmentCalendar({
 
       {/* Confirmation Dialog */}
       <Dialog open={showConfirmation} onOpenChange={setShowConfirmation}>
-        <DialogContent className="max-w-md">
+        <DialogContent aria-describedby={undefined} className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-lg">
               <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">

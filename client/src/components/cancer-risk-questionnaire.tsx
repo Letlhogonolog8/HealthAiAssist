@@ -456,7 +456,7 @@ export default function CancerRiskQuestionnaire({ user, onAppointmentRecommended
 
       {/* Results Dialog */}
       <Dialog open={showResults}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent aria-describedby={undefined} className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {results && getRiskIcon(results.riskAssessment.level)}
@@ -518,7 +518,7 @@ export default function CancerRiskQuestionnaire({ user, onAppointmentRecommended
                           Schedule Appointment
                         </Button>
                       </DialogTrigger>
-                      <DialogContent>
+                      <DialogContent aria-describedby={undefined}>
                         <DialogHeader>
                           <DialogTitle>Schedule Medical Appointment</DialogTitle>
                         </DialogHeader>

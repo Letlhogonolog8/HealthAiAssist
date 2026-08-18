@@ -888,7 +888,7 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
 
         {/* Schedule Appointment Dialog - Enhanced Professional Styling */}
         <Dialog open={showScheduleDialog} onOpenChange={setShowScheduleDialog}>
-          <DialogContent className="max-w-lg bg-gradient-to-br from-blue-50 to-indigo-100 border-2 border-blue-300 shadow-xl" data-enhanced="v2">
+          <DialogContent aria-describedby={undefined} className="max-w-lg bg-gradient-to-br from-blue-50 to-indigo-100 border-2 border-blue-300 shadow-xl" data-enhanced="v2">
             <DialogHeader className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-t-lg -m-6 mb-6 p-6">
               <DialogTitle className="flex items-center gap-3 text-xl">
                 <div className="w-8 h-8 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
@@ -1048,7 +1048,7 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
         {/* Appointment Management Dialog */}
         {selectedAppointment && (
           <Dialog open={!!selectedAppointment} onOpenChange={() => setSelectedAppointment(null)}>
-            <DialogContent className="bg-slate-800 border-slate-700">
+            <DialogContent aria-describedby={undefined} className="bg-slate-800 border-slate-700">
               <DialogHeader>
                 <DialogTitle className="text-white">Manage Appointment</DialogTitle>
               </DialogHeader>
