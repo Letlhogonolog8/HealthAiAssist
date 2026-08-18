@@ -29,6 +29,7 @@ OUT_DIR = os.path.join(ROOT, 'dataset', 'lung_cancer_MRI_dataset')
 MODEL_PATH = os.path.join(OUT_DIR, 'resnet50v2_lung_cancer_model_v2.h5')
 META_PATH = os.path.join(OUT_DIR, 'lung_model_training.json')
 CACHE = os.path.join(OUT_DIR, '.feature_cache')
+CALIBRATION = os.path.join(OUT_DIR, 'lung_model_calibration.json')
 
 CLASSES = ['cancer', 'no_cancer']  # index 0 = cancer
 SEED = 4242
@@ -58,6 +59,30 @@ def split_labels():
     return np.array(val), np.array(test)
 
 
+def load_temperature():
+    """Deployed calibration temperature, if one was fitted and accepted.
+
+    The threshold must be selected on the SAME probabilities inference will
+    threshold. Temperature scaling is monotonic so the ROC curve is unchanged,
+    but the numeric cut point moves — picking 0.28 on uncalibrated output and
+    then applying T at inference would silently shift the operating point.
+    """
+    try:
+        with open(CALIBRATION) as f:
+            return float(json.load(f).get('temperature', 1.0)) or 1.0
+    except Exception:
+        return 1.0
+
+
+def apply_temperature(probs, temperature):
+    if temperature == 1.0:
+        return probs
+    logits = np.log(np.clip(probs, 1e-12, 1.0)) / temperature
+    logits -= logits.max(axis=1, keepdims=True)
+    exp = np.exp(logits)
+    return exp / exp.sum(axis=1, keepdims=True)
+
+
 def evaluate(cancer_prob, labels, threshold):
     """Positive class is cancer (label 0)."""
     predicted_cancer = cancer_prob >= threshold
@@ -82,9 +107,14 @@ def main():
     target = float(sys.argv[1]) if len(sys.argv) > 1 else 0.90
 
     head = tf.keras.models.load_model(MODEL_PATH).get_layer('classifier_head')
+    temperature = load_temperature()
+    print(f'Calibration temperature in force: {temperature}', file=sys.stderr)
+
     y_val, y_test = split_labels()
-    val_probs = head.predict(np.load(os.path.join(CACHE, 'val_r0.npy')), verbose=0)[:, 0]
-    test_probs = head.predict(np.load(os.path.join(CACHE, 'test_r0.npy')), verbose=0)[:, 0]
+    val_probs = apply_temperature(
+        head.predict(np.load(os.path.join(CACHE, 'val_r0.npy')), verbose=0), temperature)[:, 0]
+    test_probs = apply_temperature(
+        head.predict(np.load(os.path.join(CACHE, 'test_r0.npy')), verbose=0), temperature)[:, 0]
 
     print(f'Target sensitivity: {target:.2f}\n', file=sys.stderr)
     print('Validation sweep:', file=sys.stderr)
@@ -121,6 +151,8 @@ def main():
         'cancerThreshold': chosen['threshold'],
         'targetSensitivity': target,
         'selectedOn': 'validation split',
+        'appliedToCalibratedProbabilities': True,
+        'calibrationTemperature': None,  # replaced below
         'rationale': (
             'Screening favours catching disease over avoiding false alarms. Argmax '
             'implicitly weights a missed cancer and a false alarm equally, which is '
@@ -129,6 +161,7 @@ def main():
         'testAtArgmax': argmax_test,
         'testAtThreshold': tuned_test,
     }
+    meta['operatingPoint']['calibrationTemperature'] = temperature
     with open(META_PATH, 'w') as f:
         json.dump(meta, f, indent=2)
         f.write('\n')

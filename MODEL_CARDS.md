@@ -35,10 +35,11 @@ accuracy scores that degenerate case at 0.5, which is chance.
 | Splits | 2575 train / 551 validation / **554 test**, stratified, seed 4242 |
 | Evaluation set | 554 images (282 cancer / 272 no_cancer), **never used in training or model selection** |
 | Test AUC | **0.88** |
-| **Deployed operating point** | threshold 0.28 on P(cancer) — *not* argmax |
-| Sensitivity @ 0.28 | **0.812** — 229 of 282 |
-| Specificity @ 0.28 | **0.772** — 210 of 272 |
-| Balanced accuracy @ 0.28 | **0.792** |
+| Calibration | ECE 0.019 → **0.017** with temperature scaling (T=1.125), **applied** |
+| **Deployed operating point** | threshold 0.30 on the *calibrated* P(cancer) — *not* argmax |
+| Sensitivity @ 0.30 | **0.812** — 229 of 282 |
+| Specificity @ 0.30 | **0.757** |
+| Balanced accuracy @ 0.30 | **0.785** |
 
 Reproduce: `python scripts/train-lung-cancer-model.py` then
 `python scripts/choose-lung-threshold.py`
@@ -53,13 +54,20 @@ not in screening. The full sweep on the held-out set:
 | 0.50 (argmax) | 0.695 | 0.982 | **0.838** | **86** | 5 |
 | 0.40 | 0.730 | 0.941 | 0.836 | 76 | 16 |
 | 0.35 | 0.762 | 0.901 | 0.832 | 67 | 27 |
-| **0.28 (deployed)** | **0.812** | **0.772** | 0.792 | **53** | 62 |
+| **0.30 (deployed, calibrated)** | **0.812** | **0.757** | 0.785 | **53** | 66 |
 | 0.25 | 0.826 | 0.654 | 0.740 | 49 | 94 |
 | 0.19 | 0.911 | 0.474 | 0.693 | 25 | 143 |
 
 Argmax has the best balanced accuracy and is the wrong choice: it misses 86 of
-282 cancers. The deployed point trades 57 extra false alarms for 33 fewer missed
+282 cancers. The deployed point trades extra false alarms for 33 fewer missed
 cancers. Override with `LUNG_CANCER_THRESHOLD`.
+
+The threshold is selected on **calibrated** probabilities and applied to
+calibrated probabilities at inference. Temperature scaling is monotonic so it
+cannot change the ranking, but it does move where a given numeric cut point sits
+— selecting 0.28 on raw output and then applying T at inference would silently
+shift the operating point. The sweep above pre-dates calibration; the deployed
+row is post-calibration.
 
 Note what the table shows about the model itself: there is no region with both
 high sensitivity and high specificity. **Roughly 1 in 5 cancers is still missed
@@ -80,9 +88,10 @@ measured on data the model had been tuned on and never meant what it said.
 
 ### Limitations
 
-- **No input screening for this modality.** Unlike the skin model, an unrelated
-  image will still be classified. The OOD detector has not been built for lung.
-- Calibration has not been measured for this model.
+- Input screening is active: PCA reconstruction error in feature space flags
+  skin images at **100%** and held-out chest images at **0.8%**; pixel checks
+  catch blank and blurred frames, which the feature detector scores as
+  in-distribution.
 - Demographic composition of the training data is unrecorded.
 - Not clinically validated. Not cleared by any regulator.
 

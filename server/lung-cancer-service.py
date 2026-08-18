@@ -26,6 +26,11 @@ class LungCancerDetector:
         # missed cancer the same as a false alarm, which is wrong for screening.
         # Selected on the validation split, recorded in lung_model_training.json.
         self.cancer_threshold = self._load_threshold()
+        # Applied BEFORE thresholding, matching how the threshold was selected.
+        # Temperature scaling is monotonic so it cannot change the ranking, but it
+        # does move where a given numeric cut point sits.
+        self.temperature = self._load_temperature()
+        self._trunk = None
         self.load_model()
 
     def _load_threshold(self):
@@ -42,6 +47,94 @@ class LungCancerDetector:
         except Exception:
             # Falls back to argmax. Higher specificity, more missed cancers.
             return 0.5
+
+    def _quality_failures(self, img_array):
+        """Pixel-level checks for images no classifier should be asked about.
+
+        These catch what the feature-space detector misses. A blank frame sits
+        near the mean in feature space and reconstructs cleanly, so PCA scores it
+        as in-distribution — measured at a 0% flag rate. Pixel statistics catch it
+        immediately.
+        """
+        reasons = []
+        grey = img_array[0].mean(axis=2)
+
+        if float(grey.std()) < 8.0:
+            reasons.append('Image is nearly uniform; there is no visible subject to assess.')
+
+        level = float(grey.mean())
+        if level < 15.0:
+            reasons.append('Image is almost entirely black.')
+        elif level > 240.0:
+            reasons.append('Image is over-exposed to near-white.')
+
+        laplacian = (
+            -4.0 * grey[1:-1, 1:-1]
+            + grey[:-2, 1:-1] + grey[2:, 1:-1]
+            + grey[1:-1, :-2] + grey[1:-1, 2:]
+        )
+        if float(laplacian.var()) < 8.0:
+            reasons.append('Image is too blurred for the model to assess.')
+
+        return reasons
+
+    def _feature_extractor(self):
+        """Raw 0-255 RGB to the 2048-d feature vector. The trunk is nested and
+        applied to the rescaling output, so its `.output` sits in a separate
+        graph; the layers are re-applied to the outer input."""
+        if self._trunk is None:
+            inputs = self.model.input
+            x = self.model.get_layer('resnet_v2_preprocess')(inputs)
+            self._trunk = tf.keras.Model(inputs, self.model.get_layer('resnet50v2')(x))
+        return self._trunk
+
+    def _out_of_distribution(self, img_array):
+        """Reject images unlike the training data.
+
+        Fed a skin lesion, this model would otherwise return a confident lung
+        verdict: measured, skin images flag at 100% against 0.8% for held-out
+        chest images. Built by scripts/build-ood-reference.py; a missing
+        reference file skips the check and says so rather than passing silently.
+        """
+        reference_path = os.path.join(
+            os.path.dirname(self.model_path), 'lung_ood_reference.npz')
+        if not os.path.exists(reference_path):
+            return None, None, 'No OOD reference installed; domain check skipped.'
+
+        try:
+            reference = np.load(reference_path)
+            mean = reference['mean'].astype(np.float64)
+            components = reference['components'].astype(np.float64)
+            threshold = float(reference['threshold'])
+
+            features = self._feature_extractor().predict(
+                img_array, verbose=0).astype(np.float64)
+            centred = features - mean
+            reconstructed = (centred @ components.T) @ components
+            error = float(np.linalg.norm(centred - reconstructed, axis=1)[0])
+
+            return (error > threshold,
+                    {'score': round(error, 3), 'threshold': round(threshold, 3)},
+                    None)
+        except Exception as exc:
+            return None, None, f'OOD check failed to run: {exc}'
+
+    def _load_temperature(self):
+        """Calibration temperature, if one was fitted and accepted for deployment."""
+        path = os.path.join(os.path.dirname(self.model_path), "lung_model_calibration.json")
+        try:
+            with open(path) as f:
+                return float(json.load(f).get("temperature", 1.0)) or 1.0
+        except Exception:
+            return 1.0
+
+    def _apply_temperature(self, probabilities):
+        if self.temperature == 1.0:
+            return probabilities
+        logits = np.log(np.clip(probabilities, 1e-12, 1.0)) / self.temperature
+        logits -= logits.max()
+        exp = np.exp(logits)
+        return exp / exp.sum()
 
     def load_model(self):
         """Load the trained lung cancer detection model"""
@@ -96,12 +189,40 @@ class LungCancerDetector:
                     'message': self.load_error or 'Lung cancer model is not loaded'
                 }
 
-            # Preprocess image
             processed_image = self.preprocess_image(image_data)
-            
+
+            # Screen the input before classifying it. A classifier answers
+            # whatever it is given; these two layers decide whether the question
+            # is one this model can answer at all.
+            quality_failures = self._quality_failures(processed_image)
+            if quality_failures:
+                return {
+                    'prediction': 'rejected_input',
+                    'confidence': None,
+                    'probabilities': None,
+                    'reasons': quality_failures,
+                    'status': 'rejected_input',
+                    'message': 'Image failed quality checks and was not classified.'
+                }
+
+            is_ood, ood_detail, ood_note = self._out_of_distribution(processed_image)
+            if is_ood:
+                return {
+                    'prediction': 'rejected_input',
+                    'confidence': None,
+                    'probabilities': None,
+                    'reasons': [
+                        'This image does not resemble the chest images the model was '
+                        'trained on, so no classification was produced.'
+                    ],
+                    'oodScore': ood_detail,
+                    'status': 'rejected_input',
+                    'message': "Input is outside the model's training distribution."
+                }
+
             # Make prediction
             predictions = self.model.predict(processed_image, verbose=0)
-            probabilities = predictions[0]
+            probabilities = self._apply_temperature(predictions[0])
             
             # Threshold on P(cancer) rather than argmax. On the held-out test set
             # argmax misses 86 of 282 cancers; the selected threshold misses 53,
@@ -121,6 +242,9 @@ class LungCancerDetector:
                 'confidence': confidence,
                 'probabilities': prob_dict,
                 'threshold': self.cancer_threshold,
+                'temperature': self.temperature,
+                'oodScore': ood_detail,
+                'oodNote': ood_note,
                 'status': 'success',
                 'timestamp': datetime.now().isoformat()
             }
@@ -165,5 +289,6 @@ if __name__ == "__main__":
             'status': 'ready' if lung_cancer_detector.model is not None else 'model_unavailable',
             'modelPath': lung_cancer_detector.model_path,
             'cancerThreshold': lung_cancer_detector.cancer_threshold,
+            'calibrationTemperature': lung_cancer_detector.temperature,
             'message': lung_cancer_detector.load_error or 'Lung cancer model loaded'
         }))

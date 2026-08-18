@@ -135,6 +135,14 @@ async function performLungCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisR
       }
     }
 
+    // The image failed a quality or domain check. The model is fine; the input is
+    // not a chest image it can assess, so nothing is classified.
+    if (result.status === 'rejected_input') {
+      throw new InputRejectedError('lung', Array.isArray(result.reasons) && result.reasons.length
+        ? result.reasons
+        : ['This image could not be assessed.']);
+    }
+
     if (result.status !== 'success' || !result.prediction) {
       throw new ModelUnavailableError('lung', result.message || 'Lung cancer model did not return a prediction');
     }
@@ -196,7 +204,7 @@ async function performLungCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisR
 
     return analysisResult;
   } catch (error) {
-    if (error instanceof ModelUnavailableError) throw error;
+    if (error instanceof ModelUnavailableError || error instanceof InputRejectedError) throw error;
     console.error('ResNet50V2 lung cancer analysis failed:', error);
     throw new ModelUnavailableError(
       'lung',

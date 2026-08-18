@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Measures and corrects the calibration of the skin cancer classifier.
+"""Measures and corrects the calibration of an image classifier.
 
-    python scripts/calibrate-model.py
+    python scripts/calibrate-model.py skin
+    python scripts/calibrate-model.py lung
 
 WHY THIS MATTERS
 
@@ -30,39 +31,78 @@ from PIL import Image
 import tensorflow as tf
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MODEL_PATH = os.path.join(ROOT, 'dataset', 'data', 'resnet50v2_skin_cancer_model.h5')
-TRAIN_DIR = os.path.join(ROOT, 'dataset', 'dataset', 'data', 'train')
-TEST_DIR = os.path.join(ROOT, 'dataset', 'dataset', 'data', 'test')
-CACHE = os.path.join(ROOT, 'dataset', 'data', '.feature_cache')
-OUT = os.path.join(ROOT, 'dataset', 'data', 'skin_model_calibration.json')
-
-CLASSES = ['benign', 'malignant']
 IMG_SIZE = (224, 224)
-# Must match scripts/train-skin-cancer-model.py or the "validation" split leaks.
-VAL_FRACTION = 0.15
-SEED = 1337
 EPS = 1e-12
 
+# Split parameters must match each training script or the "validation" split
+# leaks into what is meant to be a clean fit.
+MODELS = {
+    'skin': {
+        'model': os.path.join(ROOT, 'dataset', 'data', 'resnet50v2_skin_cancer_model.h5'),
+        'cache': os.path.join(ROOT, 'dataset', 'data', '.feature_cache'),
+        'out': os.path.join(ROOT, 'dataset', 'data', 'skin_model_calibration.json'),
+        'classes': ['benign', 'malignant'],
+        'split': 'holdout',           # test lives in its own directory
+        'train_dir': os.path.join(ROOT, 'dataset', 'dataset', 'data', 'train'),
+        'test_dir': os.path.join(ROOT, 'dataset', 'dataset', 'data', 'test'),
+        'val_fraction': 0.15,
+        'seed': 1337,
+    },
+    'lung': {
+        'model': os.path.join(
+            ROOT, 'dataset', 'lung_cancer_MRI_dataset', 'resnet50v2_lung_cancer_model.h5'),
+        'cache': os.path.join(ROOT, 'dataset', 'lung_cancer_MRI_dataset', '.feature_cache'),
+        'out': os.path.join(
+            ROOT, 'dataset', 'lung_cancer_MRI_dataset', 'lung_model_calibration.json'),
+        'classes': ['cancer', 'no_cancer'],
+        'split': 'three_way',         # pooled and re-split; test features are cached
+        'data_root': os.path.join(ROOT, 'dataset', 'dataset', 'lung_cancer_MRI_dataset'),
+        'source_dirs': ['train', 'validate'],
+        'train_fraction': 0.70,
+        'val_fraction': 0.15,
+        'seed': 4242,
+    },
+}
 
-def val_labels():
-    """Reproduces the training script's validation split to label cached features."""
-    labels = []
-    for label, cls in enumerate(CLASSES):
-        directory = os.path.join(TRAIN_DIR, cls)
-        paths = sorted(
-            f for f in os.listdir(directory) if f.lower().endswith(('.jpg', '.jpeg', '.png'))
-        )
-        rng = np.random.RandomState(SEED + label)
-        rng.shuffle(paths)
-        cut = int(len(paths) * (1 - VAL_FRACTION))
-        labels += [label] * (len(paths) - cut)
-    return np.array(labels)
+
+def split_labels(config):
+    """Reproduces the training split so cached features can be labelled."""
+    val, test = [], []
+    for label, cls in enumerate(config['classes']):
+        if config['split'] == 'holdout':
+            directory = os.path.join(config['train_dir'], cls)
+            paths = sorted(
+                f for f in os.listdir(directory)
+                if f.lower().endswith(('.jpg', '.jpeg', '.png'))
+            )
+            rng = np.random.RandomState(config['seed'] + label)
+            rng.shuffle(paths)
+            cut = int(len(paths) * (1 - config['val_fraction']))
+            val += [label] * (len(paths) - cut)
+        else:
+            paths = []
+            for source in config['source_dirs']:
+                directory = os.path.join(config['data_root'], source, cls)
+                if os.path.isdir(directory):
+                    paths += [
+                        f for f in sorted(os.listdir(directory))
+                        if f.lower().endswith(('.jpg', '.jpeg', '.png'))
+                    ]
+            rng = np.random.RandomState(config['seed'] + label)
+            rng.shuffle(paths)
+            n = len(paths)
+            n_train = int(n * config['train_fraction'])
+            n_val = int(n * config['val_fraction'])
+            val += [label] * n_val
+            test += [label] * (n - n_train - n_val)
+    return np.array(val), np.array(test)
 
 
-def load_test():
+def load_test_images(config):
+    """Only needed when the test split is a directory rather than cached features."""
     images, labels = [], []
-    for label, cls in enumerate(CLASSES):
-        directory = os.path.join(TEST_DIR, cls)
+    for label, cls in enumerate(config['classes']):
+        directory = os.path.join(config['test_dir'], cls)
         for name in sorted(os.listdir(directory)):
             try:
                 img = Image.open(os.path.join(directory, name)).convert('RGB').resize(IMG_SIZE)
@@ -126,60 +166,64 @@ def fit_temperature(probs, labels):
 
 
 def main():
-    model = tf.keras.models.load_model(MODEL_PATH)
+    name = sys.argv[1] if len(sys.argv) > 1 else 'skin'
+    if name not in MODELS:
+        raise SystemExit(f'Unknown model "{name}". Choose from: {", ".join(MODELS)}')
+    config = MODELS[name]
+
+    model = tf.keras.models.load_model(config['model'])
     head = model.get_layer('classifier_head')
 
-    val_cache = os.path.join(CACHE, 'val_r0.npy')
+    val_cache = os.path.join(config['cache'], 'val_r0.npy')
     if not os.path.exists(val_cache):
-        print(
-            f'Missing {val_cache}. Run scripts/train-skin-cancer-model.py first so the '
-            'validation features are cached.',
-            file=sys.stderr,
-        )
+        print(f'Missing {val_cache}. Run the training script for {name} first.',
+              file=sys.stderr)
         sys.exit(1)
+
+    y_val, y_test_cached = split_labels(config)
 
     # Validation probabilities come from cached features — the trunk is frozen, so
     # this is identical to running the images and takes a second instead of minutes.
     val_features = np.load(val_cache)
-    y_val = val_labels()
     if len(val_features) != len(y_val):
-        print(
-            f'Validation cache has {len(val_features)} rows but the split reproduces '
-            f'{len(y_val)} labels. The split parameters have drifted from training.',
-            file=sys.stderr,
-        )
+        print(f'Validation cache has {len(val_features)} rows but the split reproduces '
+              f'{len(y_val)} labels. Split parameters have drifted from training.',
+              file=sys.stderr)
         sys.exit(1)
 
     val_probs = head.predict(val_features, verbose=0)
     temperature = fit_temperature(val_probs, y_val)
-    print(f'Fitted temperature on {len(y_val)} validation samples: T = {temperature:.3f}',
-          file=sys.stderr)
+    print(f'[{name}] fitted temperature on {len(y_val)} validation samples: '
+          f'T = {temperature:.3f}', file=sys.stderr)
 
     # Whether to deploy the correction is decided on VALIDATION. Choosing it by
     # test-set improvement would be selecting on the held-out data and would make
     # the reported figures optimistic.
     val_ece_before, _ = expected_calibration_error(val_probs, y_val)
     val_ece_after, _ = expected_calibration_error(apply_temperature(val_probs, temperature), y_val)
-    # Require a clear win, not noise on 396 samples.
     apply_correction = val_ece_after < val_ece_before * 0.9
     deployed_temperature = temperature if apply_correction else 1.0
 
     print(f'  validation ECE {val_ece_before:.4f} -> {val_ece_after:.4f}', file=sys.stderr)
-    print(
-        f'  decision: {"apply" if apply_correction else "do NOT apply"} temperature scaling',
-        file=sys.stderr,
-    )
+    print(f'  decision: {"apply" if apply_correction else "do NOT apply"} temperature scaling',
+          file=sys.stderr)
 
-    print('Scoring the held-out test set...', file=sys.stderr)
-    x_test, y_test = load_test()
-    test_probs = model.predict(x_test, verbose=0, batch_size=16)
+    test_cache = os.path.join(config['cache'], 'test_r0.npy')
+    if os.path.exists(test_cache):
+        print('Scoring the cached held-out test features...', file=sys.stderr)
+        test_probs = head.predict(np.load(test_cache), verbose=0)
+        y_test = y_test_cached
+    else:
+        print('Scoring the held-out test images...', file=sys.stderr)
+        x_test, y_test = load_test_images(config)
+        test_probs = model.predict(x_test, verbose=0, batch_size=16)
+
     calibrated = apply_temperature(test_probs, deployed_temperature)
-
     ece_before, table_before = expected_calibration_error(test_probs, y_test)
     ece_after, table_after = expected_calibration_error(calibrated, y_test)
 
     report = {
-        'model': os.path.basename(MODEL_PATH),
+        'model': os.path.basename(config['model']),
         'method': 'temperature scaling (Guo et al., ICML 2017)',
         # What inference actually applies. 1.0 means the identity: measured, and
         # found not to need correcting.
@@ -189,9 +233,9 @@ def main():
         'decision': (
             'Temperature scaling applied: it improved validation ECE.'
             if apply_correction else
-            'Temperature scaling measured but NOT applied. The model is already well '
-            'calibrated and the fitted correction did not improve validation ECE by a '
-            'meaningful margin, so applying it would add complexity for no gain.'
+            'Temperature scaling measured but NOT applied. The fitted correction did '
+            'not improve validation ECE by a meaningful margin, so applying it would '
+            'add complexity for no gain.'
         ),
         'validation': {
             'expectedCalibrationErrorBefore': round(val_ece_before, 4),
@@ -215,22 +259,23 @@ def main():
             'Accuracy is unchanged by temperature scaling — it is monotonic, so the '
             'argmax never moves. What changes is whether the stated probability can '
             'be read as a likelihood. An ECE near 0.02 means the stated probability '
-            'and the observed frequency agree to within about two percentage points, '
-            'so this model output can reasonably be read as a probability.'
+            'and the observed frequency agree to within about two percentage points.'
         ),
     }
 
-    with open(OUT, 'w') as f:
+    with open(config['out'], 'w') as f:
         json.dump(report, f, indent=2)
         f.write('\n')
 
-    print(f'\nWrote {OUT}', file=sys.stderr)
+    print(f"\nWrote {config['out']}", file=sys.stderr)
     print(f'  ECE   {ece_before:.4f} -> {ece_after:.4f}', file=sys.stderr)
-    print(f'  Brier {brier(test_probs, y_test):.4f} -> {brier(calibrated, y_test):.4f}', file=sys.stderr)
+    print(f"  Brier {brier(test_probs, y_test):.4f} -> {brier(calibrated, y_test):.4f}",
+          file=sys.stderr)
     print('\n  Reliability before calibration (stated vs observed):', file=sys.stderr)
     for row in table_before:
         print(f"    {row['range']}  n={row['n']:4d}  stated {row['statedConfidence']:.3f} "
               f"observed {row['observedAccuracy']:.3f}  gap {row['gap']:+.3f}", file=sys.stderr)
+
 
 
 if __name__ == '__main__':

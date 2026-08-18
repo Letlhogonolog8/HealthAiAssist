@@ -84,9 +84,9 @@ export const MODEL_REGISTRY: Record<string, ModelRegistryEntry> = {
       dataset:
         'Held-out test split, 554 images (282 cancer / 272 no_cancer), never used ' +
         'in training or model selection',
-      balancedAccuracy: 0.7921,
+      balancedAccuracy: 0.785,
       sensitivity: 0.8121,  // cancer correctly flagged, at the deployed threshold
-      specificity: 0.7721,  // no_cancer correctly cleared
+      specificity: 0.757,   // no_cancer correctly cleared
       preprocessing: 'raw RGB 0-255 — normalisation is fused into the model graph',
       caveats:
         'Retrained 2026-08-18 with a genuine three-way split. The previous figures ' +
@@ -94,13 +94,16 @@ export const MODEL_REGISTRY: Record<string, ModelRegistryEntry> = {
         'generator during that model\'s own training, so they were optimistic; no ' +
         'untouched data existed, which is why retraining was necessary rather than ' +
         'just splitting off a test set. Test AUC 0.88. ' +
-        'The decision threshold is 0.28 on P(cancer), not argmax: argmax scores a ' +
-        'higher balanced accuracy (0.838) but misses 86 of 282 cancers, against 53 ' +
-        'at the deployed threshold. That trade is deliberate for screening and is ' +
-        'configurable via LUNG_CANCER_THRESHOLD. Even so, roughly 1 in 5 cancers is ' +
-        'missed and 1 in 4 healthy scans is flagged. ' +
-        'No input screening exists for this modality yet — unlike the skin model, ' +
-        'an unrelated image will still be classified. ' +
+        'Calibration measured: expected calibration error 0.019, improved to 0.017 ' +
+        'by temperature scaling (T=1.125), which IS applied here — unlike the skin ' +
+        'model, it improved validation ECE enough to deploy. ' +
+        'The decision threshold is 0.30 on the calibrated P(cancer), not argmax: ' +
+        'argmax scores a higher balanced accuracy (0.838) but misses 86 of 282 ' +
+        'cancers, against 53 at the deployed threshold. That trade is deliberate for ' +
+        'screening and is configurable via LUNG_CANCER_THRESHOLD. Even so, roughly ' +
+        '1 in 5 cancers is missed and 1 in 4 healthy scans is flagged. ' +
+        'Inputs are screened before classification: skin images flag at 100%, ' +
+        'held-out chest images at 0.8%. ' +
         'Demographic composition of the training data is unrecorded. ' +
         'Screening triage only; not clinically validated or regulator-cleared.'
     }
