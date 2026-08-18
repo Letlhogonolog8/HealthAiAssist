@@ -133,6 +133,12 @@ export const auditEvents = pgTable("audit_events", {
   /** Populated once the response is known, so failed attempts are distinguishable. */
   statusCode: integer("status_code"),
   ipAddress: text("ip_address"),
+  /**
+   * Non-identifying context, e.g. which categories of data a cross-border
+   * transfer carried. Never the values themselves — an audit log that contains
+   * the personal information it is auditing has multiplied the problem.
+   */
+  detail: text("detail"),
   occurredAt: timestamp("occurred_at").defaultNow().notNull(),
 }, (table) => ({
   actionIdx: index("idx_audit_events_action").on(table.action),
@@ -142,6 +148,33 @@ export const auditEvents = pgTable("audit_events", {
 
 export type AuditEvent = typeof auditEvents.$inferSelect;
 export type InsertAuditEvent = typeof auditEvents.$inferInsert;
+
+/**
+ * Consent for processing that is not genomic — currently the AI assistant, which
+ * forwards messages to a processor outside South Africa.
+ *
+ * Separate from `genomic_consents` because the scopes and the risk are
+ * different, and conflating them would let a grant for one imply a grant for the
+ * other. Same append-only shape: rows are never updated, so the history is
+ * reconstructable and the current state is the newest row per (patient, scope).
+ */
+export const processingConsents = pgTable("processing_consents", {
+  id: serial("id").primaryKey(),
+  patientId: integer("patient_id").references(() => users.id).notNull(),
+  // "external_ai_assistant"
+  scope: text("scope").notNull(),
+  granted: boolean("granted").notNull(),
+  /** Version of the disclosure the person actually saw. */
+  consentVersion: text("consent_version").notNull(),
+  recordedAt: timestamp("recorded_at").defaultNow().notNull(),
+  notes: text("notes").default(""),
+}, (table) => ({
+  patientScopeIdx: index("idx_processing_consent_patient_scope").on(table.patientId, table.scope),
+  recordedAtIdx: index("idx_processing_consent_recorded").on(table.recordedAt),
+}));
+
+export type ProcessingConsent = typeof processingConsents.$inferSelect;
+export type InsertProcessingConsent = typeof processingConsents.$inferInsert;
 
 // ---------------------------------------------------------------------------
 // Genomics

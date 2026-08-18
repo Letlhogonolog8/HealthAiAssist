@@ -66,6 +66,12 @@ import { dirname } from 'path';
 import { randomUUID } from 'crypto';
 import { uploadToGoogleCloudStorage } from './google-cloud-service';
 import { ModelUnavailableError, InputRejectedError, assertModelEnabled, MODEL_REGISTRY } from './model-availability';
+import {
+  DISCLOSURE_TEXT,
+  DISCLOSURE_VERSION,
+  hasExternalAiConsent,
+  recordExternalAiConsent,
+} from './privacy/external-processing';
 
 async function performRealTimeAnalysis(imageBuffer: Buffer, scanType: string, patientData?: any): Promise<AnalysisResult> {
   // Throws for modalities with no model (breast, colon, prostate) and for models
@@ -530,14 +536,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Chatbot symptom analysis
-  app.post("/api/chatbot/analyze", async (req, res) => {
+  // What the assistant sends abroad, and to whom. Public: someone deciding
+  // whether to consent has to be able to read this first.
+  app.get("/api/chatbot/disclosure", (_req, res) => {
+    res.json({
+      version: DISCLOSURE_VERSION,
+      recipient: 'OpenAI',
+      recipientCountry: 'United States',
+      crossBorderTransfer: true,
+      disclosure: DISCLOSURE_TEXT,
+      revocable: true,
+      note:
+        'Consent is checked on every message, so withdrawing it stops the ' +
+        'transfer immediately.',
+    });
+  });
+
+  app.get("/api/chatbot/consent", requireAuth, async (req: AuthenticatedRequest, res) => {
+    const patientId = (req.session as any)?.user?.id;
+    res.json({
+      scope: 'external_ai_assistant',
+      version: DISCLOSURE_VERSION,
+      granted: await hasExternalAiConsent(patientId),
+    });
+  });
+
+  app.post("/api/chatbot/consent", requireAuth, async (req: AuthenticatedRequest, res) => {
+    const patientId = (req.session as any)?.user?.id;
+    const { granted } = req.body ?? {};
+    if (typeof granted !== 'boolean') {
+      return res.status(400).json({ error: 'granted must be a boolean' });
+    }
+    await recordExternalAiConsent(patientId, granted);
+    res.json({ scope: 'external_ai_assistant', version: DISCLOSURE_VERSION, granted });
+  });
+
+  // Chatbot symptom analysis.
+  //
+  // Symptoms are health information and this forwards them to a processor in
+  // the United States. It was previously unauthenticated with no consent check,
+  // so anyone could push health data across the border through it. Now requires
+  // both.
+  app.post("/api/chatbot/analyze", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const { symptoms, age, gender } = req.body || {};
       if (!symptoms || typeof symptoms !== 'string') {
         return res.status(400).json({ error: 'symptoms is required' });
       }
-      const result = await medicalChatbotService.analyzeHealthConcern(symptoms, age, gender);
+
+      const patientId = (req.session as any)?.user?.id;
+      if (!(await hasExternalAiConsent(patientId))) {
+        return res.status(403).json({
+          error: 'Consent required',
+          scope: 'external_ai_assistant',
+          message:
+            'This feature sends what you type to OpenAI in the United States. ' +
+            'Read the disclosure and agree before using it.',
+          disclosureEndpoint: '/api/chatbot/disclosure',
+        });
+      }
+
+      const result = await medicalChatbotService.analyzeHealthConcern(
+        symptoms, age, gender, patientId
+      );
       res.json(result);
     } catch (error) {
       console.error("Chatbot analyze error:", error);

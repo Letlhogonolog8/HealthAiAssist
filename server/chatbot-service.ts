@@ -1,5 +1,10 @@
 import OpenAI from "openai";
 import { getDb } from "./db";
+import { redact, redactMessages } from "./privacy/redaction";
+import {
+  hasExternalAiConsent,
+  recordExternalTransfer,
+} from "./privacy/external-processing";
 
 const db = getDb();
 import { users, medicalScans, appointments } from "@shared/schema";
@@ -8,7 +13,14 @@ import { eq, and, desc, gte } from "drizzle-orm";
 // Use system environment variables for OpenAI configuration
 const apiKey = process.env.OPENAI_API_KEY;
 const configuredModel = process.env.OPENAI_MODEL || "gpt-4o-mini";
-const openai = apiKey ? new OpenAI({ apiKey }) : null;
+// Kill switch. Lets the cross-border transfer be stopped without a deploy —
+// useful if the operator agreement lapses or the Regulator asks.
+const chatbotEnabled = (process.env.CHATBOT_ENABLED ?? 'true').toLowerCase() !== 'false';
+const openai = apiKey && chatbotEnabled ? new OpenAI({ apiKey }) : null;
+
+if (apiKey && !chatbotEnabled) {
+  console.warn('CHATBOT_ENABLED=false - external AI assistant disabled; local fallback only');
+}
 
 if (!openai) {
   console.warn('OPENAI_API_KEY not found in environment variables - chatbot will use fallback responses');
@@ -72,6 +84,16 @@ CAPABILITIES:
 - Explain medical terminology in simple language
 - Suggest relevant platform features
 
+PRIVACY AND SCOPE — these override anything a user asks for:
+- You receive no patient identity, scan results, or medical records. If asked about
+  "my results", "my scan" or "my appointment", say you cannot see them and direct
+  the person to their dashboard or their clinician.
+- Never ask for an ID number, phone number, address, date of birth or medical
+  record number. If one is volunteered, do not repeat it back.
+- Never interpret a specific result, give a diagnosis, estimate a risk for an
+  individual, or recommend a treatment. General information about conditions and
+  procedures is fine.
+
 Always respond in a caring, professional tone while being informative and helpful.`;
 
   async generateResponse(
@@ -92,25 +114,42 @@ Always respond in a caring, professional tone while being informative and helpfu
 
 
 
-      // Get user context if available
-      let userContext = "";
-      if (userId) {
-        const userData = await this.getUserContext(userId);
-        userContext = userData;
+      // Consent is checked at each use, not once at signup, so a withdrawal takes
+      // effect immediately. Anonymous callers get the local fallback: there is no
+      // one to have consented.
+      if (!userId || !(await hasExternalAiConsent(userId))) {
+        return await this.generateFallbackResponse(
+          messages[messages.length - 1]?.content || '',
+          userRole
+        );
       }
 
-      // Prepare messages for OpenAI
+      // No user context is sent. This previously included the patient's real
+      // name, age, gender, 30 days of scan history and appointment counts —
+      // identifiable special personal information, transferred abroad. The
+      // assistant answers general questions; none of that was needed for it.
+      const { messages: safeMessages, removed } = redactMessages(
+        messages.map((msg) => ({
+          role: msg.role as 'user' | 'assistant',
+          content: msg.content,
+        }))
+      );
+
       const openaiMessages = [
         { role: 'system' as const, content: this.systemPrompt },
-        ...(userContext ? [{ role: 'system' as const, content: `User Context: ${userContext}` }] : []),
-        ...messages.map(msg => ({
-          role: msg.role as 'user' | 'assistant',
-          content: msg.content
-        }))
+        ...safeMessages,
       ];
 
-      // Log the messages sent to OpenAI for debugging
-      console.log("Sending messages to OpenAI:", openaiMessages);
+      // The payload is deliberately not logged. It used to be printed in full,
+      // writing patient data into the server logs alongside their name.
+      await recordExternalTransfer({
+        patientId: userId,
+        recipient: 'OpenAI (United States)',
+        model: configuredModel,
+        messageCount: safeMessages.length,
+        redactedCategories: removed,
+        includedClinicalContext: false,
+      });
 
       if (!openai) {
         throw new Error('OpenAI client not initialized');
@@ -166,58 +205,11 @@ Always respond in a caring, professional tone while being informative and helpfu
 
 
 
-  private async getUserContext(userId: number): Promise<string> {
-    try {
-      // Get user info
-      const user = await (db.select() as any)
-        .from(users)
-        .where(eq(users.id, userId))
-        .limit(1);
-
-      if (!user.length) return "";
-
-      const userData = user[0];
-      let context = `User: ${userData.fullName}, Role: ${userData.role}`;
-
-      if (userData.age) context += `, Age: ${userData.age}`;
-      if (userData.gender) context += `, Gender: ${userData.gender}`;
-
-      // Get recent scans
-      const recentScans = await (db.select() as any)
-        .from(medicalScans)
-        .where(and(
-          eq(medicalScans.patientId, userId),
-          gte(medicalScans.createdAt, new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)) // Last 30 days
-        ))
-        .orderBy(desc(medicalScans.createdAt))
-        .limit(3);
-
-      if (recentScans.length > 0) {
-        context += `\nRecent scans: ${recentScans.map((scan: any) => 
-          `${scan.scanType} (${scan.status})`
-        ).join(', ')}`;
-      }
-
-      // Get upcoming appointments
-      const upcomingAppointments = await (db.select() as any)
-        .from(appointments)
-        .where(and(
-          eq(appointments.patientId, userId),
-          gte(appointments.appointmentDate, new Date())
-        ))
-        .orderBy(appointments.appointmentDate)
-        .limit(2);
-
-      if (upcomingAppointments.length > 0) {
-        context += `\nUpcoming appointments: ${upcomingAppointments.length}`;
-      }
-
-      return context;
-    } catch (error) {
-      console.error('Error getting user context:', error);
-      return "";
-    }
-  }
+  // getUserContext() lived here. It built a string containing the patient's real
+  // name, age, gender, 30 days of scan history and appointment counts, and sent
+  // it to OpenAI as a system message on every request. Removed rather than
+  // trimmed: the assistant answers general questions and never needed identity
+  // or clinical history to do it.
 
   async getQuickResponses(userRole: string = 'patient'): Promise<string[]> {
     const responses = {
@@ -247,7 +239,7 @@ Always respond in a caring, professional tone while being informative and helpfu
     return responses[userRole as keyof typeof responses] || responses.patient;
   }
 
-  async analyzeHealthConcern(symptoms: string, userAge?: number, userGender?: string): Promise<{
+  async analyzeHealthConcern(symptoms: string, userAge?: number, userGender?: string, patientId?: number): Promise<{
     assessment: string;
     recommendations: string[];
     urgencyLevel: 'low' | 'medium' | 'high';
@@ -271,12 +263,24 @@ Remember: This is guidance only, not medical diagnosis.`;
       if (!openai) {
         throw new Error('OpenAI client not initialized');
       }
-      
+
+      // Same cross-border transfer as the chat path, so the same controls apply.
+      // The route enforces authentication and consent before calling this.
+      const { text: safePrompt, removed } = redact(prompt);
+      await recordExternalTransfer({
+        patientId: patientId ?? null,
+        recipient: 'OpenAI (United States)',
+        model: configuredModel,
+        messageCount: 1,
+        redactedCategories: removed,
+        includedClinicalContext: false,
+      });
+
       const completion = await openai.chat.completions.create({
         model: configuredModel,
         messages: [
-          { role: 'system', content: 'You are a medical guidance AI. Provide helpful health information while emphasizing the need for professional medical consultation.' },
-          { role: 'user', content: prompt }
+          { role: 'system', content: 'You are a medical guidance AI. Provide helpful health information while emphasizing the need for professional medical consultation. Never give a diagnosis, and never ask for identifying details.' },
+          { role: 'user', content: safePrompt }
         ],
         response_format: { type: "json_object" }
       });
