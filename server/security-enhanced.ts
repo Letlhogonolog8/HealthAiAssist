@@ -178,27 +178,49 @@ export const validateInput = (req: Request, res: Response, next: NextFunction) =
 };
 
 // Session security middleware
+/**
+ * Rotates the session ID periodically, carrying the session contents across.
+ *
+ * `req.session.regenerate()` does not rotate an ID — it destroys the session and
+ * creates an empty one. The previous version restored only `lastRegeneration`,
+ * so every rotation silently discarded `user` and `userId` and logged the person
+ * out. Because `lastRegeneration` starts undefined, the first authenticated
+ * request after login already satisfied the 30-minute test, so the logout could
+ * land immediately.
+ *
+ * It survived unnoticed because the end-to-end test registers and logs in while
+ * carrying cookies, and that sequence happens to absorb the one rotation before
+ * the assertions run. A real user would be signed out mid-session.
+ *
+ * Everything except Express's own `cookie` is copied onto the new session; the
+ * cookie belongs to the new session and must not be overwritten.
+ */
 export const enhanceSessionSecurity = (req: Request, res: Response, next: NextFunction) => {
-  // Regenerate session ID periodically to prevent session fixation
-  if (req.session && (req.session as any).user) {
-    const lastRegeneration = (req.session as any).lastRegeneration || 0;
-    const now = Date.now();
-    
-    // Regenerate session every 30 minutes
-    if (now - lastRegeneration > 30 * 60 * 1000) {
-      req.session.regenerate((err) => {
-        if (err) {
-          console.error('Session regeneration error:', err);
-        } else {
-          (req.session as any).lastRegeneration = now;
-        }
-        next();
-      });
-      return;
+  if (!req.session || !(req.session as any).user) return next();
+
+  const now = Date.now();
+  const lastRegeneration = (req.session as any).lastRegeneration || 0;
+  const ROTATE_AFTER_MS = 30 * 60 * 1000;
+
+  if (now - lastRegeneration <= ROTATE_AFTER_MS) return next();
+
+  const { cookie, ...carried } = req.session as any;
+
+  req.session.regenerate((regenErr) => {
+    if (regenErr) {
+      // Rotation is a hardening measure; failing it must not end the session.
+      console.error('Session regeneration error:', regenErr);
+      return next();
     }
-  }
-  
-  next();
+
+    Object.assign(req.session, carried);
+    (req.session as any).lastRegeneration = now;
+
+    req.session.save((saveErr) => {
+      if (saveErr) console.error('Session save error after regeneration:', saveErr);
+      next();
+    });
+  });
 };
 
 // Medical data access logging middleware

@@ -449,23 +449,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ error: "Invalid credentials" });
       }
 
-      // Set session data directly without regeneration to avoid issues
-      req.session.userId = user.id;
-      req.session.user = {
-        id: user.id,
-        role: user.role,
-        username: user.username,
-        fullName: user.fullName,
-        email: user.email
-      };
-
-      req.session.save((saveErr) => {
-        if (saveErr) {
-          console.error('Session save error:', saveErr);
-          return res.status(500).json({ error: 'Session save error' });
+      // Regenerate the session on privilege change, then populate it.
+      //
+      // This previously assigned onto the existing session "to avoid issues",
+      // which meant the anonymous pre-login session ID carried straight through
+      // to the authenticated session — textbook session fixation. Anyone who
+      // learned a visitor's pre-auth session ID held a valid authenticated
+      // handle the moment that visitor logged in.
+      req.session.regenerate((regenErr) => {
+        if (regenErr) {
+          console.error('Session regeneration error:', regenErr);
+          return res.status(500).json({ error: 'Session error' });
         }
-        console.log('Session saved successfully:', { userId: req.session.userId, user: req.session.user });
-        res.json({ id: user.id, username: user.username, fullName: user.fullName, role: user.role, email: user.email });
+
+        req.session.userId = user.id;
+        req.session.user = {
+          id: user.id,
+          role: user.role,
+          username: user.username,
+          fullName: user.fullName,
+          email: user.email
+        };
+
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error('Session save error:', saveErr);
+            return res.status(500).json({ error: 'Session save error' });
+          }
+          res.json({
+            id: user.id,
+            username: user.username,
+            fullName: user.fullName,
+            role: user.role,
+            email: user.email
+          });
+        });
       });
     } catch (error) {
       console.error('Login error:', error);
@@ -578,19 +596,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/auth/me", async (req: AuthenticatedRequest, res) => {
     try {
-      console.log('Auth check - Session exists:', !!req.session);
-      console.log('Auth check - User in session:', !!req.session?.user);
-      console.log('Auth check - UserId in session:', req.session?.userId);
-      
       if (!req.session?.userId && !req.session?.user) {
-        return res.status(401).json({ 
-          error: "Not authenticated",
-          debug: {
-            hasSession: !!req.session,
-            sessionId: req.sessionID,
-            cookies: req.headers.cookie
-          }
-        });
+        // A 401 here is normal: the browser probes this on every page load to
+        // decide whether to show the public page or the dashboard.
+        //
+        // This response used to carry a debug block containing req.sessionID and
+        // the raw Cookie header, ungated by environment. The session cookie is
+        // set httpOnly precisely so that page JavaScript cannot read it —
+        // returning it in a JSON body handed it straight back, defeating that
+        // protection for any XSS or any browser extension able to read fetch
+        // responses. It also echoed every other cookie the browser sent.
+        return res.status(401).json({ error: "Not authenticated" });
       }
 
       const userId = req.session.userId || req.session.user?.id;
