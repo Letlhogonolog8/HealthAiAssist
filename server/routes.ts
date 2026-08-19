@@ -16,10 +16,12 @@ import {
   requirePatientDataAccess,
   AuthenticatedRequest
 } from "./security-config";
-import { 
-  requireAdmin, 
-  requireMedicalStaff, 
+import {
+  requireAdmin,
+  requireMedicalStaff,
   requirePatientAccess,
+  requireAppointmentOwnership,
+  requireScanOwnership,
   sensitiveOperationLimit,
   authLimit,
   validateInput,
@@ -626,8 +628,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Hash the password before storing
       const hashedPassword = await hashPassword(result.data.password);
+
+      // Public registration always creates a patient.
+      //
+      // `role` was previously taken from the request body and passed to
+      // createUser unchanged, so a single unauthenticated POST with
+      // {"role":"admin"} produced a working admin account — and every
+      // requireAdmin / requireMedicalAccess check in this file trusts
+      // session.user.role, so that one request granted the whole patient
+      // database. Clinical credentials are stripped for the same reason: a
+      // self-registered account must not be able to assert a specialization or
+      // a licence number. Staff accounts are created through
+      // POST /api/admin/staff and /api/admin/doctors, which are behind
+      // requireAuth + requireAdmin.
+      const { role: _ignoredRole, specialization: _spec, licenseNumber: _lic, ...safeFields } = result.data;
       const userData = {
-        ...result.data,
+        ...safeFields,
+        role: 'patient' as const,
         password: hashedPassword
       };
 
@@ -737,7 +754,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Medical scans routes
-  app.get("/api/scans", requireAuth, async (req: AuthenticatedRequest, res) => {
+  app.get("/api/scans", auditLog('READ_SCANS'), requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const patientId = req.query.patientId ? parseInt(req.query.patientId as string) : undefined;
       if (patientId !== undefined && isNaN(patientId)) {
@@ -1089,7 +1106,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/radiologist/pending-reviews", requireAuth, requireMedicalAccess, async (req, res) => {
+  app.get("/api/radiologist/pending-reviews", auditLog('READ_PENDING_REVIEWS'), requireAuth, requireMedicalAccess, async (req, res) => {
     try {
       const allScans = await storage.getScans();
       const allUsers = await storage.getAllUsers();
@@ -1131,7 +1148,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/radiologist/completed-today", requireAuth, requireMedicalAccess, async (req, res) => {
+  app.get("/api/radiologist/completed-today", auditLog('READ_COMPLETED_SCANS'), requireAuth, requireMedicalAccess, async (req, res) => {
     try {
       const allScans = await storage.getScans();
       const allUsers = await storage.getAllUsers();
@@ -1179,7 +1196,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   // Doctor dashboard API endpoints
-  app.get("/api/doctor/stats", async (req, res) => {
+  app.get("/api/doctor/stats", requireAuth, requireMedicalAccess, async (req, res) => {
     try {
       const allUsers = await storage.getAllUsers();
       const allScans = await storage.getScans();
@@ -1230,7 +1247,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/doctor/patients", async (req, res) => {
+  app.get("/api/doctor/patients", auditLog('READ_PATIENT_LIST'), requireAuth, requireMedicalAccess, async (req, res) => {
     try {
       // Use same approach as stats endpoint
       const allUsers = await storage.getAllUsers();
@@ -1259,7 +1276,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/doctor/appointments/today", async (req, res) => {
+  app.get("/api/doctor/appointments/today", requireAuth, requireMedicalAccess, async (req, res) => {
     try {
       const doctorId = (req.session as any)?.user?.id || 15; // Default to Dr. Kenosi for testing
       console.log(`[Doctor Appointments] Fetching for doctor ID: ${doctorId}`);
@@ -1275,7 +1292,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // New endpoint for upcoming appointments
-  app.get("/api/doctor/appointments/upcoming", async (req, res) => {
+  app.get("/api/doctor/appointments/upcoming", requireAuth, requireMedicalAccess, async (req, res) => {
     try {
       const doctorId = (req.session as any)?.user?.id;
       
@@ -1305,7 +1322,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/doctor/reports/pending", async (req, res) => {
+  app.get("/api/doctor/reports/pending", auditLog('READ_PENDING_REPORTS'), requireAuth, requireMedicalAccess, async (req, res) => {
     try {
       const allScans = await storage.getScans();
       const allUsers = await storage.getAllUsers();
@@ -1342,7 +1359,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Doctor notifications endpoint
-  app.get("/api/doctor/notifications", async (req, res) => {
+  app.get("/api/doctor/notifications", requireAuth, requireMedicalAccess, async (req, res) => {
     try {
       const doctorId = (req.session as any)?.user?.id;
       const allScans = await storage.getScans();
@@ -1369,7 +1386,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Approve report endpoint
-  app.post("/api/doctor/reports/:id/approve", async (req, res) => {
+  app.post("/api/doctor/reports/:id/approve", requireAuth, requireMedicalAccess, async (req, res) => {
     try {
       const reportId = parseInt(req.params.id);
       const { notes } = req.body;
@@ -1401,7 +1418,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Review report endpoint
-  app.get("/api/doctor/reports/:id", async (req, res) => {
+  app.get("/api/doctor/reports/:id", auditLog('READ_REPORT'), requireAuth, requireMedicalAccess, async (req, res) => {
     try {
       const reportId = parseInt(req.params.id);
       
@@ -1440,7 +1457,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Appointment management endpoints
-  app.post("/api/doctor/appointments/:id/accept", async (req, res) => {
+  app.post("/api/doctor/appointments/:id/accept", requireAuth, requireMedicalAccess, async (req, res) => {
     try {
       const appointmentId = parseInt(req.params.id);
       if (isNaN(appointmentId)) {
@@ -1459,7 +1476,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/doctor/appointments/:id/decline", async (req, res) => {
+  app.post("/api/doctor/appointments/:id/decline", requireAuth, requireMedicalAccess, async (req, res) => {
     try {
       const appointmentId = parseInt(req.params.id);
       if (isNaN(appointmentId)) {
@@ -1479,7 +1496,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/doctor/appointments/:id", async (req, res) => {
+  app.delete("/api/doctor/appointments/:id", requireAuth, requireMedicalAccess, async (req, res) => {
     try {
       const appointmentId = parseInt(req.params.id);
       if (isNaN(appointmentId)) {
@@ -1500,7 +1517,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Patient dashboard API endpoints
   // Unified, authenticated patient profile route with comprehensive response shape
-  app.get("/api/patient/profile/:id", requireAuth, requirePatientDataAccess, async (req, res) => {
+  app.get("/api/patient/profile/:id", auditLog('READ_PATIENT_PROFILE'), requireAuth, requirePatientDataAccess, async (req, res) => {
     try {
       const patientId = parseInt(req.params.id);
       if (isNaN(patientId)) {
@@ -1514,7 +1531,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/patient/scans/:id", requireAuth, requirePatientAccess, async (req, res) => {
+  app.get("/api/patient/scans/:id", auditLog('READ_PATIENT_SCANS'), requireAuth, requirePatientAccess, async (req, res) => {
     try {
       const patientId = parseInt(req.params.id);
       if (isNaN(patientId)) {
@@ -1546,7 +1563,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Remove duplicate unauthenticated variant; keep logs inside the authenticated handler if needed
   /*
-  app.get("/api/patient/profile/:id", async (req, res) => {
+  app.get("/api/patient/profile/:id", requireAuth, async (req, res) => {
     try {
       console.log('Patient profile request - Session:', !!req.session);
       console.log('Patient profile request - User in session:', req.session?.user);
@@ -1638,7 +1655,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   */
 
-  app.get("/api/patient/appointments/:id", async (req, res) => {
+  // `:id` here is a *patient* id, not an appointment id, so the caller was able
+  // to read any patient's appointment list by changing the number.
+  app.get("/api/patient/appointments/:id", auditLog('READ_PATIENT_APPOINTMENTS'), requireAuth, requirePatientDataAccess, async (req, res) => {
     try {
       const patientId = parseInt(req.params.id);
       if (isNaN(patientId)) {
@@ -1653,9 +1672,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // General patient appointments endpoint
-  app.get("/api/patient/appointments", async (req: AuthenticatedRequest, res) => {
+  app.get("/api/patient/appointments", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
-      const patientId = req.session?.user?.id || 4; // Default to test patient
+      // Was `|| 4` — a hardcoded "default to test patient" fallback that would
+      // have served patient 4's appointments to anyone whose session lacked an
+      // id. requireAuth makes that unreachable now; the fallback is removed so
+      // it cannot become reachable again.
+      const patientId = req.session!.user!.id;
       const appointments = await storage.getPatientAppointments(patientId);
       res.json(appointments);
     } catch (error) {
@@ -1665,7 +1688,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete patient appointment endpoint
-  app.delete("/api/patient/appointments/:id", async (req, res) => {
+  app.delete("/api/patient/appointments/:id", auditLog('DELETE_APPOINTMENT'), requireAuth, requireAppointmentOwnership, async (req, res) => {
     try {
       const appointmentId = parseInt(req.params.id);
       if (isNaN(appointmentId)) {
@@ -1685,10 +1708,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Patient appointment booking endpoint
-  app.post("/api/patient/appointments", async (req, res) => {
+  app.post("/api/patient/appointments", auditLog('CREATE_APPOINTMENT'), requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
-      const { patientId, appointmentDate, appointmentTime, type, doctorName, status, reason } = req.body;
-      
+      const { appointmentDate, appointmentTime, type, doctorName, status, reason } = req.body;
+
+      // `patientId` used to be taken from the body, which let one patient book
+      // — and thereby write a record — against another patient's account. A
+      // patient may only book for themselves; staff may book on behalf of
+      // someone else, which is a normal front-desk action.
+      const sessionUserId = req.session!.user!.id;
+      const sessionRole = req.session!.user!.role;
+      const patientId = ['admin', 'doctor', 'radiologist'].includes(sessionRole)
+        ? (req.body.patientId ?? sessionUserId)
+        : sessionUserId;
+
       if (!patientId || !appointmentDate || !appointmentTime || !type || !doctorName) {
         return res.status(400).json({ 
           error: 'Missing required fields',
@@ -1782,24 +1815,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Appointment reschedule endpoint
-  app.patch("/api/appointments/:appointmentId/reschedule", async (req, res) => {
-    try {
-      const { appointmentId } = req.params;
-      const { newDate, newTime } = req.body;
-      
-      // In a real implementation, you would update the appointment in database
-      res.json({ 
-        success: true, 
-        message: "Appointment rescheduled successfully",
-        appointmentId,
-        newDate,
-        newTime
-      });
-    } catch (error) {
-      console.error("Error rescheduling appointment:", error);
-      res.status(500).json({ error: "Failed to reschedule appointment" });
-    }
-  });
+  // PATCH /api/appointments/:appointmentId/reschedule was removed.
+  //
+  // It took no authentication, wrote nothing, and replied "Appointment
+  // rescheduled successfully" to anyone who called it — the comment in its body
+  // read "In a real implementation, you would update the appointment in
+  // database". Nothing referenced it: the calendar UI calls
+  // PATCH /api/patient/appointments/:appointmentId/reschedule, which does
+  // persist and is now behind requireAppointmentOwnership. An endpoint that
+  // confirms a clinical action it did not perform is deleted rather than left
+  // reachable.
 
   // Patient profile update endpoint (update to allow partial personalInfo updates)
   app.patch("/api/patient/profile/:id", requireAuth, requirePatientAccess, validateInput, async (req, res) => {
@@ -1853,7 +1878,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Appointment reschedule endpoint
-  app.patch("/api/patient/appointments/:appointmentId/reschedule", async (req, res) => {
+  app.patch("/api/patient/appointments/:appointmentId/reschedule", auditLog('RESCHEDULE_APPOINTMENT'), requireAuth, requireAppointmentOwnership, async (req, res) => {
     try {
       const appointmentId = parseInt(req.params.appointmentId);
       if (isNaN(appointmentId)) {
@@ -2413,7 +2438,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Patient dashboard stats API endpoint
-  app.get("/api/patient/stats", async (req, res) => {
+  app.get("/api/patient/stats", requireAuth, async (req, res) => {
     try {
       const patientId = (req.session as any)?.user?.id || 2;
       const patientScans = await storage.getScans(patientId);
@@ -2460,7 +2485,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete patient activity endpoint
-  app.delete("/api/patient/activities/:id", async (req, res) => {
+  // This deletes a medical scan. It had no ownership check, so any authenticated
+  // patient could destroy any other patient's scan record by id.
+  app.delete("/api/patient/activities/:id", auditLog('DELETE_SCAN_VIA_ACTIVITY'), requireAuth, requireScanOwnership, async (req, res) => {
     try {
       const activityId = parseInt(req.params.id);
       if (isNaN(activityId)) {
@@ -2483,7 +2510,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
 
   // Doctor reports endpoint
-  app.get("/api/doctor/reports", async (req, res) => {
+  app.get("/api/doctor/reports", auditLog('READ_REPORT_LIST'), requireAuth, requireMedicalAccess, async (req, res) => {
     try {
       const allScans = await storage.getScans();
       const allUsers = await storage.getAllUsers();
@@ -2511,7 +2538,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Doctor recent activities API endpoint
-  app.get("/api/doctor/activities/recent", async (req, res) => {
+  app.get("/api/doctor/activities/recent", requireAuth, requireMedicalAccess, async (req, res) => {
     try {
       const allScans = await storage.getScans();
       
@@ -2994,7 +3021,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Get all users for admin management
-  app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
+  app.get("/api/admin/users", auditLog('READ_USER_LIST'), requireAuth, requireAdmin, async (req, res) => {
     try {
       const allUsers = await storage.getAllUsers();
       
@@ -3252,138 +3279,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   */
 
-  // Radiologist endpoints
-  app.get("/api/radiologist/stats", async (req, res) => {
-    try {
-      const allScans = await storage.getScans();
-      const pendingScans = allScans.filter(scan => scan.result === 'Processing');
-      const todayScans = allScans.filter(scan => {
-        const scanDate = new Date(scan.createdAt);
-        const today = new Date();
-        return scanDate.toDateString() === today.toDateString() && scan.result !== 'Processing';
-      });
+  // The mock radiologist endpoints that stood here have been removed.
+  //
+  // They re-registered /api/radiologist/stats, /pending-reviews and
+  // /completed-today with hardcoded patients — "John Smith, CT Chest,
+  // Possible pulmonary nodule detected in right upper lobe, aiConfidence 92"
+  // and four more. Express matches the first registration, so the guarded
+  // handlers at ~1061-1134 always won and this block was unreachable; the
+  // invented findings never reached a radiologist. It is deleted rather than
+  // left dormant because reordering the file would have silently published
+  // fabricated scan findings into a clinical review queue.
 
-      const stats = {
-        pendingReviews: pendingScans.length,
-        completedToday: todayScans.length,
-        aiConfidence: allScans.length > 0 ? Math.round(allScans.reduce((sum, scan) => {
-          const confidence = scan.aiConfidence ? parseFloat(scan.aiConfidence.replace('%', '')) : 0;
-          return sum + confidence;
-        }, 0) / allScans.length) : 0,
-        avgReviewTime: 3.2,
-        totalScansReviewed: allScans.filter(scan => scan.result !== 'Processing').length,
-        criticalCases: allScans.filter(scan => scan.result && (scan.result.includes('urgent') || scan.result.includes('critical'))).length,
-        accuracyRate: 96,
-        workloadHours: Math.round(todayScans.length * 0.2)
-      };
-      res.json(stats);
-    } catch (error) {
-      console.error('Error fetching radiologist stats:', error);
-      res.status(500).json({ error: 'Failed to fetch stats' });
-    }
-  });
-
-  app.get("/api/radiologist/pending-reviews", async (req, res) => {
-    try {
-      // Mock pending scan reviews
-      const pendingScans = [
-        {
-          id: 1,
-          patientName: "John Smith",
-          scanType: "CT Chest",
-          priority: "urgent",
-          submittedAt: new Date().toISOString(),
-          aiPrediction: "Possible pulmonary nodule detected in right upper lobe",
-          aiConfidence: 92,
-          bodyPart: "Chest",
-          referringDoctor: "Johnson",
-          notes: "Patient has history of smoking"
-        },
-        {
-          id: 2,
-          patientName: "Sarah Wilson",
-          scanType: "MRI Brain",
-          priority: "high",
-          submittedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-          aiPrediction: "No acute abnormalities detected",
-          aiConfidence: 89,
-          bodyPart: "Brain",
-          referringDoctor: "Davis",
-          notes: "Headache evaluation"
-        },
-        {
-          id: 3,
-          patientName: "Michael Brown",
-          scanType: "X-Ray Abdomen",
-          priority: "medium",
-          submittedAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
-          aiPrediction: "Normal abdominal structures",
-          aiConfidence: 85,
-          bodyPart: "Abdomen",
-          referringDoctor: "Miller",
-          notes: "Abdominal pain"
-        }
-      ];
-      res.json(pendingScans);
-    } catch (error) {
-      console.error('Error fetching pending reviews:', error);
-      res.status(500).json({ error: 'Failed to fetch pending reviews' });
-    }
-  });
-
-  app.get("/api/radiologist/completed-today", async (req, res) => {
-    try {
-      // Mock completed scans
-      const completedScans = [
-        {
-          id: 1,
-          patientName: "Emma Davis",
-          scanType: "CT Abdomen",
-          completedAt: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
-          findings: "Normal abdominal organs. No evidence of acute pathology.",
-          recommendation: "No further imaging required at this time.",
-          aiAccuracy: 96
-        },
-        {
-          id: 2,
-          patientName: "Robert Taylor",
-          scanType: "X-Ray Chest",
-          completedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-          findings: "Clear lung fields. Heart size within normal limits.",
-          recommendation: "Routine follow-up as clinically indicated.",
-          aiAccuracy: 94
-        }
-      ];
-      res.json(completedScans);
-    } catch (error) {
-      console.error('Error fetching completed scans:', error);
-      res.status(500).json({ error: 'Failed to fetch completed scans' });
-    }
-  });
-
-  app.post("/api/radiologist/scans/:id/report", async (req, res) => {
+  /**
+   * File a radiologist's report against a scan.
+   *
+   * This endpoint had no authentication and did not save anything. It built a
+   * report object, discarded it, and answered "Report submitted successfully" —
+   * and two components in the radiologist UI call it, so reports written by
+   * clinicians were being acknowledged and lost. A false confirmation is worse
+   * than an error here: the radiologist has no reason to write the report twice.
+   *
+   * It now persists through the same `updateScan` path the doctor approval flow
+   * uses, and reports a failure when the scan does not exist.
+   */
+  app.post("/api/radiologist/scans/:id/report", auditLog('SUBMIT_RADIOLOGY_REPORT'), requireAuth, requireMedicalAccess, async (req: AuthenticatedRequest, res) => {
     try {
       const scanId = parseInt(req.params.id);
+      if (isNaN(scanId)) {
+        return res.status(400).json({ error: 'Invalid scan ID' });
+      }
+
       const { findings, recommendation } = req.body;
-      
       if (!findings || !recommendation) {
         return res.status(400).json({ error: 'Findings and recommendation are required' });
       }
 
-      // In a real app, this would save to database
-      const report = {
-        scanId,
+      const updated = await storage.updateScan(scanId, {
         findings,
-        recommendation,
-        radiologistId: (req.session as any)?.user?.id,
-        completedAt: new Date().toISOString(),
-        status: 'completed'
-      };
+        recommendations: recommendation,
+        radiologistId: req.session!.user!.id,
+        status: 'completed',
+        reviewedAt: new Date(),
+      });
+
+      if (!updated) {
+        return res.status(404).json({ error: 'Scan not found' });
+      }
 
       res.json({
         success: true,
         message: 'Report submitted successfully',
-        report
+        report: updated
       });
     } catch (error) {
       console.error('Error submitting report:', error);
@@ -3392,7 +3338,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Handle critical case actions
-  app.post("/api/doctor/patients/:id/critical-action", async (req, res) => {
+  app.post("/api/doctor/patients/:id/critical-action", requireAuth, requireMedicalAccess, async (req, res) => {
     try {
       const patientId = parseInt(req.params.id);
       const { action } = req.body;
@@ -3486,7 +3432,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Check available time slots endpoint
-  app.get("/api/doctor/appointments/available-slots", async (req, res) => {
+  app.get("/api/doctor/appointments/available-slots", requireAuth, requireMedicalAccess, async (req, res) => {
     try {
       const { date } = req.query;
       const doctorId = (req.session as any)?.user?.id;
@@ -3676,7 +3622,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Patient cancer risk questionnaire endpoint
-  app.post("/api/patient/questionnaire", async (req, res) => {
+  app.post("/api/patient/questionnaire", requireAuth, async (req, res) => {
     try {
       const { responses, patientId } = req.body;
 
@@ -3805,7 +3751,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/chat/messages", requireAuth, async (req, res) => {
+  app.get("/api/chat/messages", auditLog('READ_CHAT_MESSAGES'), requireAuth, async (req, res) => {
     try {
       const participantId = parseInt(req.query.participantId as string);
       const currentUserId = (req.session as any)?.user?.id;

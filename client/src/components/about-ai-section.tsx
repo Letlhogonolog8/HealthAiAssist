@@ -21,9 +21,14 @@ export default function AboutAISection() {
           title: "Advanced Multi-Cancer Detection",
           color: "text-blue-500",
           items: [
-            "ResNet50V2 Deep Learning: Our trained model achieves 96% accuracy in skin cancer detection with real-time analysis",
-            "Multi-Modal Analysis: Supports breast, lung, skin, colon, and prostate cancer detection from medical imaging",
-            "Real-Time Processing: Instant AI analysis with detailed findings, risk assessment, and clinical recommendations",
+            // The "96% accuracy" claim here described a model that scored 0.50
+            // balanced accuracy — exactly chance — on its own test set, and was
+            // rebuilt from scratch. The replacement measures 0.864, and the
+            // lung model 0.785. Both figures are balanced accuracy on held-out
+            // data and are reproducible via scripts/evaluate-model.py.
+            "ResNet50V2 Deep Learning: 0.864 balanced accuracy for skin and 0.785 for lung, measured on held-out test sets",
+            "Two Modalities: Skin and lung only. Breast, colon and prostate have no trained model and are not analysed",
+            "Screening Triage: Results prioritise cases for clinician review. The system does not diagnose, and every result requires human sign-off",
           ],
         },
         {

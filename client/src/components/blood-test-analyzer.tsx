@@ -14,7 +14,6 @@ import { useToast } from '@/hooks/use-toast';
 interface BloodTestResult {
   cancerType: 'breast' | 'prostate' | 'lung' | 'cervical' | 'skin' | 'pancreatic' | 'colorectal' | 'ovarian' | 'unknown';
   riskLevel: 'low' | 'medium' | 'high' | 'critical';
-  confidence: number;
   abnormalMarkers: {
     marker: string;
     value: number;
@@ -23,7 +22,6 @@ interface BloodTestResult {
   }[];
   recommendations: string[];
   followUpTests: string[];
-  detectionAccuracy: number;
 }
 
 interface BloodTestValues {
@@ -211,14 +209,20 @@ export default function BloodTestAnalyzer() {
     const recommendations = generateRecommendations(riskLevel, primaryCancerType, abnormalMarkers);
     const followUpTests = generateFollowUpTests(primaryCancerType, riskLevel);
 
+    // `confidence` and `detectionAccuracy` used to be returned here as
+    //   confidence:        Math.min(95, 60 + riskScore * 0.5)
+    //   detectionAccuracy: 85 + abnormalMarkers.length * 3
+    // Both were arithmetic restatements of the risk score wearing the costume of
+    // a validated statistic, and both were rendered to the user as percentages.
+    // Nothing measured them against an outcome, so there is no number to show.
+    // What remains is the marker comparison itself, which is a threshold lookup
+    // and is described as one.
     return {
       cancerType: primaryCancerType,
       riskLevel,
-      confidence: Math.min(95, 60 + (riskScore * 0.5)),
       abnormalMarkers,
       recommendations,
       followUpTests,
-      detectionAccuracy: abnormalMarkers.length > 0 ? 85 + (abnormalMarkers.length * 3) : 70
     };
   };
 
@@ -342,13 +346,41 @@ export default function BloodTestAnalyzer() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Activity className="w-6 h-6 text-red-600" />
-            Advanced Blood Test Cancer Screening
+            Tumour Marker Reference Tool
           </CardTitle>
           <CardDescription>
-            Comprehensive cancer detection through blood tumor markers - Advanced screening that can detect cancers not visible in imaging
+            {/* Previously: "Advanced screening that can detect cancers not
+                visible in imaging" — a diagnostic capability claim for what is a
+                table of published reference ranges. */}
+            Compares entered tumour marker values against published reference
+            ranges. Not a screening test and not a detector.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          {/* This tool has no model behind it. It is a hand-coded threshold
+              lookup over CEA, CA-125, CA 19-9, PSA and AFP, written from
+              reference ranges and never validated against patient outcomes.
+              Stated up front rather than in a footer, because the risk tiers it
+              prints ("CRITICAL RISK") read like a finding. */}
+          <div className="bg-amber-50 border-2 border-amber-300 p-4 rounded-lg">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-700 mt-0.5 flex-shrink-0" />
+              <div className="text-sm">
+                <p className="font-semibold text-amber-900 mb-1">
+                  Reference tool — not validated, not a diagnosis
+                </p>
+                <p className="text-amber-800">
+                  This compares your values against published reference ranges
+                  using fixed thresholds. No AI model is involved and it has never
+                  been tested against real patient outcomes, so it cannot tell you
+                  whether you have cancer. Tumour markers rise in pregnancy,
+                  infection, liver disease, benign growths and menstruation, and
+                  are normal in many people who do have cancer. Only a clinician
+                  who can see your full history can interpret these.
+                </p>
+              </div>
+            </div>
+          </div>
           {/* Patient Information */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
@@ -546,15 +578,7 @@ export default function BloodTestAnalyzer() {
           </CardHeader>
           <CardContent className="space-y-6">
             {/* Primary Results */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <div className="text-2xl font-bold mb-2">
-                    {analysisResult.confidence.toFixed(0)}%
-                  </div>
-                  <div className="text-sm text-gray-600">Analysis Confidence</div>
-                </CardContent>
-              </Card>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Card>
                 <CardContent className="p-4 text-center">
                   <Badge className={`mb-2 ${getRiskColor(analysisResult.riskLevel)}`}>
@@ -569,14 +593,6 @@ export default function BloodTestAnalyzer() {
                     {analysisResult.cancerType !== 'unknown' ? `${analysisResult.cancerType} Cancer` : 'General Screening'}
                   </div>
                   <div className="text-sm text-gray-600">Primary Concern</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <div className="text-2xl font-bold mb-2">
-                    {analysisResult.detectionAccuracy}%
-                  </div>
-                  <div className="text-sm text-gray-600">Detection Accuracy</div>
                 </CardContent>
               </Card>
             </div>

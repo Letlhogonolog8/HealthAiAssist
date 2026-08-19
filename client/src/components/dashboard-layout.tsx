@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import AIScanSimulator from "./ai-scan-simulator-fixed";
+import ModelPerformancePanel from "./model-performance-panel";
 import GoogleAIScanner from "./google-ai-scanner";
 import PatientPortalFinal from "./patient-portal-final";
 import AppointmentScheduler from "./appointment-scheduler";
@@ -95,25 +96,12 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
         credentials: 'include'
       });
       if (!response.ok) {
-        // Fallback to mock data if API fails
-        return {
-          totalUsers: 156,
-          activeScans: 12,
-          systemUptime: 99.9,
-          aiAccuracy: 94,
-          pendingReviews: 8,
-          completedToday: 15,
-          aiConfidence: 87,
-          avgReviewTime: 12,
-          activePatients: 45,
-          todaysAppointments: 6,
-          pendingReports: 3,
-          criticalCases: 1,
-          completedScans: 23,
-          pendingResults: 2,
-          nextAppointment: 'Tomorrow 2:00 PM',
-          healthScore: 85
-        };
+        // Fail rather than substitute. This previously returned a block of
+        // invented numbers whenever the API errored — including
+        // `criticalCases: 1` and `pendingReports: 3`. A clinician cannot tell a
+        // fabricated caseload from a real one, and "1 critical case" shown
+        // during an outage is worse than no number at all.
+        throw new Error(`Stats unavailable (${response.status})`);
       }
       return response.json();
     },
@@ -146,7 +134,11 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
         { label: "Total Users", key: "totalUsers", icon: Users, color: "text-blue-400" },
         { label: "Active Scans", key: "activeScans", icon: Activity, color: "text-green-400" },
         { label: "System Uptime", key: "systemUptime", icon: TrendingUp, color: "text-purple-400" },
-        { label: "AI Accuracy", key: "aiAccuracy", icon: Brain, color: "text-cyan-400" }
+        // Not accuracy. The server computes this as the mean of scan
+        // aiConfidence, which says how sure the model was, not how often it was
+        // right — a model can be confidently wrong. Measured accuracy lives in
+        // the model performance panel, sourced from /api/models/cards.
+        { label: "Mean AI Confidence", key: "aiAccuracy", icon: Brain, color: "text-cyan-400" }
       ],
       radiologist: [
         { label: "Pending Reviews", key: "pendingReviews", icon: FileText, color: "text-orange-400" },
@@ -207,17 +199,22 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {statsConfig[user.role as keyof typeof statsConfig].map((stat, index) => {
             const StatIcon = stat.icon;
-            let value = statsData ? statsData[stat.key] : 0;
-            
+            // An unknown value renders as "—", never as 0. Zero is a claim
+            // ("no critical cases"); the dash says the number could not be read.
+            const raw = statsData ? statsData[stat.key] : undefined;
+            let value: string | number = raw ?? '—';
+
             // Format values appropriately
-            if (stat.key === 'systemUptime' && typeof value === 'number') {
-              value = `${value}%`;
-            } else if (stat.key === 'avgReviewTime' && typeof value === 'number') {
-              value = `${value}m`;
+            if (raw === undefined || raw === null) {
+              value = '—';
+            } else if (stat.key === 'systemUptime' && typeof raw === 'number') {
+              value = `${raw}%`;
+            } else if (stat.key === 'avgReviewTime' && typeof raw === 'number') {
+              value = `${raw}m`;
             } else if (stat.key === 'aiAccuracy' || stat.key === 'aiConfidence') {
-              value = `${value}%`;
+              value = `${raw}%`;
             } else if (stat.key === 'healthInsights') {
-              value = value || 'Available';
+              value = raw || 'Available';
             }
             
             return (
@@ -240,7 +237,7 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                     <div>
                       <p className="text-slate-400 text-sm font-medium">{stat.label}</p>
                       <p className={`text-2xl font-bold ${stat.color}`}>{value}</p>
-                      {stat.key === 'criticalCases' && value > 0 && (
+                      {stat.key === 'criticalCases' && typeof raw === 'number' && raw > 0 && (
                         <p className="text-red-400 text-xs mt-1">Requires attention</p>
                       )}
                     </div>
@@ -726,20 +723,7 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                           </CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <div className="space-y-3">
-                            {[
-                              { type: 'Breast', accuracy: 96, color: 'bg-pink-600' },
-                              { type: 'Lung', accuracy: 94, color: 'bg-blue-600' },
-                              { type: 'Skin', accuracy: 92, color: 'bg-orange-600' },
-                              { type: 'Colon', accuracy: 89, color: 'bg-green-600' },
-                              { type: 'Prostate', accuracy: 91, color: 'bg-purple-600' }
-                            ].map(item => (
-                              <div key={item.type} className="flex justify-between items-center">
-                                <span className="text-slate-300">{item.type} Cancer</span>
-                                <Badge className={item.color}>{item.accuracy}%</Badge>
-                              </div>
-                            ))}
-                          </div>
+                          <ModelPerformancePanel variant="dark" />
                         </CardContent>
                       </Card>
                       <Card className="bg-slate-700 border-slate-600">

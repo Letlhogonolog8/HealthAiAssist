@@ -58,6 +58,71 @@ export const requirePatientAccess = (req: AuthenticatedRequest, res: Response, n
   return res.status(403).json({ error: "Access denied to patient data" });
 };
 
+/**
+ * Ownership check for a resource addressed by its *own* id rather than a
+ * patient id.
+ *
+ * `requirePatientAccess` and `requirePatientDataAccess` both compare the
+ * session user's id against a route parameter, which only works when that
+ * parameter *is* a patient id. On routes like
+ * `DELETE /api/patient/appointments/:id` the parameter is an appointment id, so
+ * those guards would have compared a user id against an appointment id — a
+ * comparison that is meaningless and happens to pass whenever the two integers
+ * coincide. They were therefore absent, and any authenticated patient could
+ * delete, reschedule or read another patient's records by guessing a small
+ * integer.
+ *
+ * This resolves ownership through the caller's own records instead: the id must
+ * appear in the set the session user owns. Medical staff are allowed through,
+ * as they are throughout this file — cross-patient access is their job.
+ *
+ * A non-existent id yields 403 rather than 404 on purpose. Distinguishing the
+ * two would confirm which appointment ids exist to anyone willing to enumerate.
+ */
+const requireOwnership = (kind: 'appointment' | 'scan', paramNames: string[]) => {
+  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    const userId = req.session?.user?.id;
+    const userRole = req.session?.user?.role;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    // Clinicians and admins act across patients by design.
+    if (userRole && ['admin', 'doctor', 'radiologist'].includes(userRole)) {
+      return next();
+    }
+
+    const rawId = paramNames
+      .map((name) => req.params[name])
+      .find((value) => value !== undefined);
+    const resourceId = parseInt(rawId ?? '');
+    if (isNaN(resourceId)) {
+      return res.status(400).json({ error: `Invalid ${kind} ID` });
+    }
+
+    try {
+      const { storage } = await import('./storage');
+      const owned =
+        kind === 'appointment'
+          ? await storage.getAppointments(userId)
+          : await storage.getScans(userId);
+
+      if (!owned.some((record: any) => record.id === resourceId)) {
+        return res.status(403).json({ error: `Access denied to this ${kind}` });
+      }
+      next();
+    } catch (error) {
+      // Fail closed. An ownership check that cannot run is not a pass.
+      console.error(`[OWNERSHIP] lookup failed for ${kind} ${resourceId}:`, error);
+      return res.status(503).json({ error: 'Authorization check unavailable' });
+    }
+  };
+};
+
+export const requireAppointmentOwnership = requireOwnership('appointment', ['id', 'appointmentId']);
+export const requireScanOwnership = requireOwnership('scan', ['id', 'scanId']);
+
 // Rate limiting for sensitive operations
 export const sensitiveOperationLimit = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes

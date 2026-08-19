@@ -16,17 +16,22 @@ import {
   Search, Filter, Download, Bell, Zap, Eye, EyeOff, BarChart3
 } from "lucide-react";
 import { MetricCard } from "./metric-card";
+import ModelPerformancePanel, { useModelCards } from "./model-performance-panel";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 interface DashboardData {
   stats: {
     totalUsers: number;
     activeScans: number;
-    systemUptime: number;
-    aiAccuracy: number;
+    // Nullable: when a stats fetch fails these are unknown, and the dashboard
+    // renders "—". They used to fall back to invented constants (aiAccuracy 94,
+    // databaseHealth 95, systemUptime 99.9) that were indistinguishable from
+    // measured values.
+    systemUptime: number | null;
+    aiAccuracy: number | null;
     dailyScans: number;
     criticalAlerts: number;
-    databaseHealth: number;
+    databaseHealth: number | null;
     securityStatus: string;
   };
   users: {
@@ -91,6 +96,9 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // Measured model performance, for the analytics panel and the export.
+  const { data: modelCards } = useModelCards();
+
   // System health query (advanced routes)
   const { data: systemHealth } = useQuery<{ status: string; services: Record<string, string>; performance?: any; memory?: any }>({
     queryKey: ['/api/advanced/health'],
@@ -119,8 +127,8 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
 
         const [stats, users, staff, activities, wsStats, metrics, debugUsers]: any[] = await Promise.all([
           statsRes.ok ? statsRes.json().catch(() => ({})) : {
-            totalUsers: 0, activeScans: 0, systemUptime: 99.9, aiAccuracy: 94,
-            dailyScans: 0, criticalAlerts: 0, databaseHealth: 95, securityStatus: 'secure'
+            totalUsers: 0, activeScans: 0, systemUptime: null, aiAccuracy: null,
+            dailyScans: 0, criticalAlerts: 0, databaseHealth: null, securityStatus: 'unknown'
           },
           usersRes.ok ? usersRes.json().catch(() => []) : [],
           staffRes.ok ? staffRes.json().catch(() => ({ data: [] })) : { data: [] },
@@ -189,8 +197,8 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
         console.error('Dashboard data fetch error:', error);
         return {
           stats: {
-            totalUsers: 0, activeScans: 0, systemUptime: 99.9, aiAccuracy: 94,
-            dailyScans: 0, criticalAlerts: 0, databaseHealth: 95, securityStatus: 'secure'
+            totalUsers: 0, activeScans: 0, systemUptime: null, aiAccuracy: null,
+            dailyScans: 0, criticalAlerts: 0, databaseHealth: null, securityStatus: 'unknown'
           },
           users: { admins: 0, doctors: 0, radiologists: 0, patients: 0, activeUsers: 0, newUsersToday: 0, list: [] },
           staff: [],
@@ -693,9 +701,11 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-amber-100 text-sm font-medium">AI Accuracy</p>
-                    <p className="text-3xl font-bold">{dashboardData?.stats.aiAccuracy || 0}%</p>
-                    <p className="text-amber-200 text-xs mt-1">Medical AI Performance</p>
+                    <p className="text-amber-100 text-sm font-medium">Mean AI Confidence</p>
+                    <p className="text-3xl font-bold">
+                      {dashboardData?.stats.aiAccuracy != null ? `${dashboardData.stats.aiAccuracy}%` : '—'}
+                    </p>
+                    <p className="text-amber-200 text-xs mt-1">How sure the model was, not how often it was right</p>
                   </div>
                   <div className="bg-white bg-opacity-20 rounded-full p-3">
                     <Brain className="h-8 w-8" />
@@ -875,7 +885,10 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
                       </div>
                       <Brain className="h-8 w-8 text-purple-600" />
                     </div>
-                    <p className="text-xs text-purple-600 mt-1">Processing at {dashboardData?.stats.aiAccuracy || 94}% accuracy</p>
+                    <p className="text-xs text-purple-600 mt-1">
+                      Mean confidence{' '}
+                      {dashboardData?.stats.aiAccuracy != null ? `${dashboardData.stats.aiAccuracy}%` : '—'}
+                    </p>
                   </div>
                 </div>
               </CardContent>
@@ -1233,14 +1246,25 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
                 Real-time Data
               </Badge>
               <Button variant="outline" size="sm" onClick={() => {
+                // The exported aiPerformance block used to be a literal:
+                // "Breast Cancer, accuracy 96, scans 245, falsePositives 8,
+                // falseNegatives 2" and four more like it. No breast, colon or
+                // prostate scan has ever run — those modalities have no
+                // classifier — so the false-negative counts described misses
+                // that could not have happened. Exported to JSON it looked
+                // exactly like a real clinical audit. It now carries the
+                // measured registry figures, or nothing if they are unread.
                 const analyticsData = {
-                  aiPerformance: [
-                    { type: 'Breast Cancer', accuracy: 96, scans: 245, falsePositives: 8, falseNegatives: 2 },
-                    { type: 'Lung Cancer', accuracy: 94, scans: 189, falsePositives: 12, falseNegatives: 3 },
-                    { type: 'Skin Cancer', accuracy: 92, scans: 156, falsePositives: 10, falseNegatives: 5 },
-                    { type: 'Colon Cancer', accuracy: 89, scans: 98, falsePositives: 7, falseNegatives: 4 },
-                    { type: 'Prostate Cancer', accuracy: 91, scans: 134, falsePositives: 9, falseNegatives: 3 }
-                  ],
+                  aiPerformance: modelCards?.models.map(m => ({
+                    scanType: m.scanType,
+                    enabled: m.enabled,
+                    disabledReason: m.disabledReason,
+                    evaluation: m.evaluation,
+                  })) ?? 'unavailable — /api/models/cards could not be read',
+                  performanceNote:
+                    'Balanced accuracy on a held-out test set. Per-modality scan ' +
+                    'counts and confusion-matrix figures are not tracked in ' +
+                    'production; nothing here is a live clinical audit.',
                   usageStats: dashboardData?.stats,
                   userMetrics: dashboardData?.users
                 };
@@ -1290,9 +1314,11 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-purple-100 text-sm font-medium">AI Accuracy</p>
-                    <p className="text-3xl font-bold">{dashboardData?.stats.aiAccuracy || 94}%</p>
-                    <p className="text-purple-200 text-xs mt-1">Overall performance</p>
+                    <p className="text-purple-100 text-sm font-medium">Mean AI Confidence</p>
+                    <p className="text-3xl font-bold">
+                      {dashboardData?.stats.aiAccuracy != null ? `${dashboardData.stats.aiAccuracy}%` : '—'}
+                    </p>
+                    <p className="text-purple-200 text-xs mt-1">Not a measure of correctness</p>
                   </div>
                   <Brain className="h-10 w-10 opacity-80" />
                 </div>
@@ -1324,25 +1350,7 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-6 bg-white">
-                <div className="space-y-4">
-                  {[
-                    { type: 'Breast Cancer', accuracy: 96 },
-                    { type: 'Lung Cancer', accuracy: 94 },
-                    { type: 'Skin Cancer', accuracy: 92 },
-                    { type: 'Colon Cancer', accuracy: 89 },
-                    { type: 'Prostate Cancer', accuracy: 91 }
-                  ].map(item => (
-                    <div key={item.type} className="flex items-center justify-between p-3 bg-slate-100 rounded-lg border border-slate-200">
-                      <span className="font-medium text-slate-900">{item.type}</span>
-                      <div className="flex items-center gap-2">
-                        <div className="w-16 bg-slate-200 rounded-full h-2">
-                          <div className="bg-green-600 h-2 rounded-full" style={{ width: `${item.accuracy}%` }}></div>
-                        </div>
-                        <span className="font-bold text-green-700">{item.accuracy}%</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <ModelPerformancePanel variant="light" />
               </CardContent>
             </Card>
 
@@ -1399,8 +1407,10 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
                     <span className="font-bold text-red-800">{dashboardData?.stats.criticalAlerts || 0}</span>
                   </div>
                   <div className="flex justify-between items-center p-3 bg-purple-100 rounded-lg border border-purple-200">
-                    <span className="font-medium text-purple-900">AI Accuracy</span>
-                    <span className="font-bold text-purple-800">{dashboardData?.stats.aiAccuracy || 94}%</span>
+                    <span className="font-medium text-purple-900">Mean AI Confidence</span>
+                    <span className="font-bold text-purple-800">
+                      {dashboardData?.stats.aiAccuracy != null ? `${dashboardData.stats.aiAccuracy}%` : '—'}
+                    </span>
                   </div>
                 </div>
               </CardContent>

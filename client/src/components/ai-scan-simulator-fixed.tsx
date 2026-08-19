@@ -20,12 +20,17 @@ export default function AIScanSimulator({ userId }: { userId?: number }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
+  // These carried per-modality accuracy labels — mammography 96%, MRI 98%,
+  // ultrasound 89% — none of which was ever measured, and none of which has a
+  // model behind it. Only chest imaging and dermoscopy are analysed; anything
+  // else returns 503 and is queued for a human. Measured figures for the two
+  // real models are in the model performance panel, from /api/models/cards.
   const scanTypes = [
-    { id: "mammography", name: "Mammography", accuracy: "96%", color: "bg-pink-500" },
-    { id: "chest-xray", name: "Chest X-Ray", accuracy: "94%", color: "bg-blue-500" },
-    { id: "ct-scan", name: "CT Scan", accuracy: "92%", color: "bg-purple-500" },
-    { id: "mri", name: "MRI", accuracy: "98%", color: "bg-green-500" },
-    { id: "ultrasound", name: "Ultrasound", accuracy: "89%", color: "bg-orange-500" },
+    { id: "mammography", name: "Mammography", color: "bg-pink-500" },
+    { id: "chest-xray", name: "Chest X-Ray", color: "bg-blue-500" },
+    { id: "ct-scan", name: "CT Scan", color: "bg-purple-500" },
+    { id: "mri", name: "MRI", color: "bg-green-500" },
+    { id: "ultrasound", name: "Ultrasound", color: "bg-orange-500" },
   ];
 
   // Image upload mutation
@@ -180,7 +185,6 @@ export default function AIScanSimulator({ userId }: { userId?: number }) {
                     <div className="flex items-center space-x-2">
                       <div className={`w-3 h-3 rounded-full ${type.color}`}></div>
                       <span>{type.name}</span>
-                      <span className="text-slate-400 text-sm">({type.accuracy})</span>
                     </div>
                   </SelectItem>
                 ))}
