@@ -65,13 +65,25 @@ export default function RealTimeSkinScanner() {
       return response.json();
     },
     onSuccess: (data) => {
-      setScanResult(data.analysis || {
-        hasCancer: false,
-        confidence: 85,
-        riskLevel: 'low',
-        findings: ['Analysis completed successfully'],
-        recommendations: ['Continue regular skin monitoring']
-      });
+      // No analysis in the payload means no model produced an opinion. This
+      // used to fall back to a literal `hasCancer: false, confidence: 85,
+      // findings: ['Analysis completed successfully']` — a fabricated negative,
+      // shown to the patient as though a classifier had cleared their lesion.
+      // It is the one outcome that actively reassures someone who may have
+      // cancer, and nothing in it was distinguishable from a real result.
+      if (!data.analysis) {
+        setIsScanning(false);
+        setScanProgress(0);
+        toast({
+          title: "Analysis unavailable",
+          description:
+            "No result was produced for this image. Your scan has been queued for review by a clinician — this is not a negative result.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setScanResult(data.analysis);
       setScanProgress(100);
       setIsScanning(false);
       toast({

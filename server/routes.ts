@@ -739,7 +739,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/medical-terms", async (req, res) => {
+  // Reading the glossary is public; writing to it is not. Unauthenticated, this
+  // let anyone insert arbitrary text into reference material that clinicians
+  // read alongside results.
+  app.post("/api/medical-terms", requireAuth, requireMedicalAccess, async (req, res) => {
     try {
       const result = insertTermSchema.safeParse(req.body);
       if (!result.success) {
@@ -1278,7 +1281,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/doctor/appointments/today", requireAuth, requireMedicalAccess, async (req, res) => {
     try {
-      const doctorId = (req.session as any)?.user?.id || 15; // Default to Dr. Kenosi for testing
+      // requireAuth guarantees the session. The fallback that stood here — a
+      // literal 15, commented "Default to Dr. Kenosi for testing" — would have
+      // attributed another clinician's schedule to a named real doctor.
+      const doctorId = (req.session as any).user.id;
       console.log(`[Doctor Appointments] Fetching for doctor ID: ${doctorId}`);
       
       const appointments = await storage.getDoctorAppointments(doctorId);
@@ -2182,15 +2188,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Schedule dermatologist appointment
-  app.post("/api/appointments/dermatologist", async (req, res) => {
+  /**
+   * Book a dermatology consultation for the caller.
+   *
+   * Took no authentication and defaulted the patient to id 4 when there was no
+   * session, so an anonymous POST created a real appointment against a real
+   * patient's record. It also named the clinician by mapping the id through a
+   * hardcoded list — "Dr. Sarah Mitchell", "Dr. Michael Chen", "Dr. Emily
+   * Rodriguez" — and put that invented name in the confirmation message, so a
+   * patient could be told they had an appointment with someone who does not
+   * work here. The name now comes from the doctor's own record.
+   */
+  app.post("/api/appointments/dermatologist", auditLog('BOOK_DERMATOLOGY_APPOINTMENT'), requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
-      const { dermatologistId, date, time, reason, notes, urgency, shareAnalysis, scanResult } = req.body;
-      const patientId = (req.session as any)?.user?.id || 4; // Use valid patient ID
+      const { dermatologistId, date, time, reason, notes, urgency } = req.body;
+      const patientId = req.session!.user!.id;
 
-      // Find dermatologist info
-      const dermatologistName = dermatologistId === 1 ? 'Dr. Sarah Mitchell' : 
-                               dermatologistId === 2 ? 'Dr. Michael Chen' : 
-                               'Dr. Emily Rodriguez';
+      const dermatologist = await storage.getUser(dermatologistId);
+      if (!dermatologist || !['doctor', 'radiologist'].includes(dermatologist.role)) {
+        return res.status(400).json({ error: 'Unknown dermatologist' });
+      }
+      const dermatologistName = dermatologist.fullName || dermatologist.username;
 
       const appointmentData = {
         patientId,
@@ -2440,7 +2458,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Patient dashboard stats API endpoint
   app.get("/api/patient/stats", requireAuth, async (req, res) => {
     try {
-      const patientId = (req.session as any)?.user?.id || 2;
+      // requireAuth guarantees the session; the previous `|| 2` would have
+      // served the admin account's statistics to a patient.
+      const patientId = (req.session as any).user.id;
       const patientScans = await storage.getScans(patientId);
       
       const completedScans = patientScans.filter(scan => scan.result !== 'Processing').length;
@@ -2577,51 +2597,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(availableSlots);
   });
 
-  app.post("/api/appointments/dermatologist", async (req, res) => {
-    try {
-      const { 
-        dermatologistId, 
-        date, 
-        time, 
-        reason, 
-        notes, 
-        urgency, 
-        shareAnalysis, 
-        scanResult 
-      } = req.body;
-
-      const patientId = (req.session as any)?.user?.id || 2;
-
-      const appointment = await storage.createAppointment({
-        type: 'dermatology',
-        patientId: patientId,
-        doctorId: dermatologistId,
-        appointmentDate: new Date(date),
-        appointmentTime: time,
-        notes: `${reason || 'Dermatologist consultation'}. ${notes || ''}`
-      });
-
-      if (shareAnalysis && scanResult) {
-        await storage.createScan({
-          patientId: patientId,
-          scanType: 'skin-cancer',
-          result: JSON.stringify(scanResult)
-        });
-      }
-
-      res.json({
-        success: true,
-        appointment,
-        message: 'Dermatologist appointment scheduled successfully'
-      });
-    } catch (error) {
-      console.error('Error scheduling dermatologist appointment:', error);
-      res.status(500).json({ 
-        error: 'Failed to schedule appointment',
-        message: 'Please try again or contact support'
-      });
-    }
-  });
+  // A second POST /api/appointments/dermatologist was registered here. Express
+  // matches the first registration, so it never ran — but it took no
+  // authentication and defaulted the patient to id 2, the admin account, which
+  // would have filed a dermatology appointment against an administrator's
+  // record. It is deleted rather than left dormant: the guarded copy above is
+  // one file reorder away from losing to it.
+  //
+  // The only behaviour unique to it was writing a scan row when `shareAnalysis`
+  // was set. That is not carried over — it created a scan with the result field
+  // stuffed with client-supplied JSON and no model involvement, which is the
+  // same shape as the fabricated results removed elsewhere.
 
   // Admin staff creation endpoint
   app.post("/api/admin/staff", auditLog('CREATE_STAFF'), requireAuth, requireAdmin, sensitiveOperationLimit, validateInput, async (req, res) => {
@@ -3365,7 +3351,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             
             const appointmentData = {
               patientId: patientId,
-              doctorId: (req.session as any)?.user?.id || 15,
+              doctorId: (req.session as any).user.id,
               date: tomorrow.toISOString().split('T')[0],
               time: '09:00 AM',
               type: 'Urgent Consultation',
@@ -3522,7 +3508,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create new patient endpoint
-  app.post("/api/patients", async (req, res) => {
+  // Creating a patient record is a clinical staff action. This was open to
+  // anonymous callers, which both allowed unbounded record creation and made
+  // the resulting rows unattributable.
+  app.post("/api/patients", auditLog('CREATE_PATIENT'), requireAuth, requireMedicalAccess, async (req, res) => {
     try {
       const { name, email, phone, age, gender } = req.body;
       
@@ -3850,15 +3839,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/chat/notifications", async (req, res) => {
+  // The recipient is the caller, taken from the session.
+  //
+  // This read the recipient id from `req.query.userId` with no authentication,
+  // so incrementing a number in the URL returned somebody else's notifications —
+  // which here carry patient names and scan outcomes. The companion mark-read
+  // route took the same id from the body and would clear another user's
+  // notifications. Neither needs a caller-supplied id: the only notifications a
+  // user may see are their own.
+  app.get("/api/chat/notifications", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
-      const userId = parseInt(req.query.userId as string);
-      
-      // Get notifications for this user
+      const userId = req.session!.user!.id;
+
       const userNotifications = notifications
         .filter(n => n.recipientId === userId)
         .slice(0, 10); // Return only last 10 notifications
-      
+
       res.json(userNotifications);
     } catch (error) {
       console.error('Failed to fetch notifications:', error);
@@ -3866,19 +3862,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/chat/notifications/mark-read", async (req, res) => {
+  app.post("/api/chat/notifications/mark-read", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
-      const { notificationId, userId } = req.body;
-      
-      // Mark notification as read
-      const notification = notifications.find(n => 
-        n.id === parseInt(notificationId) && n.recipientId === parseInt(userId)
+      const { notificationId } = req.body;
+      const userId = req.session!.user!.id;
+
+      // Ownership is part of the lookup: a notification belonging to someone
+      // else simply is not found.
+      const notification = notifications.find(n =>
+        n.id === parseInt(notificationId) && n.recipientId === userId
       );
-      
+
       if (notification) {
         notification.read = true;
       }
-      
+
       res.json({ success: true });
     } catch (error) {
       console.error('Failed to mark notification as read:', error);

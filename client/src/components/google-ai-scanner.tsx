@@ -353,22 +353,22 @@ export default function GoogleAIScannerFixed() {
                 minute: '2-digit',
                 second: '2-digit'
               }),
-              scanId: `#${analysisResult?.scan?.id?.toString().padStart(4, '0') || Math.floor(Math.random() * 9999).toString().padStart(4, '0')}`,
-              detailedFindings: analysisResult.analysis.findings.length > 0 ? analysisResult.analysis.findings : [
-                "Comprehensive AI analysis completed with high precision",
-                "Image quality assessment shows optimal resolution", 
-                "Anatomical structures clearly identified and analyzed",
-                "Advanced pattern recognition algorithms applied",
-                "Multi-layer neural network processing completed"
-              ],
-              recommendations: analysisResult.analysis.recommendations.length > 0 ? analysisResult.analysis.recommendations : [
-                "Continue routine screening as recommended",
-                "Maintain current preventive care protocols",
-                "Follow-up imaging per established guidelines",
-                "Patient education on risk factor management",
-                "Regular monitoring and surveillance recommended"
-              ],
-              additionalInfo: "Google Cloud analysis shows normal patterns"
+              // An absent scan id used to be replaced with a random four-digit
+              // number, giving the patient an identifier that matches no record
+              // and that a clinician cannot look up.
+              scanId: analysisResult?.scan?.id
+                ? `#${analysisResult.scan.id.toString().padStart(4, '0')}`
+                : 'Not recorded',
+
+              // Empty findings and recommendations were padded with sentences
+              // that sound like results but describe nothing measured —
+              // "Anatomical structures clearly identified and analyzed",
+              // "Continue routine screening as recommended". An empty list
+              // means the analysis produced no findings, and saying so is the
+              // only accurate rendering of that.
+              detailedFindings: analysisResult.analysis.findings,
+              recommendations: analysisResult.analysis.recommendations,
+              additionalInfo: undefined
             }}
           />
         </div>

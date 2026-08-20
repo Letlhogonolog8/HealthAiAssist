@@ -102,13 +102,11 @@ export default function FloatingChatbot({ user, onActionClick }: FloatingChatbot
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const { toast } = useToast();
 
-  // Simulate online status
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setIsOnline(Math.random() > 0.1); // 90% online
-    }, 30000);
-    return () => clearInterval(interval);
-  }, []);
+  // The status dot used to be driven by `Math.random() > 0.1` on a 30-second
+  // timer, so the assistant appeared to go offline one cycle in ten regardless
+  // of whether anything was wrong, and appeared online when the API was down.
+  // It reflects reachability now: a failed send flips it, a successful one
+  // restores it.
 
   // Play notification sound for new messages
   const playNotificationSound = () => {
@@ -184,6 +182,7 @@ export default function FloatingChatbot({ user, onActionClick }: FloatingChatbot
       };
 
       setMessages(prev => [...prev, assistantMessage]);
+      setIsOnline(true);
 
       if (!isOpen) {
         setUnreadCount(prev => prev + 1);
@@ -195,6 +194,7 @@ export default function FloatingChatbot({ user, onActionClick }: FloatingChatbot
       setLastSeen(new Date());
     } catch (error) {
       console.error('Chat error:', error);
+      setIsOnline(false);
       toast({
         title: "Connection Error",
         description: "Unable to reach AI Assistant. Please try again.",
@@ -642,52 +642,27 @@ export default function FloatingChatbot({ user, onActionClick }: FloatingChatbot
         setAvailableSlots(data.slots);
         setSelectedDoctor(data.doctor);
       } else {
-        // Fallback mock data
-        const mockSlots = generateMockSlots(doctorType);
-        setAvailableSlots(mockSlots.slots);
-        setSelectedDoctor(mockSlots.doctor);
+        // Show nothing rather than invent availability. See below.
+        setAvailableSlots([]);
+        setSelectedDoctor(null);
       }
     } catch (error) {
-      const mockSlots = generateMockSlots(doctorType);
-      setAvailableSlots(mockSlots.slots);
-      setSelectedDoctor(mockSlots.doctor);
+      setAvailableSlots([]);
+      setSelectedDoctor(null);
     } finally {
       setLoadingSlots(false);
     }
   };
 
-  const generateMockSlots = (doctorType: string) => {
-    const doctors = {
-      oncologist: { name: 'Dr. Sarah Johnson', specialization: 'Oncology' },
-      radiologist: { name: 'Dr. Michael Chen', specialization: 'Radiology' },
-      general: { name: 'Dr. Emily Watson', specialization: 'General Practice' }
-    };
-    
-    const slots: AppointmentSlot[] = [];
-    const today = new Date();
-    
-    for (let i = 1; i <= 7; i++) {
-      const date = new Date(today);
-      date.setDate(today.getDate() + i);
-      
-      const times = ['09:00 AM', '10:30 AM', '02:00 PM', '03:30 PM', '04:00 PM'];
-      times.forEach(time => {
-        if (Math.random() > 0.3) { // 70% chance slot is available
-          slots.push({
-            id: `${date.toISOString().split('T')[0]}-${time}`,
-            date: date.toISOString().split('T')[0],
-            time: time,
-            available: true
-          });
-        }
-      });
-    }
-    
-    return {
-      doctor: doctors[doctorType as keyof typeof doctors] || doctors.general,
-      slots: slots.slice(0, 12) // Show first 12 available slots
-    };
-  };
+  // `generateMockSlots` was called on both of the paths above. It invented
+  // clinicians — "Dr. Sarah Johnson", "Dr. Michael Chen", "Dr. Emily Watson" —
+  // and decided each time slot's availability with `Math.random() > 0.3`. The
+  // slots it produced were live: `bookAppointment` would submit one, so a
+  // patient could be shown, and try to book, an appointment with a doctor who
+  // does not exist at a time nobody had checked. Whenever the availability API
+  // is unreachable the UI now falls through to its existing "No available slots
+  // found" state.
+
 
   const bookAppointment = async (slot: AppointmentSlot) => {
     try {

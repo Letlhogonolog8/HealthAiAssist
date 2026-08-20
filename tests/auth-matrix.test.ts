@@ -282,6 +282,55 @@ describe('cross-patient access (IDOR)', { timeout: TIMEOUT }, () => {
   });
 });
 
+describe('routes that were reachable without a session', { timeout: TIMEOUT }, () => {
+  test('anonymous callers cannot reach clinical write routes', async () => {
+    assert.equal((await anon.post('/api/patients', { name: 'X', email: 'x@e.com' })).status, 401);
+    assert.equal((await anon.post('/api/medical-terms', { term: 'x', definition: 'y' })).status, 401);
+    assert.equal((await anon.post('/api/appointments/dermatologist', {
+      dermatologistId: 1, date: '2030-01-01', time: '09:00',
+    })).status, 401);
+  });
+
+  test('notifications are scoped to the session, not a query parameter', async () => {
+    // Anonymous access is refused outright.
+    assert.equal((await anon.get('/api/chat/notifications?userId=2')).status, 401);
+
+    // And an authenticated caller cannot ask for someone else's by id: the
+    // parameter is ignored entirely, so the response is their own list.
+    const res = await attacker.session.get(`/api/chat/notifications?userId=${patient.id}`);
+    assert.equal(res.status, 200);
+    for (const n of res.json ?? []) {
+      assert.equal(n.recipientId, attacker.id, 'must only return the caller\'s notifications');
+    }
+  });
+
+  test('booking a dermatology appointment files it against the caller', async () => {
+    const doctorId = doctor.id;
+    const res = await patient.session.post('/api/appointments/dermatologist', {
+      dermatologistId: doctorId,
+      date: '2030-06-01',
+      time: '09:00',
+      reason: 'Lesion check',
+    });
+    assert.equal(res.status, 200);
+
+    const pool = db();
+    try {
+      const row = await pool.query(
+        'SELECT patient_id FROM appointments WHERE id = $1',
+        [res.json.appointment.id]
+      );
+      assert.equal(
+        row.rows[0].patient_id,
+        patient.id,
+        'appointment must belong to the caller, not a hardcoded default'
+      );
+    } finally {
+      await pool.end();
+    }
+  });
+});
+
 describe('endpoints that used to confirm work they never did', { timeout: TIMEOUT }, () => {
   test('a radiologist report is actually persisted, not just acknowledged', async () => {
     const pool = db();
