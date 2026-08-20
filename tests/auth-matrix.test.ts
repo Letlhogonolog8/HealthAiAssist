@@ -56,9 +56,15 @@ before(async () => {
     // itself asserted below — so it is done directly, the way an admin would.
     await pool.query('UPDATE users SET role = $1 WHERE id = $2', ['doctor', doctor.id]);
 
+    // Only the columns shared/schema.ts declares. This used to also write the
+    // legacy `date` column, which exists on databases that predate
+    // migrations/appointments-legacy-date.sql but not on one built from the
+    // schema — so the insert worked locally and failed on a fresh database with
+    // 'column "date" of relation "appointments" does not exist'. Omitting it
+    // works in both places now that the migration has dropped its NOT NULL.
     const appt = await pool.query(
-      `INSERT INTO appointments (patient_id, doctor_id, date, appointment_date, appointment_time, type)
-       VALUES ($1, $2, NOW(), NOW(), '10:00', 'checkup') RETURNING id`,
+      `INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time, type)
+       VALUES ($1, $2, NOW(), '10:00', 'checkup') RETURNING id`,
       [patient.id, doctor.id]
     );
     ownedAppointmentId = appt.rows[0].id;
