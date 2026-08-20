@@ -64,13 +64,36 @@ jobs:
       - name: Build client
         run: npx vite build
 
+      # Schema first, session table second, and the order matters.
+      #
+      # Creating `session` first left drizzle-kit looking at a database holding
+      # exactly one table it did not recognise, so instead of creating the
+      # schema it asked whether `appointments` was that table renamed:
+      #
+      #   Is appointments table created or renamed from another table?
+      #   ❯ + appointments           create table
+      #     ~ session › appointments rename table
+      #
+      # --force only auto-approves data-loss statements, not rename
+      # disambiguation. The prompt read EOF, the step exited 0, and nothing was
+      # created — the failure surfaced much later as 'relation "users" does not
+      # exist'. Against an empty database there is nothing to rename from and
+      # no question to ask.
+      - name: Create application schema
+        run: npx drizzle-kit push --force < /dev/null
+
       # express-session's Postgres store is configured with tableName 'session'
-      # and without createTableIfMissing, so the table has to exist up front.
+      # and without createTableIfMissing, so the table has to exist before the
+      # server boots.
       - name: Create session table
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f node_modules/connect-pg-simple/table.sql
 
-      - name: Create application schema
-        run: npx drizzle-kit push --force
+      # A push that silently does nothing must not reach the tests, where it
+      # shows up as a hook failure several minutes and one confusing log later.
+      - name: Verify schema
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
+            "SELECT 'users'::regclass, 'medical_scans'::regclass, 'appointments'::regclass, 'audit_events'::regclass, 'session'::regclass;"
 
       - name: Test
         run: npm test
