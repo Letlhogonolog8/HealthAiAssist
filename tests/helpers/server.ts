@@ -28,6 +28,9 @@ export const BASE = `http://127.0.0.1:${PORT}`;
  */
 export const TEST_USER_PREFIX = 'zztest_';
 
+/** Cap on any single request the suite makes. */
+export const REQUEST_TIMEOUT_MS = Number(process.env.TEST_REQUEST_TIMEOUT_MS ?? 20_000);
+
 let child: ChildProcess | null = null;
 
 export function db(): Pool {
@@ -139,12 +142,26 @@ export class Session {
     if (this.cookie) headers.Cookie = this.cookie;
     if (body !== undefined) headers['Content-Type'] = 'application/json';
 
-    const res = await fetch(`${BASE}${path}`, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-      redirect: 'manual',
-    });
+    // Every request is bounded. Without this a request that never gets a
+    // response hangs until the enclosing suite's timeout, so a run reports
+    // "suite timed out" minutes later with no indication of which call stalled.
+    let res: Response;
+    try {
+      res = await fetch(`${BASE}${path}`, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+        redirect: 'manual',
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch (err: any) {
+      if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+        throw new Error(
+          `${method} ${path} did not respond within ${REQUEST_TIMEOUT_MS}ms`
+        );
+      }
+      throw new Error(`${method} ${path} failed: ${err?.message ?? err}`);
+    }
 
     const setCookie = res.headers.getSetCookie?.() ?? [];
     for (const c of setCookie) {
