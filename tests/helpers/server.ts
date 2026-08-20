@@ -9,6 +9,14 @@
  * They only appear when a request travels the whole stack, so the tests send
  * real requests to a real listener.
  */
+// Same env precedence as the server, and for the same reason. The suite spawns
+// server/index.ts, which loads .env, while this process was reading whatever
+// DATABASE_URL the shell carried. Once .env pointed at a different database
+// from the shell variable, the server wrote its users to one database and these
+// assertions queried another — every suite failed on a foreign key violation
+// against ids that existed, just not where the test was looking.
+import '../../server/load-env.ts';
+
 import { spawn, type ChildProcess } from 'node:child_process';
 import { Pool } from 'pg';
 
