@@ -1,0 +1,72 @@
+name: CI
+
+# The authorization guarantees in tests/auth-matrix.test.ts are the reason this
+# exists. They were written after several /api/doctor/* routes were found
+# serving patient names, emails and clinical notes to anonymous callers — a
+# regression nobody noticed because nothing ran the checks. Guards are easy to
+# drop while refactoring and the failure is silent, so the suite has to run on
+# every push rather than when someone remembers.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: healthai_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/healthai_test
+      # Test-only value. The app requires >= 64 characters and refuses to boot in
+      # production without a real one; this database is created and destroyed
+      # inside the job and never holds anything.
+      SESSION_SECRET: ci_only_not_a_real_secret_0000000000000000000000000000000000000000
+      NODE_ENV: development
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      # Matches the install used by the Railway build (railway.json), which is
+      # the one configuration known to resolve this dependency tree.
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build client
+        run: npx vite build
+
+      # express-session's Postgres store is configured with tableName 'session'
+      # and without createTableIfMissing, so the table has to exist up front.
+      - name: Create session table
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f node_modules/connect-pg-simple/table.sql
+
+      - name: Create application schema
+        run: npx drizzle-kit push --force
+
+      - name: Test
+        run: npm test
