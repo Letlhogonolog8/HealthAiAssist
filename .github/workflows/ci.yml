@@ -44,9 +44,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 22, not 20: the runners now force Node 20 actions onto 24 and warn, and
+      # `node --test` only expands glob patterns itself from 21 onwards, which
+      # is what keeps the test script behaving the same here as on a developer
+      # machine.
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
 
       # Matches the install used by the Railway build (railway.json), which is
