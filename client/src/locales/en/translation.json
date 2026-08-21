@@ -27,5 +27,20 @@
   "ai_medical_scanner": "AI Medical Scanner",
   "upload_medical_images": "Upload medical images for AI-powered analysis",
   "book_appointment": "Book Appointment",
-  "schedule_now": "Schedule Now"
+  "schedule_now": "Schedule Now",
+  "disclaimer": {
+    "not_a_diagnosis": "This is a model output, not a diagnosis.",
+    "screening_only": "Screening triage only. It is used to prioritise review, not to decide care.",
+    "clinician_review_required": "Every result requires review by a qualified clinician before it means anything.",
+    "questionnaire_unvalidated": "This is a tally of your own answers, not a validated cancer risk model. It does not estimate your probability of having or developing cancer."
+  },
+  "result": {
+    "model_flagged": "The model flagged this scan for review.",
+    "model_cleared": "The model did not flag this scan.",
+    "confidence_is_not_accuracy": "Confidence is how sure the model was, not how often it is right.",
+    "awaiting_review": "Awaiting clinician review."
+  },
+  "action": {
+    "contact_clinician": "Discuss this with your clinician."
+  }
 }

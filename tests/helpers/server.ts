@@ -18,6 +18,7 @@
 import '../../server/load-env.ts';
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { Pool } from 'pg';
 
 export const PORT = Number(process.env.TEST_PORT ?? 5099);
@@ -82,8 +83,35 @@ export async function startServer(timeoutMs = 90_000): Promise<void> {
   // `node --import tsx` rather than `npx tsx`: npx interposes a shell and a
   // launcher process, so child.pid was the shell's and killing it orphaned the
   // real server. This is a single process that can be killed directly.
+  // A key is always available, so the whole suite runs against the encrypted
+  // path rather than the no-op one. Encryption is transparent by design, which
+  // is exactly why it needs to be on during the tests: a mistake in the storage
+  // hooks — a write that seals and a read that forgets to open — shows up as a
+  // clinician seeing base64 where a note should be, and only an end-to-end run
+  // catches it.
+  //
+  // Defer to .env when it carries one, rather than imposing an ephemeral key.
+  //
+  // The imposed key did not survive. This process and the server both run
+  // load-env, which in development lets .env win over the environment — that is
+  // its whole purpose. So on a machine whose .env has ENCRYPTION_KEYS, the child
+  // silently used that key while this process used the generated one, and a test
+  // reading a column with raw SQL failed with "ciphertext was written under key
+  // k1, which is not in the keyring". The suite passed on a machine with no key
+  // configured and failed on a developer's, which is the worst way to find out.
+  //
+  // Both processes read the same source now, so they agree either way.
+  if (!process.env.ENCRYPTION_KEYS && !process.env.ENCRYPTION_KEY) {
+    process.env.ENCRYPTION_KEYS = `test1:${randomBytes(32).toString('hex')}`;
+    process.env.ENCRYPTION_ACTIVE_KEY_ID = 'test1';
+  }
+
   child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
-    env: { ...process.env, NODE_ENV: 'development', PORT: String(PORT) },
+    env: {
+      ...process.env,
+      NODE_ENV: 'development',
+      PORT: String(PORT),
+    },
     stdio: 'ignore',
   });
 
@@ -141,6 +169,16 @@ export async function stopServer(): Promise<void> {
 export class Session {
   private cookie = '';
 
+  /**
+   * The Cookie header this session would send.
+   *
+   * Exposed so a test can hand the same session to a WebSocket upgrade, which
+   * is the only way to exercise socket authentication against a real login.
+   */
+  get cookieHeader(): string {
+    return this.cookie;
+  }
+
   async request(
     method: string,
     path: string,
@@ -191,6 +229,53 @@ export class Session {
   post = (p: string, b?: unknown) => this.request('POST', p, b);
   patch = (p: string, b?: unknown) => this.request('PATCH', p, b);
   del = (p: string) => this.request('DELETE', p);
+
+  /**
+   * A multipart upload, through the same cookie jar as everything else.
+   *
+   * Worth having rather than reaching for bare fetch(): the server rotates a
+   * session periodically and answers with a new sid, so a request that sends the
+   * cookie but ignores Set-Cookie works once and then fails, which is a
+   * confusing way to discover you have been logged out. The jar follows the
+   * rotation the way a browser does.
+   *
+   * The timeout is separate because model inference is slow and legitimately so.
+   */
+  async postForm(
+    path: string,
+    form: FormData,
+    timeoutMs = 120_000
+  ): Promise<{ status: number; json: any; text: string }> {
+    const headers: Record<string, string> = {};
+    if (this.cookie) headers.Cookie = this.cookie;
+
+    let res: Response;
+    try {
+      res = await fetch(`${BASE}${path}`, {
+        method: 'POST',
+        headers,
+        body: form,
+        redirect: 'manual',
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (err: any) {
+      throw new Error(`POST ${path} (multipart) failed: ${err?.message ?? err}`);
+    }
+
+    for (const c of res.headers.getSetCookie?.() ?? []) {
+      const pair = c.split(';')[0];
+      if (pair.startsWith('healthai.sid=')) this.cookie = pair;
+    }
+
+    const text = await res.text();
+    let json: any = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      /* not JSON */
+    }
+    return { status: res.status, json, text };
+  }
 }
 
 /** Registers a fresh account and returns its session plus the created id. */

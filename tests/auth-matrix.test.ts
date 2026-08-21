@@ -27,6 +27,10 @@ import {
   TEST_USER_PREFIX,
 } from './helpers/server.ts';
 
+// The suite runs with encryption on (see helpers/server.ts), so a raw read of
+// an encrypted column returns an envelope.
+import { isEnvelope, open } from '../server/crypto/envelope.ts';
+
 const TIMEOUT = 120_000;
 
 let patient: Awaited<ReturnType<typeof registerPatient>>;
@@ -108,7 +112,19 @@ after(async () => {
       await pool.query('DELETE FROM appointments WHERE patient_id = ANY($1)', [ids]);
       await pool.query('DELETE FROM medical_scans WHERE patient_id = ANY($1)', [ids]);
       await pool.query('DELETE FROM appointments WHERE doctor_id = ANY($1)', [ids]);
+      // Chat rows and notifications reference users too. Sending a message now
+      // writes both, so without these the DELETE below fails on a foreign key
+      // and the whole suite reports a hook failure rather than its results.
+      await pool.query(
+        'DELETE FROM chat_messages WHERE sender_id = ANY($1) OR receiver_id = ANY($1)',
+        [ids]
+      );
+      await pool.query(
+        'DELETE FROM notifications WHERE recipient_id = ANY($1) OR actor_id = ANY($1)',
+        [ids]
+      );
       await pool.query('UPDATE medical_scans SET radiologist_id = NULL WHERE radiologist_id = ANY($1)', [ids]);
+      await pool.query('UPDATE medical_scans SET doctor_id = NULL WHERE doctor_id = ANY($1)', [ids]);
       await pool.query('UPDATE audit_events SET actor_user_id = NULL WHERE actor_user_id = ANY($1)', [ids]);
       await pool.query('DELETE FROM users WHERE id = ANY($1)', [ids]);
     }
@@ -364,8 +380,22 @@ describe('endpoints that used to confirm work they never did', { timeout: TIMEOU
         'SELECT findings, recommendations, status FROM medical_scans WHERE id = $1',
         [scanId]
       );
-      assert.equal(row.rows[0].findings, 'No acute abnormality.');
-      assert.equal(row.rows[0].recommendations, 'Routine follow-up.');
+
+      // findings and recommendations are encrypted at rest, so a raw read gets
+      // ciphertext. That is asserted rather than worked around: this query is a
+      // faithful stand-in for someone holding a database credential and no
+      // application key, and what they must not be able to read is the clinical
+      // text. `open()` is then used to confirm the report really was persisted,
+      // which is what this test was always about.
+      assert.ok(
+        isEnvelope(row.rows[0].findings),
+        'clinical findings must not sit in the database as plaintext'
+      );
+      assert.ok(!String(row.rows[0].findings).includes('abnormality'));
+
+      assert.equal(open(row.rows[0].findings), 'No acute abnormality.');
+      assert.equal(open(row.rows[0].recommendations), 'Routine follow-up.');
+      // Status is a workflow flag, not clinical text, and stays queryable.
       assert.equal(row.rows[0].status, 'completed');
     } finally {
       await verify.end();

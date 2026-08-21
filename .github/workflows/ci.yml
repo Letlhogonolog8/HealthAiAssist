@@ -93,7 +93,7 @@ jobs:
       - name: Verify schema
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
-            "SELECT 'users'::regclass, 'medical_scans'::regclass, 'appointments'::regclass, 'audit_events'::regclass, 'session'::regclass;"
+            "SELECT 'users'::regclass, 'medical_scans'::regclass, 'appointments'::regclass, 'audit_events'::regclass, 'chat_messages'::regclass, 'notifications'::regclass, 'session'::regclass;"
 
       - name: Test
         run: npm test

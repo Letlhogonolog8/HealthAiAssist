@@ -12,7 +12,16 @@ pip-log.txt
 pip-delete-this-directory.txt
 
 # Environment variables
+#
+# The glob matters as much as the exact names. A backup taken before editing
+# .env -- by a script, an editor, or by hand -- carries every secret the real
+# file does, and `.env` alone does not match `.env.backup` or `.env.save`.
 .env
+.env.*
+!.env.example
+!.env.template
+!.env.production
+!.env.calendar.example
 .env.local
 .env.development.local
 .env.test.local
