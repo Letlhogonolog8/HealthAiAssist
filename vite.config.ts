@@ -45,16 +45,18 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       output: {
+        // Only genuinely shared, genuinely eager dependencies are pinned to a
+        // manual chunk. The previous config also forced recharts, framer-motion,
+        // i18next and react-i18next into a single "vendor" chunk, which the
+        // entry chunk then depended on — so every visitor downloaded 613 kB
+        // (175 kB gzipped) of charting and animation code before the homepage
+        // could paint, even though recharts is used only by the admin dashboard
+        // and framer-motion only by the chatbot, both of which are lazy. Leaving
+        // them unlisted lets Rollup place each one in the async chunk that
+        // actually imports it.
         manualChunks: {
           react: ['react', 'react-dom'],
-          vendor: [
-            '@tanstack/react-query',
-            'i18next',
-            'react-i18next',
-            'framer-motion',
-            'recharts',
-            'lucide-react'
-          ]
+          query: ['@tanstack/react-query'],
         }
       }
     },

@@ -1,17 +1,42 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { Switch, Route, useLocation } from "wouter";
 import { OptimizedQueryProvider } from "./components/optimized-query-client";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/contexts/theme-context";
 import Home from "@/pages/home";
-import About from "@/pages/about";
 import NotFound from "@/pages/not-found";
-import ChatPage from "@/pages/chat";
-import GenomicsPage from "@/pages/genomics";
-import DashboardLayout from "@/components/dashboard-layout";
-import ForgotPassword from "@/components/forgot-password";
 import AppErrorBoundary from "@/components/app-error-boundary";
+
+/**
+ * Everything behind a login, or behind a second route, is loaded on demand.
+ *
+ * The whole application used to be one eager import graph: a visitor landing on
+ * the public homepage downloaded the admin dashboard, the radiologist review
+ * queue, the genomics page, the chatbot and every charting library they use
+ * before the page could render. That is a 1.5 MB main chunk (227 kB gzipped) to
+ * show a marketing page, over whatever connection the patient happens to have.
+ *
+ * Home stays eager because it is the first paint for an anonymous visitor and
+ * lazy-loading it would only add a round trip.
+ */
+const About = lazy(() => import("@/pages/about"));
+const ChatPage = lazy(() => import("@/pages/chat"));
+const GenomicsPage = lazy(() => import("@/pages/genomics"));
+const DashboardLayout = lazy(() => import("@/components/dashboard-layout"));
+const ForgotPassword = lazy(() => import("@/components/forgot-password"));
+
+/** Shown while a route chunk is in flight. */
+function RouteFallback() {
+  return (
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+      <div className="text-center space-y-4">
+        <div className="w-12 h-12 bg-blue-600 rounded-full animate-pulse mx-auto"></div>
+        <p className="text-white">Loading…</p>
+      </div>
+    </div>
+  );
+}
 
 function Router({ user, onLogin, onLogout }: { user: any; onLogin: (user: any) => void; onLogout: () => void }) {
   return (
@@ -105,7 +130,9 @@ function App() {
         <OptimizedQueryProvider>
           <TooltipProvider>
             <Toaster />
-            <Router user={user} onLogin={handleLogin} onLogout={handleLogout} />
+            <Suspense fallback={<RouteFallback />}>
+              <Router user={user} onLogin={handleLogin} onLogout={handleLogout} />
+            </Suspense>
           </TooltipProvider>
         </OptimizedQueryProvider>
       </AppErrorBoundary>

@@ -153,17 +153,57 @@ export class GoogleCalendarService {
   }
 
   /**
-   * Check multiple time slots at once
+   * Check many slots with a single call to Google.
+   *
+   * The previous implementation looped over checkTimeSlotAvailability, which
+   * issues one events.list request per slot. /api/appointments/available-slots
+   * asks about a whole month — roughly twenty working days times twelve slots
+   * times every clinician — so one page load became hundreds of sequential API
+   * calls: seconds of latency, and a quota an unauthenticated caller could
+   * exhaust by reloading. Now the busy intervals for the whole window are
+   * fetched once and every slot is decided in memory.
    */
   async checkMultipleTimeSlots(slots: Array<{ date: string; time: string }>): Promise<TimeSlotCheck[]> {
-    const results: TimeSlotCheck[] = [];
-
-    for (const slot of slots) {
-      const availability = await this.checkTimeSlotAvailability(slot.date, slot.time);
-      results.push(availability);
+    if (!this.isConfigured || slots.length === 0) {
+      return slots.map(({ date, time }) => ({ date, time, isAvailable: true }));
     }
 
-    return results;
+    const starts = slots.map((slot) => this.parseDateTime(slot.date, slot.time).getTime());
+    const windowStart = new Date(Math.min(...starts));
+    // Slots are treated as one hour, matching checkTimeSlotAvailability.
+    const windowEnd = new Date(Math.max(...starts) + 60 * 60 * 1000);
+
+    let busy: Array<{ start: number; end: number; summary: string }>;
+    try {
+      const events = await this.getEventsInTimeRange(windowStart, windowEnd);
+      busy = events
+        .filter((event) => event.start?.dateTime && event.end?.dateTime)
+        .map((event) => ({
+          start: new Date(event.start.dateTime).getTime(),
+          end: new Date(event.end.dateTime).getTime(),
+          summary: event.summary || 'Busy',
+        }));
+    } catch (error) {
+      console.error('Error fetching calendar events for slot batch:', error);
+      // Same posture as the single-slot path: a calendar outage must not block
+      // every appointment in the system.
+      return slots.map(({ date, time }) => ({ date, time, isAvailable: true }));
+    }
+
+    return slots.map(({ date, time }, index) => {
+      const slotStart = starts[index];
+      const slotEnd = slotStart + 60 * 60 * 1000;
+      const clash = busy.find((event) => event.start < slotEnd && event.end > slotStart);
+
+      return clash
+        ? {
+            date,
+            time,
+            isAvailable: false,
+            conflictingEvent: { summary: clash.summary } as CalendarEvent,
+          }
+        : { date, time, isAvailable: true };
+    });
   }
 
   /**

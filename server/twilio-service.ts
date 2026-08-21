@@ -43,15 +43,52 @@ export class TwilioService {
     return accessToken.toJwt();
   }
 
+  /**
+   * Escapes text destined for a TwiML document.
+   *
+   * The caller's display name was interpolated into the TwiML below raw. A
+   * fullName is chosen by the user at registration, so a name containing
+   *
+   *   </Say><Dial>+1900...</Dial><Say>
+   *
+   * closed the Say element and added a Dial verb, and the platform placed a
+   * second call to a number of the attacker's choosing, billed to this Twilio
+   * account. Anything interpolated into markup has to be escaped as markup.
+   */
+  private static escapeXml(value: string): string {
+    return value.replace(/[<>&'"]/g, (char) => {
+      switch (char) {
+        case '<': return '&lt;';
+        case '>': return '&gt;';
+        case '&': return '&amp;';
+        case "'": return '&apos;';
+        default: return '&quot;';
+      }
+    });
+  }
+
+  /** E.164: a leading + and 8-15 digits. */
+  static isValidPhoneNumber(value: string): boolean {
+    return /^\+[1-9]\d{7,14}$/.test(value.trim());
+  }
+
   // Make outbound call
   static async makeCall(toPhoneNumber: string, fromUser: string) {
     if (!client) throw new Error('Twilio not configured');
 
+    const to = toPhoneNumber.trim();
+    if (!TwilioService.isValidPhoneNumber(to)) {
+      // Rejected here as well as at the route, because this is the boundary that
+      // actually spends money.
+      throw new Error('Recipient phone number is not in E.164 format');
+    }
+
     try {
+      const speaker = TwilioService.escapeXml(fromUser).slice(0, 100);
       const call = await client.calls.create({
-        to: toPhoneNumber,
+        to,
         from: twilioPhoneNumber!,
-        twiml: `<Response><Say>Hello, you have a call from ${fromUser} from the medical platform.</Say></Response>`
+        twiml: `<Response><Say>Hello, you have a call from ${speaker} from the medical platform.</Say></Response>`
       });
 
       return { success: true, callSid: call.sid };

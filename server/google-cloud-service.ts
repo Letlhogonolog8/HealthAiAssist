@@ -168,10 +168,24 @@ function assessMedicalRisk(
   };
 }
 
+/**
+ * Stores a medical image in Cloud Storage and returns its gs:// object URI.
+ *
+ * The object is private. This function used to call file.makePublic() and hand
+ * back a https://storage.googleapis.com/... URL, which would have published every
+ * scan in the bucket to the open internet at a guessable address, readable
+ * without any credential — patient imaging, indexable. The comment on that call
+ * read "(optional)". It was never wired to a caller, which is the only reason
+ * nothing leaked; it is corrected here before anything starts using it.
+ *
+ * Access goes through getSignedScanUrl(), which mints a short-lived URL for a
+ * request that has already passed the application's authorisation checks.
+ */
 export async function uploadToGoogleCloudStorage(
-  imageBuffer: Buffer, 
-  fileName: string, 
-  bucketName: string = 'healthai-medical-scans'
+  imageBuffer: Buffer,
+  fileName: string,
+  contentType: string = 'image/jpeg',
+  bucketName: string = process.env.GOOGLE_CLOUD_SCAN_BUCKET || 'healthai-medical-scans'
 ): Promise<string> {
   if (!storageClient) {
     throw new Error('Google Cloud Storage client not initialized');
@@ -180,10 +194,14 @@ export async function uploadToGoogleCloudStorage(
   try {
     const bucket = storageClient.bucket(bucketName);
     const file = bucket.file(fileName);
-    
+
     await file.save(imageBuffer, {
+      resumable: false,
       metadata: {
-        contentType: 'image/jpeg',
+        contentType,
+        // Objects hold patient imaging: never served from a CDN edge, never
+        // cached by an intermediary.
+        cacheControl: 'private, max-age=0, no-store',
         metadata: {
           uploadedAt: new Date().toISOString(),
           source: 'healthai-platform'
@@ -191,14 +209,40 @@ export async function uploadToGoogleCloudStorage(
       }
     });
 
-    // Make file publicly readable (optional)
-    await file.makePublic();
-    
-    return `https://storage.googleapis.com/${bucketName}/${fileName}`;
+    return `gs://${bucketName}/${fileName}`;
   } catch (error) {
     console.error('Google Cloud Storage upload error:', error);
     throw new Error('Failed to upload image to Google Cloud Storage');
   }
+}
+
+/**
+ * A time-limited read URL for a gs:// object.
+ *
+ * Callers must have authorised the request first: this grants access to whoever
+ * holds the link for as long as it lives, so the window is deliberately short.
+ */
+export async function getSignedScanUrl(objectUri: string, ttlMinutes = 10): Promise<string> {
+  if (!storageClient) {
+    throw new Error('Google Cloud Storage client not initialized');
+  }
+
+  const match = /^gs:\/\/([^/]+)\/(.+)$/.exec(objectUri);
+  if (!match) {
+    throw new Error(`Not a Cloud Storage object URI: ${objectUri}`);
+  }
+
+  const [, bucketName, objectName] = match;
+  const [url] = await storageClient
+    .bucket(bucketName)
+    .file(objectName)
+    .getSignedUrl({
+      version: 'v4',
+      action: 'read',
+      expires: Date.now() + ttlMinutes * 60 * 1000,
+    });
+
+  return url;
 }
 
 export function isGoogleCloudAvailable(): boolean {

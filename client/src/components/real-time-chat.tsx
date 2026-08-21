@@ -253,19 +253,16 @@ export default function RealTimeChat({ currentUser, chatWith, onClose }: RealTim
         }
       );
       
-      // Send via WebSocket for real-time delivery
-      if (isConnected && sendWSMessage && selectedParticipant) {
-        sendWSMessage({
-          type: 'new_message',
-          data: newMessage,
-          targetUserId: selectedParticipant.id
-        });
-      }
-      
-      // Send notification to recipient
-      if (selectedParticipant) {
-        sendNotification(selectedParticipant.id, newMessage);
-      }
+      // Delivery and notification are handled by POST /api/chat/send itself.
+      //
+      // The client used to do both jobs after the message was stored: relay a
+      // copy to the recipient over its own socket, and POST /api/chat/notify to
+      // raise their notification. Neither was trustworthy — the relay let a
+      // client address a message to anyone with any sender attached, and the
+      // notify endpoint required no authentication at all — and both were
+      // redundant, because the server knows the sender and the recipient the
+      // moment it writes the row. It pushes to the recipient's socket and writes
+      // the notification there.
     },
 
 
@@ -408,25 +405,6 @@ export default function RealTimeChat({ currentUser, chatWith, onClose }: RealTim
     }
   };
   
-  // Send notification to recipient
-  const sendNotification = async (recipientId: number, message: any) => {
-    try {
-      await fetch('/api/chat/notify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          recipientId,
-          senderId: currentUser.id,
-          senderName: currentUser.name,
-          message: message.message,
-          timestamp: message.timestamp
-        })
-      });
-    } catch (error) {
-      console.error('Failed to send notification:', error);
-    }
-  };
 
   // Handle voice call with Twilio (simplified)
   const handleVoiceCall = async () => {

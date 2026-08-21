@@ -1,4 +1,4 @@
-import type { Express, Request } from "express";
+import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertUserSchema, insertScanSchema, insertTermSchema } from "@shared/schema";
@@ -6,7 +6,7 @@ import { exec } from "child_process";
 import path from "path";
 import fs from "fs";
 import multer from "multer";
-import { hashPassword, verifyPassword, loginLimiter, apiLimiter } from "./auth-middleware";
+import { hashPassword, verifyPassword, loginLimiter } from "./auth-middleware";
 import { getPatientProfile, getAvailableDermatologists, getAvailableAppointmentSlots } from './services';
 import { medicalChatbotService } from "./chatbot-service";
 import { 
@@ -29,17 +29,7 @@ import {
 } from "./security-middleware";
 import advancedRoutes from "./advanced-routes";
 import genomicsRoutes from "./genomics-routes";
-import { createCompressionMiddleware, ResponseOptimizer, PerformanceMonitor } from "./performance-optimizer";
-import { analyticsEngine } from "./analytics-engine";
 import { enhancedWsManager } from "./websocket";
-
-// Basic health endpoint (defined here to ensure it isn't shadowed by static middleware)
-export function registerHealthRoute(app: Express) {
-  app.get('/api/health', (_req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    res.status(200).send(JSON.stringify({ status: 'ok' }));
-  });
-}
 
 // Extend Express Request to include multer file
 interface MulterRequest extends Request {
@@ -66,14 +56,89 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
 import { randomUUID } from 'crypto';
-import { uploadToGoogleCloudStorage } from './google-cloud-service';
+import { uploadToGoogleCloudStorage, getSignedScanUrl, isGoogleCloudAvailable } from './google-cloud-service';
 import { ModelUnavailableError, InputRejectedError, assertModelEnabled, MODEL_REGISTRY } from './model-availability';
+import { summarise, type ProductionPerformance } from './production-performance';
+import { deliverInBackground } from './notification-delivery';
+import { OUTCOME_METHODS, OUTCOME_VALUES } from '@shared/schema';
 import {
   DISCLOSURE_TEXT,
   DISCLOSURE_VERSION,
   hasExternalAiConsent,
   recordExternalAiConsent,
 } from './privacy/external-processing';
+
+/** Extensions accepted for a stored scan, keyed by the MIME type multer reported. */
+const SCAN_IMAGE_EXTENSIONS: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/tiff': 'tif',
+  'image/tif': 'tif',
+  'image/webp': 'webp',
+  'image/avif': 'avif',
+};
+
+/**
+ * Stores the uploaded image and returns a reference for medical_scans.imagePath.
+ *
+ * Uploads were analysed and then discarded: the buffer went to the model, the
+ * verdict went to the database, and `imagePath` was never set on the row. A
+ * radiologist opening a scan flagged "high risk" therefore saw a confidence
+ * figure with no image behind it, which makes the human-review step — the one
+ * the model cards insist on — impossible to perform.
+ *
+ * Cloud Storage when it is configured, the local uploads directory otherwise.
+ * Neither location is web-accessible: reads go through
+ * GET /api/scans/:id/image, which checks who is asking.
+ *
+ * A storage failure is logged and yields null rather than throwing. Losing the
+ * image is bad; losing the finding as well, after the model has already flagged
+ * something, is worse.
+ */
+async function persistScanImage(
+  imageBuffer: Buffer,
+  file: Express.Multer.File,
+  patientId: number,
+  scanType: string
+): Promise<string | null> {
+  const extension = SCAN_IMAGE_EXTENSIONS[file.mimetype] ?? 'bin';
+  // Never the client's filename: it is attacker-controlled and has traversal
+  // sequences in it often enough to matter.
+  const objectName = `scans/${patientId}/${scanType}-${Date.now()}-${randomUUID()}.${extension}`;
+
+  // Cloud Storage first when it is configured, local disk when it is not — and
+  // local disk *also* when Cloud Storage is configured but fails.
+  //
+  // That last case is not hypothetical: credentials were present on the machine
+  // this was tested on, the default bucket was not, and every upload threw. The
+  // first version of this function treated a configured-but-failing object store
+  // as final and returned null, so a misconfigured bucket name silently
+  // discarded medical images while every other part of the request succeeded.
+  // A wrong storage location is a deployment mistake; losing the image is a
+  // clinical one.
+  if (isGoogleCloudAvailable()) {
+    try {
+      return await uploadToGoogleCloudStorage(imageBuffer, objectName, file.mimetype);
+    } catch (error) {
+      console.error(
+        'Cloud Storage upload failed; falling back to local disk. Check ' +
+          'GOOGLE_CLOUD_SCAN_BUCKET and the service account permissions:',
+        error
+      );
+    }
+  }
+
+  try {
+    const destination = path.join(process.cwd(), 'uploads', objectName);
+    await fs.promises.mkdir(path.dirname(destination), { recursive: true });
+    await fs.promises.writeFile(destination, imageBuffer);
+    return `file://${objectName}`;
+  } catch (error) {
+    console.error('Failed to store scan image; the result is kept without it:', error);
+    return null;
+  }
+}
 
 async function performRealTimeAnalysis(imageBuffer: Buffer, scanType: string, patientData?: any): Promise<AnalysisResult> {
   // Throws for modalities with no model (breast, colon, prostate) and for models
@@ -397,9 +462,33 @@ async function respondModelUnavailable(
   });
 }
 
+/**
+ * A real connectivity check, for dashboards that want to report database health.
+ *
+ * Replaces the constant 98 that /api/admin/stats used to return under the name
+ * "databaseHealth". A percentage that never changes is not a health signal.
+ */
+async function probeDatabase(): Promise<{ reachable: boolean; latencyMs: number | null }> {
+  try {
+    const { pool } = await import('./db');
+    const started = Date.now();
+    await pool.query('SELECT 1');
+    return { reachable: true, latencyMs: Date.now() - started };
+  } catch {
+    return { reachable: false, latencyMs: null };
+  }
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Global API rate limiting (100 req/min per IP) to blunt abuse/scraping.
-  app.use("/api", apiLimiter);
+  // The second global limiter that stood here has been removed.
+  //
+  // applySecurityMiddleware already installs a general /api limiter, plus
+  // tighter ones for /api/auth, the medical routes and chat. This added a third
+  // — 100 requests per minute per IP, with no development skip and no
+  // exemption — registered halfway down the route table, so it covered the
+  // routes below it and not the ones above. Two overlapping global limiters make
+  // the effective budget the minimum of the two and neither one obvious from
+  // reading either file.
 
   // Model cards: what each model is, how it was measured, and what it cannot do.
   // Public by design — anyone relying on a result should be able to see the
@@ -414,7 +503,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         intendedUse: 'Screening triage to prioritise human review. Not a diagnosis.',
         humanReviewRequired: true
       })),
-      reproduce: 'python scripts/evaluate-model.py <model.h5> <data_dir> <class0> <class1>'
+      reproduce: 'python scripts/evaluate-model.py <model.h5> <data_dir> <class0> <class1>',
+      // These figures describe a held-out dataset, not this deployment. How the
+      // models behave on the patients actually seen here is a separate
+      // measurement, taken from confirmed outcomes.
+      productionPerformance: '/api/models/performance'
     });
   });
 
@@ -800,9 +893,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid scan ID" });
       }
       
-      // Get the scan to check ownership
-      const allScans = await storage.getScans();
-      const existingScan = allScans.find(s => s.id === id);
+      // One indexed lookup by primary key. This used to load every scan in
+      // the database and run .find() over the array to reach one row.
+      const existingScan = await storage.getScanById(id);
       
       if (!existingScan) {
         return res.status(404).json({ error: "Scan not found" });
@@ -835,9 +928,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid scan ID" });
       }
       
-      // Get the scan to check ownership
-      const allScans = await storage.getScans();
-      const scan = allScans.find(s => s.id === id);
+      // One indexed lookup by primary key. This used to load every scan in
+      // the database and run .find() over the array to reach one row.
+      const scan = await storage.getScanById(id);
       
       if (!scan) {
         return res.status(404).json({ error: "Scan not found" });
@@ -871,34 +964,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Administrator dashboard API endpoints
   app.get("/api/admin/stats", requireAuth, requireAdmin, async (req, res) => {
     try {
-      const allUsers = await storage.getAllUsers();
-      const allScans = await storage.getScans();
-      const todayScans = allScans.filter(scan => {
-        if (!scan.createdAt) return false;
-        const scanDate = new Date(scan.createdAt);
-        const today = new Date();
-        return scanDate.toDateString() === today.toDateString();
+      // Counted in the database. This handler used to load every user row and
+      // every scan row into memory on each poll of the admin dashboard.
+      const [scanStats, totalUsers, criticalAlerts, dbProbe] = await Promise.all([
+        storage.getScanStats(),
+        storage.countAllUsers(),
+        storage.countCriticalScans(),
+        probeDatabase(),
+      ]);
+
+      res.json({
+        totalUsers,
+        activeScans: scanStats.processing,
+        dailyScans: scanStats.today,
+        criticalAlerts,
+
+        // `systemUptime: 99.8` and `databaseHealth: 98` were literals. They were
+        // rendered as "99.8% / Last 30 days" and "98% / Optimal performance",
+        // which is a monitoring claim this process cannot make: it knows how long
+        // *it* has been running and nothing about the previous thirty days.
+        //
+        // Availability over a window is what an external uptime monitor is for.
+        // What is reported instead is what is actually knowable here.
+        systemUptime: null,
+        uptimeSec: Math.round(process.uptime()),
+        databaseHealth: null,
+        database: dbProbe,
+
+        // Mean self-reported confidence. Named so it cannot be read as accuracy;
+        // accuracy needs adjudicated outcomes, which nothing here records.
+        aiAccuracy: scanStats.averageConfidencePct,
+
+        securityStatus: dbProbe.reachable ? 'secure' : 'degraded'
       });
-
-      const stats = {
-        totalUsers: allUsers.length,
-        activeScans: allScans.filter(scan => scan.result === 'Processing').length,
-        systemUptime: 99.8,
-        aiAccuracy: allScans.length > 0 ? Math.round(allScans.reduce((sum, scan) => {
-          const aiConf = (typeof (scan as any).aiConfidence === 'string')
-            ? (parseFloat((scan as any).aiConfidence.replace('%', '')) || 0)
-            : (typeof (scan as any).aiConfidence === 'number' ? (scan as any).aiConfidence : 0);
-          return sum + aiConf;
-        }, 0) / allScans.length) : 0,
-        dailyScans: todayScans.length,
-        criticalAlerts: allScans.filter(scan => 
-          scan.result && (scan.result.includes('urgent') || scan.result.includes('critical'))
-        ).length,
-        databaseHealth: 98,
-        securityStatus: 'secure'
-      };
-
-      res.json(stats);
     } catch (error) {
       console.error("Error fetching admin stats:", error);
       res.status(500).json({ error: "Failed to fetch admin statistics" });
@@ -961,31 +1059,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/admin/users/metrics", requireAuth, requireAdmin, async (req, res) => {
     try {
-      const allUsers = await storage.getAllUsers();
-      const today = new Date();
-      const todayUsers = allUsers.filter(user => {
-        const userDate = new Date(user.createdAt || new Date());
-        return userDate.toDateString() === today.toDateString();
+      // GROUP BY in the database, plus a live count from the session table.
+      const [roleCounts, signedIn] = await Promise.all([
+        storage.getUserRoleCounts(),
+        storage.countSignedInUsers(),
+      ]);
+
+      const countFor = (role: string) =>
+        roleCounts.find((row) => row.role === role)?.count ?? 0;
+
+      res.json({
+        totalUsers: roleCounts.reduce((sum, row) => sum + row.count, 0),
+        admins: countFor('admin'),
+        radiologists: countFor('radiologist'),
+        doctors: countFor('doctor'),
+        patients: countFor('patient'),
+
+        // Users holding an unexpired session, counted. This was
+        // `Math.floor(totalUsers * 0.3)`: a fixed 30% of the account table,
+        // reported as "active users" whether anyone was signed in or not.
+        activeUsers: signedIn,
+        newUsersToday: roleCounts.reduce((sum, row) => sum + row.newToday, 0),
+
+        // `loginRate: 85` and `avgSessionTime: 24` were literals under a comment
+        // saying real metrics were to be integrated later. Neither is derivable
+        // from anything this system records: successful logins are not written to
+        // the audit trail, and the session table stores a cookie lifetime rather
+        // than time spent. Null rather than a plausible-looking number.
+        loginRate: null,
+        avgSessionTime: null,
+        instrumented: false,
       });
-
-      // Placeholder values for login rate and average session time
-      // TODO: Integrate real login/session metrics from user activity logs or session store
-      const loginRate = 85; // percentage
-      const avgSessionTime = 24; // minutes
-
-      const metrics = {
-        totalUsers: allUsers.length,
-        admins: allUsers.filter(user => user.role === 'admin').length,
-        radiologists: allUsers.filter(user => user.role === 'radiologist').length,
-        doctors: allUsers.filter(user => user.role === 'doctor').length,
-        patients: allUsers.filter(user => user.role === 'patient').length,
-        activeUsers: Math.floor(allUsers.length * 0.3),
-        newUsersToday: todayUsers.length,
-        loginRate,
-        avgSessionTime
-      };
-
-      res.json(metrics);
     } catch (error) {
       console.error("Error fetching user metrics:", error);
       res.status(500).json({ error: "Failed to fetch user metrics" });
@@ -994,31 +1098,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/admin/scans/metrics", requireAuth, requireAdmin, async (req, res) => {
     try {
-      const allScans = await storage.getScans();
-      const todayScans = allScans.filter(scan => {
-        if (!scan.createdAt) return false;
-        const scanDate = new Date(scan.createdAt);
-        const today = new Date();
-        return scanDate.toDateString() === today.toDateString();
+      // Aggregated in the database. This handler used to pull every scan row
+      // into memory and count them with .filter().length, on an endpoint the
+      // admin dashboard polls.
+      const stats = await storage.getScanStats();
+
+      res.json({
+        totalScans: stats.total,
+        pendingScans: stats.processing,
+        completedToday: stats.completedToday,
+        cancerDetections: stats.cancerDetections,
+        // Was the constant 2.4, while processing_time_ms sat recorded on every
+        // row. Null when nothing has been measured yet, rather than a number.
+        averageProcessingTimeMs: stats.averageProcessingTimeMs,
+        aiConfidenceAverage: stats.averageConfidencePct,
       });
-
-      const metrics = {
-        totalScans: allScans.length,
-        pendingScans: allScans.filter(scan => scan.result === 'Processing').length,
-        completedToday: todayScans.filter(scan => scan.result !== 'Processing').length,
-        cancerDetections: allScans.filter(scan => 
-          scan.result && (scan.result.toLowerCase().includes('cancer') || scan.result.toLowerCase().includes('malignant'))
-        ).length,
-        averageProcessingTime: 2.4,
-        aiConfidenceAverage: allScans.length > 0 ? Math.round(allScans.reduce((sum, scan) => {
-          const aiConf = (typeof (scan as any).aiConfidence === 'string')
-            ? (parseFloat((scan as any).aiConfidence.replace('%', '')) || 0)
-            : (typeof (scan as any).aiConfidence === 'number' ? (scan as any).aiConfidence : 0);
-          return sum + aiConf;
-        }, 0) / allScans.length) : 0
-      };
-
-      res.json(metrics);
     } catch (error) {
       console.error("Error fetching scan metrics:", error);
       res.status(500).json({ error: "Failed to fetch scan metrics" });
@@ -1026,25 +1120,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // New endpoint for scan type distribution
+  /**
+   * Real time series for the admin charts.
+   *
+   * The two charts on that dashboard used to be generated in the browser from a
+   * single number: the scan trend subtracted a fixed step per day from today's
+   * count, and the user-growth bars multiplied the current user total by seven
+   * hardcoded ratios. Both drew a confident upward curve on any dataset,
+   * including an empty one.
+   */
+  app.get("/api/admin/trends", requireAuth, requireAdmin, async (_req, res) => {
+    try {
+      const [scansPerDay, usersByMonth] = await Promise.all([
+        storage.getScansPerDay(14),
+        storage.getCumulativeUsersByMonth(7),
+      ]);
+      res.json({ scansPerDay, usersByMonth });
+    } catch (error) {
+      console.error("Error fetching admin trends:", error);
+      res.status(500).json({ error: "Failed to fetch trends" });
+    }
+  });
+
   app.get("/api/admin/scans/type-distribution", requireAuth, requireAdmin, async (req, res) => {
     try {
-      const allScans = await storage.getScans();
-      const totalScans = allScans.length;
+      // GROUP BY in the database rather than a full table read plus a manual
+      // tally.
+      const stats = await storage.getScanStats();
 
-      // Count scans by type
-      const scanTypeCounts: Record<string, number> = {};
-      allScans.forEach(scan => {
-        const type = scan.scanType || 'Unknown';
-        scanTypeCounts[type] = (scanTypeCounts[type] || 0) + 1;
-      });
-
-      // Calculate percentages
-      const scanTypeDistribution = Object.entries(scanTypeCounts).map(([type, count]) => ({
-        type,
-        percentage: totalScans > 0 ? (count / totalScans) * 100 : 0
-      }));
-
-      res.json(scanTypeDistribution);
+      res.json(
+        stats.byType.map(({ scanType, count }) => ({
+          type: scanType || 'Unknown',
+          count,
+          percentage: stats.total > 0 ? (count / stats.total) * 100 : 0,
+        }))
+      );
     } catch (error) {
       console.error("Error fetching scan type distribution:", error);
       res.status(500).json({ error: "Failed to fetch scan type distribution" });
@@ -1111,17 +1221,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/radiologist/pending-reviews", auditLog('READ_PENDING_REVIEWS'), requireAuth, requireMedicalAccess, async (req, res) => {
     try {
-      const allScans = await storage.getScans();
-      const allUsers = await storage.getAllUsers();
       // Scans awaiting a human: still processing, or queued because automated
       // analysis could not run at all. The second case must not be dropped —
       // those scans have no AI result and depend entirely on this queue.
-      const pendingScans = allScans.filter(
-        scan => scan.result === 'Processing' || scan.status === 'pending_manual_review'
-      );
+      //
+      // Two indexed queries with the patient joined on, instead of reading every
+      // scan and every user and filtering in JavaScript. They are separate
+      // queries because the two cases live in different columns: one is a
+      // `result` value, the other a `status` value.
+      const [processing, manualReview] = await Promise.all([
+        storage.listScansWithPatient({ limit: 200, order: 'oldest' }),
+        storage.listScansWithPatient({ status: 'pending_manual_review', limit: 200, order: 'oldest' }),
+      ]);
+
+      const seen = new Set<number>();
+      const pendingScans = [
+        ...manualReview,
+        ...processing.filter(scan => scan.result === 'Processing'),
+      ].filter(scan => (seen.has(scan.id) ? false : seen.add(scan.id)));
 
       const reviews = pendingScans.map(scan => {
-        const patient = allUsers.find(user => user.id === scan.patientId);
+        const patient = scan.patientName ? { fullName: scan.patientName } : null;
         const awaitingManualReview = scan.status === 'pending_manual_review';
         return {
           id: scan.id,
@@ -1139,7 +1259,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             ? (parseFloat(scan.aiConfidence.replace('%', '')) || 0)
             : (typeof scan.aiConfidence === 'number' ? scan.aiConfidence : 0),
           bodyPart: (scan.scanType || '').split(' ')[0] || 'Unknown',
-          referringDoctor: 'Johnson',
+          // Was the literal 'Johnson' on every row. There is no referring-doctor
+          // field on a scan, so the honest answer is that it is not recorded.
+          referringDoctor: null,
           notes: scan.notes
         };
       });
@@ -1153,28 +1275,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/radiologist/completed-today", auditLog('READ_COMPLETED_SCANS'), requireAuth, requireMedicalAccess, async (req, res) => {
     try {
-      const allScans = await storage.getScans();
-      const allUsers = await storage.getAllUsers();
-      const todayScans = allScans.filter(scan => {
-        const scanDate = new Date(scan.createdAt);
-        const today = new Date();
-        return scanDate.toDateString() === today.toDateString() && scan.result !== 'Processing';
-      });
+      // Today's rows, filtered by the database on an indexed column, with the
+      // patient joined on. This read every scan and every user, then compared
+      // date strings in JavaScript to find the ones from today.
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
 
-      const completed = todayScans.map(scan => {
-        const patient = allUsers.find(user => user.id === scan.patientId);
-        return {
+      const scans = await storage.listScansWithPatient({ since: startOfToday, limit: 200 });
+
+      const completed = scans
+        .filter(scan => scan.result !== 'Processing')
+        .map(scan => ({
           id: scan.id,
-          patientName: patient ? patient.fullName : `Patient ${scan.patientId}`,
+          patientName: scan.patientName,
           scanType: scan.scanType,
           completedAt: scan.createdAt,
           findings: scan.result,
-          recommendation: scan.notes || 'Follow-up as needed',
-          aiAccuracy: (typeof scan.aiConfidence === 'string')
-            ? (parseFloat(scan.aiConfidence.replace('%', '')) || 0)
-            : (typeof scan.aiConfidence === 'number' ? scan.aiConfidence : 0)
-        };
-      });
+          // Was `|| 'Follow-up as needed'`, which put a clinical instruction on
+          // every scan whose notes happened to be empty.
+          recommendation: scan.notes ?? null,
+          // Named for what it is. This was called aiAccuracy while holding the
+          // model's self-reported confidence, and fell back to 0 — which reads
+          // as "0% accurate" rather than "not recorded".
+          aiConfidencePct: (typeof scan.aiConfidence === 'string' && scan.aiConfidence.trim() !== '')
+            ? (Number.parseFloat(scan.aiConfidence.replace('%', '')) || null)
+            : null
+        }));
 
       res.json(completed);
     } catch (error) {
@@ -1432,19 +1558,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid report ID" });
       }
       
-      const allScans = await storage.getScans();
-      const allUsers = await storage.getAllUsers();
-      const scan = allScans.find(s => s.id === reportId);
-      
+      // A primary-key lookup with the patient joined on. This read every scan
+      // and every user in order to find one row.
+      const scan = await storage.getScanWithPatient(reportId);
+
       if (!scan) {
         return res.status(404).json({ error: "Report not found" });
       }
       
-      const patient = allUsers.find(user => user.id === scan.patientId);
-      
       const reportDetails = {
         id: scan.id,
-        patientName: patient ? patient.fullName : `Patient ${scan.patientId}`,
+        // Joined on by the query. The fallback that stood here rendered
+        // "Patient 47" as if it were a name.
+        patientName: scan.patientName,
         patientId: scan.patientId,
         scanType: scan.scanType,
         submittedAt: scan.createdAt,
@@ -1567,99 +1693,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Remove duplicate unauthenticated variant; keep logs inside the authenticated handler if needed
-  /*
-  app.get("/api/patient/profile/:id", requireAuth, async (req, res) => {
-    try {
-      console.log('Patient profile request - Session:', !!req.session);
-      console.log('Patient profile request - User in session:', req.session?.user);
-      console.log('Patient profile request - Requested ID:', req.params.id);
-      
-      const patientId = parseInt(req.params.id);
-      if (isNaN(patientId)) {
-        return res.status(400).json({ error: "Invalid patient ID" });
-      }
-      
-      const user = await storage.getUser(patientId);
-      console.log('Patient profile - Found user:', !!user, user?.role);
-      
-      if (!user || user.role !== 'patient') {
-        return res.status(404).json({ error: "Patient not found" });
-      }
-
-      const patientScans = await storage.getScans(patientId);
-      
-      // Generate comprehensive patient data from database
-      const patientData = {
-        id: user.id,
-        personalInfo: {
-          name: user.fullName || 'Not provided',
-          age: user.age || 34,
-          gender: user.gender || "Female",
-          bloodType: user.bloodType || "O+",
-          height: "5'6\"",
-          weight: "135 lbs",
-          phone: user.phone || "012-342-7901",
-          email: user.email || user.username,
-          address: user.address || "103 Main St, Healthcare City, HC 12541",
-          emergencyContact: user.emergencyContact || "Jacob Moalusi - 082-763-5702"
-        },
-        medicalHistory: {
-          allergies: ["Penicillin", "Shellfish"],
-          conditions: ["Hypertension", "Type 2 Diabetes"],
-          medications: ["Metformin 500mg twice daily", "Lisinopril 10mg daily"],
-          surgeries: ["Appendectomy (2019)", "Wisdom teeth removal (2020)"]
-        },
-        recentScans: patientScans.map(scan => ({
-          id: scan.id,
-          type: scan.scanType,
-          date: scan.createdAt ? new Date(scan.createdAt).toISOString() : new Date().toISOString(),
-          result: scan.result || "Normal findings",
-          confidence: scan.aiConfidence || "92%",
-          status: scan.result === 'Processing' ? 'pending' : 'normal',
-          doctor: "Dr. Sarah Johnson"
-        })),
-        appointments: [
-          {
-            id: 1,
-            date: "2025-06-20",
-            time: "10:00 AM",
-            doctor: "Dr. Sarah Johnson",
-            type: "Follow-up Consultation",
-            status: "scheduled"
-          },
-          {
-            id: 2,
-            date: "2025-06-15",
-            time: "2:30 PM",
-            doctor: "Dr. Michael Chen",
-            type: "Annual Physical",
-            status: "completed"
-          }
-        ],
-        vitals: {
-          bloodPressure: "120/80",
-          heartRate: 72,
-          temperature: 98.6,
-          weight: 135,
-          bmi: 21.8,
-          lastUpdated: new Date().toISOString()
-        },
-        healthScore: {
-          overall: 85,
-          cardiovascular: 88,
-          respiratory: 92,
-          metabolic: 78
-        }
-      };
-
-      res.json(patientData);
-    } catch (error) {
-      console.error("Error fetching patient profile:", error);
-      res.status(500).json({ error: "Failed to fetch patient profile" });
-    }
-  });
-  */
 
   // `:id` here is a *patient* id, not an appointment id, so the caller was able
   // to read any patient's appointment list by changing the number.
@@ -1728,10 +1761,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ? (req.body.patientId ?? sessionUserId)
         : sessionUserId;
 
-      if (!patientId || !appointmentDate || !appointmentTime || !type || !doctorName) {
-        return res.status(400).json({ 
+      const requestedDoctorId = parseInt(req.body.doctorId, 10);
+
+      if (!patientId || !appointmentDate || !appointmentTime || !type ||
+          (!doctorName && !Number.isInteger(requestedDoctorId))) {
+        return res.status(400).json({
           error: 'Missing required fields',
-          message: 'Patient ID, date, time, type, and doctor are required'
+          message: 'Patient ID, date, time, type, and a clinician are required'
         });
       }
 
@@ -1750,14 +1786,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Find the medical professional (doctor or radiologist) by name
-      const allUsers = await storage.getAllUsers();
-      const medicalProfessional = allUsers.find(user => 
-        ['doctor', 'radiologist'].includes(user.role) && user.fullName === doctorName
-      );
+      // Resolve the clinician by id when the caller supplied one.
+      //
+      // Matching on fullName alone is ambiguous the moment two clinicians share
+      // a name, and it silently books the wrong one. The name is still accepted
+      // so older clients keep working, but the id wins.
+      let medicalProfessional;
+      if (Number.isInteger(requestedDoctorId)) {
+        const candidate = await storage.getUser(requestedDoctorId);
+        if (candidate && ['doctor', 'radiologist'].includes(candidate.role)) {
+          medicalProfessional = candidate;
+        }
+      } else {
+        const allUsers = await storage.getAllUsers();
+        medicalProfessional = allUsers.find(user =>
+          ['doctor', 'radiologist'].includes(user.role) && user.fullName === doctorName
+        );
+      }
 
       if (!medicalProfessional) {
-        return res.status(404).json({ 
+        return res.status(404).json({
           error: 'Medical professional not found',
           message: 'The selected medical professional is not available'
         });
@@ -1791,7 +1839,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       const newAppointment = await storage.createAppointment(appointmentData);
-      
+
+      // Tell the clinician, now.
+      //
+      // Nothing was pushed anywhere when an appointment was created: the doctor
+      // portal found out on its next poll, and the notification bell never
+      // mentioned it at all.
+      const patient = await storage.getUser(Number(patientId));
+      const patientName = patient?.fullName || patient?.username || 'A patient';
+
+      await storage
+        .createNotification({
+          recipientId: medicalProfessional.id,
+          actorId: Number(patientId),
+          type: 'appointment',
+          title: `New appointment with ${patientName}`,
+          body: `${type} on ${appointmentDate} at ${appointmentTime}`,
+          link: '/',
+        })
+        .catch((error) => console.error('Failed to record appointment notification:', error));
+
+      enhancedWsManager?.sendToUser(medicalProfessional.id, {
+        type: 'appointment_update',
+        data: {
+          appointmentId: newAppointment.id,
+          action: 'created',
+          patientId: Number(patientId),
+          appointmentDate,
+          appointmentTime,
+        },
+      });
+
       res.status(200).json({
         success: true,
         message: 'Appointment booked successfully',
@@ -1918,50 +1996,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get available medical professionals (doctors and radiologists) for appointment booking
-  app.get("/api/doctors/available", async (req, res) => {
+  /**
+   * The clinician picker for the booking form.
+   *
+   * Public because a visitor has to choose someone before they can register, but
+   * it returns only what a picker needs. It used to include every clinician's
+   * email address, which made an unauthenticated GET a staff mailing list.
+   *
+   * `available` is gone rather than hardcoded to true: it claimed to describe
+   * availability and described nothing. Whether a given clinician has a free slot
+   * is answered by /api/appointments/available-slots, which actually looks.
+   */
+  app.get("/api/doctors/available", async (_req, res) => {
     try {
-      const medicalStaff = await storage.getAllUsers();
-      const availableProfessionals = medicalStaff
-        .filter(user => ['doctor', 'radiologist'].includes(user.role))
-        .map(professional => ({
-          id: professional.id,
-          name: professional.fullName,
-          role: professional.role,
-          specialty: professional.specialization || (professional.role === 'radiologist' ? 'Medical Imaging' : 'General Practice'),
-          available: true,
-          email: professional.email
-        }));
+      // Filtered and projected in the database. This read every user row —
+      // password hashes included — and filtered in JavaScript, on a public
+      // endpoint the booking form calls on every render.
+      const medicalStaff = await storage.listDirectory(['doctor', 'radiologist']);
+      const availableProfessionals = medicalStaff.map(professional => ({
+        id: professional.id,
+        name: professional.fullName,
+        role: professional.role,
+        specialty: professional.specialization || (professional.role === 'radiologist' ? 'Medical Imaging' : 'General Practice')
+      }));
 
-      res.status(200).json(availableProfessionals);
-      return res.end();
+      res.json(availableProfessionals);
     } catch (error) {
       console.error("Error fetching available medical professionals:", error);
       res.status(500).json({ error: "Failed to fetch available medical professionals" });
-      return res.end();
     }
   });
 
   // Get available radiologists for specialized imaging appointments
-  app.get("/api/radiologists/available", async (req, res) => {
+  // Same shape and the same reasoning as /api/doctors/available: no email
+  // address, and no hardcoded `available: true`.
+  app.get("/api/radiologists/available", async (_req, res) => {
     try {
-      const medicalStaff = await storage.getAllUsers();
-      const availableRadiologists = medicalStaff
-        .filter(user => user.role === 'radiologist')
-        .map(radiologist => ({
-          id: radiologist.id,
-          name: radiologist.fullName,
-          role: 'radiologist',
-          specialty: radiologist.specialization || 'Medical Imaging',
-          available: true,
-          email: radiologist.email
-        }));
+      const availableRadiologists = (await storage.listDirectory(['radiologist'])).map(radiologist => ({
+        id: radiologist.id,
+        name: radiologist.fullName,
+        role: 'radiologist',
+        specialty: radiologist.specialization || 'Medical Imaging'
+      }));
 
-      res.status(200).json(availableRadiologists);
-      return res.end();
+      res.json(availableRadiologists);
     } catch (error) {
       console.error("Error fetching available radiologists:", error);
       res.status(500).json({ error: "Failed to fetch available radiologists" });
-      return res.end();
     }
   });
 
@@ -1977,34 +2058,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
         month = new Date().getMonth() + 1;
       }
 
-      // Get base available slots
-      const slots = await getAvailableAppointmentSlots(year, month);
-      
-      // Check Google Calendar availability for each slot
-      const { googleCalendarService } = await import('./google-calendar-service');
-      const enhancedSlots: any = {};
-      
-      for (const [dateStr, timeSlots] of Object.entries(slots)) {
-        const availableTimesForDate: any[] = [];
-        
-        for (const timeSlot of timeSlots as any[]) {
-          const availability = await googleCalendarService.checkTimeSlotAvailability(dateStr, timeSlot.time);
-          
-          if (availability.isAvailable) {
-            availableTimesForDate.push({
-              ...timeSlot,
-              available: true,
-              source: 'system'
-            });
-          } else {
-            // Skip unavailable slots - don't show them in the UI
-            console.log(`Time slot ${timeSlot.time} on ${dateStr} unavailable due to: ${availability.conflictingEvent?.summary || 'External calendar conflict'}`);
-          }
-        }
-        
-        enhancedSlots[dateStr] = availableTimesForDate;
+      // Reject absurd ranges before doing any work: year and month come straight
+      // from the query string.
+      if (year < 2000 || year > 2100 || month < 1 || month > 12) {
+        return res.status(400).json({ error: 'Invalid year or month' });
       }
-      
+
+      const slots = await getAvailableAppointmentSlots(year, month);
+
+      // One calendar round trip for the whole month.
+      //
+      // This used to call checkTimeSlotAvailability once per slot, inside a
+      // nested loop over days and clinicians, and await each one. A month with a
+      // handful of clinicians is several hundred sequential Google API calls per
+      // request, on an endpoint that needs no authentication.
+      const { googleCalendarService } = await import('./google-calendar-service');
+
+      const flattened = Object.entries(slots).flatMap(([dateStr, timeSlots]) =>
+        (timeSlots as any[]).map((timeSlot) => ({ dateStr, timeSlot }))
+      );
+      const checks = await googleCalendarService.checkMultipleTimeSlots(
+        flattened.map(({ dateStr, timeSlot }) => ({ date: dateStr, time: timeSlot.time }))
+      );
+
+      const enhancedSlots: Record<string, any[]> = {};
+      for (const dateStr of Object.keys(slots)) enhancedSlots[dateStr] = [];
+
+      flattened.forEach(({ dateStr, timeSlot }, index) => {
+        if (checks[index]?.isAvailable) {
+          enhancedSlots[dateStr].push({ ...timeSlot, available: true, source: 'system' });
+        }
+      });
+
       res.json(enhancedSlots);
     } catch (error) {
       console.error("Error fetching available appointment slots:", error);
@@ -2013,50 +2098,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Homepage Statistics API endpoint
-  app.get("/api/homepage/statistics", async (req, res) => {
+  /**
+   * Public homepage counters.
+   *
+   * Every figure is either a row count or comes from MODEL_REGISTRY, whose
+   * numbers are the output of scripts/evaluate-model.py on a held-out split.
+   *
+   * The previous version published four claims the system could not support.
+   * "Accuracy Rate" counted scans whose *self-reported confidence* exceeded 90%
+   * and called the proportion accuracy — confidence is not correctness, and a
+   * model that is confidently wrong scored 100% on it. "Earlier Detection: 30%"
+   * and "Workflow Efficiency" were a constant and an arbitrary formula
+   * (scans/users*10) with no measurement behind either. All three fell back to
+   * hardcoded 97%/30%/60% strings whenever the database threw, so a failed query
+   * published marketing numbers instead of an error. The hero section was cleaned
+   * up for exactly this reason; this endpoint was missed.
+   *
+   * Sensitivity is labelled as such and attributed to a modality rather than
+   * being averaged into a single headline "accuracy".
+   */
+  app.get("/api/homepage/statistics", async (_req, res) => {
     try {
-      const allScans = await storage.getScans();
-      const allUsers = await storage.getAllUsers();
-      
-      // Calculate real-time statistics from database
-      const totalScans = allScans.length;
-      const completedScans = allScans.filter(scan => scan.result !== 'Processing').length;
-      const accurateScans = allScans.filter(scan => 
-        scan.aiConfidence && parseFloat(scan.aiConfidence.replace('%', '')) > 90
-      ).length;
-      
-      const statistics = [
-        { 
-          value: "5", 
-          label: "Cancer Types" 
-        },
-        { 
-          value: completedScans > 0 ? `${Math.round((accurateScans / completedScans) * 100)}%` : "97%", 
-          label: "Accuracy Rate" 
-        },
-        { 
-          value: "30%", 
-          label: "Earlier Detection" 
-        },
-        { 
-          value: totalScans > 0 ? `${Math.min(Math.round((totalScans / allUsers.length) * 10), 100)}%` : "60%", 
-          label: "Workflow Efficiency" 
-        },
-      ];
+      const enabledModels = Object.entries(MODEL_REGISTRY).filter(([, m]) => m.enabled);
+      const [scanCount, clinicianCount] = await Promise.all([
+        storage.countScans(),
+        storage.countUsersByRoles(['doctor', 'radiologist']),
+      ]);
 
-      res.json(statistics);
+      const best = enabledModels
+        .map(([scanType, m]) => ({ scanType, sensitivity: m.evaluation?.sensitivity ?? 0 }))
+        .sort((a, b) => b.sensitivity - a.sensitivity)[0];
+
+      res.json([
+        { value: String(enabledModels.length), label: "Modalities Live" },
+        {
+          value: best ? `${Math.round(best.sensitivity * 100)}%` : "—",
+          label: best ? `${best.scanType} sensitivity` : "Sensitivity",
+        },
+        { value: scanCount.toLocaleString("en"), label: "Scans Analysed" },
+        { value: clinicianCount.toLocaleString("en"), label: "Clinicians On Platform" },
+      ]);
     } catch (error) {
       console.error("Error fetching homepage statistics:", error);
-      
-      // Return fallback statistics if database fails
-      const fallbackStats = [
-        { value: "5", label: "Cancer Types" },
-        { value: "97%", label: "Accuracy Rate" },
-        { value: "30%", label: "Earlier Detection" },
-        { value: "60%", label: "Workflow Efficiency" },
-      ];
-      
-      res.json(fallbackStats);
+      // No fallback figures. An unavailable counter is reported as unavailable;
+      // it is not replaced with a number nobody measured.
+      res.status(503).json({ error: "Statistics temporarily unavailable" });
     }
   });
 
@@ -2236,151 +2322,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Image Upload and Analysis API endpoint
-  app.post("/api/scan/upload", requireAuth, upload.single('image'), async (req, res) => {
+  /**
+   * Analyses an uploaded scan, stores the image, and records the result.
+   *
+   * Mounted at two paths because both are in use by different parts of the
+   * client. The two used to be separate route registrations with byte-identical
+   * hundred-line bodies, so every fix had to be made twice and, in practice,
+   * was not.
+   *
+   * Three defects are fixed here beyond the duplication:
+   *
+   *  1. `patientId` came from the request body with no check on who was asking.
+   *     Any logged-in patient could post `patientId=<someone else>` and write a
+   *     scan result — "Lung Cancer detected - high risk" — into another
+   *     patient's chart. /api/patient/appointments had the same hole and was
+   *     already fixed; this pair was missed. A patient may now only submit scans
+   *     for themselves; clinical staff may submit on a patient's behalf.
+   *
+   *  2. The image was thrown away. `imagePath` was never set, so a radiologist
+   *     opening a flagged scan had a verdict and a confidence with no image
+   *     behind them, which makes the review step meaningless. The bytes are now
+   *     stored and the row points at them.
+   *
+   *  3. Nothing was announced. A high-risk result sat in the table until someone
+   *     happened to refresh; radiologists are now notified as it lands.
+   */
+  const handleScanAnalysis = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      if (!req.file) {
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (!file) {
         return res.status(400).json({ error: "No image file provided" });
       }
 
-      const { scanType, patientId: patientIdStr } = req.body;
-      const imageBuffer = req.file.buffer;
+      const { scanType } = req.body;
+      const imageBuffer = file.buffer;
 
-      // Parse patientId from request body or session
-      const patientId = patientIdStr ? parseInt(patientIdStr) : ((req.session as any)?.user?.id);
-      if (patientIdStr && isNaN(patientId)) {
-        return res.status(400).json({ error: "Invalid patient ID" });
-      }
+      const sessionUserId = req.session!.user!.id;
+      const sessionRole = req.session!.user!.role;
+      const isStaff = ['admin', 'doctor', 'radiologist'].includes(sessionRole);
 
-      if (!patientId) {
-        return res.status(400).json({ error: "Patient ID is required" });
-      }
-
-      // Validate patientId exists in users table
-      const user = await storage.getUser(patientId);
-      if (!user) {
-        return res.status(400).json({ error: "Invalid patient ID" });
-      }
-
-      // Perform real-time AI analysis using unified cancer detection
-      console.log(`Performing real-time analysis for ${scanType} scan...`);
-      const analysisResult = await performRealTimeAnalysis(imageBuffer, scanType);
-
-      // Save scan to database
-      const scanData = {
-        patientId: patientId,
-        scanType: scanType,
-        result: analysisResult.hasCancer ? 
-          `${analysisResult.cancerType || 'Abnormal findings'} detected - ${analysisResult.riskLevel} risk` : 
-          "No abnormal findings detected",
-        aiConfidence: `${Math.round(analysisResult.confidence)}%`,
-        // Pin the model that produced this. Models get retrained and thresholds
-        // move, so without it a stored result cannot be explained or reproduced
-        // later.
-        modelVersion: analysisResult.advancedMetrics?.modelVersion ?? null,
-        processingTime: analysisResult.advancedMetrics?.processingTimeMs ?? null,
-        riskLevel: analysisResult.riskLevel ?? null,
-        notes: analysisResult.findings ? analysisResult.findings.join('. ') : 'Analysis completed'
-      };
-
-      const savedScan = await storage.createScan(scanData);
-
-      // Return enhanced analysis results
-      res.json({
-        success: true,
-        scan: savedScan,
-        analysis: {
-          // Primary Results
-          type: scanType.charAt(0).toUpperCase() + scanType.slice(1),
-          confidence: Math.round(analysisResult.confidence),
-          accuracyLevel: Math.round(analysisResult.accuracyLevel),
-          clinicalGrade: analysisResult.clinicalGrade,
-          status: analysisResult.hasCancer ? "abnormal" : "normal",
-
-          // Detailed Findings
-          primaryFinding: analysisResult.findings?.[0] || 'Analysis completed',
-          findings: analysisResult.findings || [],
-          recommendations: analysisResult.recommendations || [],
-
-          // Cancer Assessment
-          cancerType: analysisResult.cancerType,
-          riskLevel: analysisResult.riskLevel?.toUpperCase() || 'LOW',
-          riskAssessment: (analysisResult.riskLevel?.charAt(0).toUpperCase() + analysisResult.riskLevel?.slice(1) + ' Risk') || 'Low Risk',
-
-          // Clinical Details
-          urgency: analysisResult.analysis?.urgency,
-          requiresHumanReview: analysisResult.analysis?.requiresHumanReview ?? true,
-
-          // Malignancy Indicators
-          malignancyIndicators: analysisResult.malignancyIndicators || [],
-
-          // Technical Metrics. No `||` defaults: an absent measurement is reported
-          // as absent, not backfilled with a plausible-looking constant.
-          processingTimeMs: analysisResult.advancedMetrics?.processingTimeMs ?? null,
-          modelVersion: analysisResult.advancedMetrics?.modelVersion ?? null,
-          inputResolution: analysisResult.advancedMetrics?.inputResolution ?? null,
-          
-          // Summary for UI Display
-          summary: {
-            aiConfidence: `${Math.round(analysisResult.confidence)}%`,
-            riskAssessment: (analysisResult.riskLevel?.toUpperCase() || 'LOW') + ' RISK',
-            primaryFinding: analysisResult.hasCancer ? 'Abnormal' : 'Normal',
-            cancerType: analysisResult.cancerType + (analysisResult.hasCancer ? ' Cancer' : ''),
-            urgentAction: analysisResult.riskLevel === 'high'
-          }
+      let patientId = sessionUserId;
+      if (req.body.patientId !== undefined && req.body.patientId !== '') {
+        const requested = parseInt(req.body.patientId, 10);
+        if (!Number.isInteger(requested)) {
+          return res.status(400).json({ error: "Invalid patient ID" });
         }
-      });
-
-    } catch (error) {
-      if (error instanceof InputRejectedError) {
-        return respondInputRejected(error, res);
-      }
-      if (error instanceof ModelUnavailableError) {
-        return respondModelUnavailable(error, req, res);
-      }
-      console.error("Error processing image upload:", error);
-      res.status(500).json({
-        error: "Failed to process image analysis",
-        details: error instanceof Error ? error.message : String(error)
-      });
-    }
-  });
-
-  // New route for /api/scans/analyze to fix client-server mismatch
-  app.post("/api/scans/analyze", requireAuth, upload.single('image'), async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ error: "No image file provided" });
+        if (requested !== sessionUserId && !isStaff) {
+          return res.status(403).json({ error: "You may only submit scans for yourself" });
+        }
+        patientId = requested;
       }
 
-      const { scanType, patientId: patientIdStr } = req.body;
-      const imageBuffer = req.file.buffer;
-
-      // Parse patientId from request body or session
-      const patientId = patientIdStr ? parseInt(patientIdStr) : ((req.session as any)?.user?.id);
-      if (patientIdStr && isNaN(patientId)) {
-        return res.status(400).json({ error: "Invalid patient ID" });
-      }
-
-      if (!patientId) {
-        return res.status(400).json({ error: "Patient ID is required" });
-      }
-
-      // Validate patientId exists in users table
       const user = await storage.getUser(patientId);
       if (!user) {
         return res.status(400).json({ error: "Invalid patient ID" });
       }
 
-      // Perform real-time AI analysis using unified cancer detection
       console.log(`Performing real-time analysis for ${scanType} scan...`);
       const analysisResult = await performRealTimeAnalysis(imageBuffer, scanType);
 
-      // Save scan to database
+      const imagePath = await persistScanImage(imageBuffer, file, patientId, scanType);
+
       const scanData = {
         patientId: patientId,
         scanType: scanType,
-        result: analysisResult.hasCancer ? 
-          `${analysisResult.cancerType || 'Abnormal findings'} detected - ${analysisResult.riskLevel} risk` : 
+        imagePath,
+        imageSize: file.size ?? imageBuffer.length,
+        result: analysisResult.hasCancer ?
+          `${analysisResult.cancerType || 'Abnormal findings'} detected - ${analysisResult.riskLevel} risk` :
           "No abnormal findings detected",
         aiConfidence: `${Math.round(analysisResult.confidence)}%`,
         // Pin the model that produced this. Models get retrained and thresholds
@@ -2389,12 +2398,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
         modelVersion: analysisResult.advancedMetrics?.modelVersion ?? null,
         processingTime: analysisResult.advancedMetrics?.processingTimeMs ?? null,
         riskLevel: analysisResult.riskLevel ?? null,
+        // The model's call, recorded as a boolean at the moment it was made.
+        // Production performance is a comparison between this and the confirmed
+        // outcome, and recovering it later by searching `result` for the word
+        // "cancer" would make the confusion matrix depend on copy-editing.
+        predictedPositive: analysisResult.hasCancer,
         notes: analysisResult.findings ? analysisResult.findings.join('. ') : 'Analysis completed'
       };
 
       const savedScan = await storage.createScan(scanData);
 
-      // Return enhanced analysis results
+      // Every automated result needs a human; a high-risk one needs one sooner.
+      enhancedWsManager?.sendToRole('radiologist', {
+        type: 'scan_completed',
+        data: {
+          scanId: savedScan.id,
+          scanType,
+          riskLevel: analysisResult.riskLevel ?? null,
+          requiresReview: true,
+        },
+      });
+
+      // Tell the patient their scan is being reviewed. Deliberately the same
+      // message whether or not the model flagged it: a notification that only
+      // arrives for flagged scans announces the finding by its own existence.
+      deliverInBackground(
+        user,
+        'Your scan has been received',
+        'Your scan has been analysed and is queued for clinician review.',
+        '/'
+      );
+
       res.json({
         success: true,
         scan: savedScan,
@@ -2428,7 +2462,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           processingTimeMs: analysisResult.advancedMetrics?.processingTimeMs ?? null,
           modelVersion: analysisResult.advancedMetrics?.modelVersion ?? null,
           inputResolution: analysisResult.advancedMetrics?.inputResolution ?? null,
-          
+
           // Summary for UI Display
           summary: {
             aiConfidence: `${Math.round(analysisResult.confidence)}%`,
@@ -2453,7 +2487,291 @@ export async function registerRoutes(app: Express): Promise<Server> {
         details: error instanceof Error ? error.message : String(error)
       });
     }
+  };
+
+  /**
+   * Serves the image behind a scan, to people entitled to see it.
+   *
+   * The stored object is private in both backends, so this is the only way to
+   * read one. Patients may see their own; clinical staff may see any, which is
+   * what reviewing requires. Every read is audited.
+   */
+  app.get("/api/scans/:id/image", auditLog('READ_SCAN_IMAGE'), requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const scanId = parseInt(req.params.id, 10);
+      if (!Number.isInteger(scanId)) {
+        return res.status(400).json({ error: 'Invalid scan id' });
+      }
+
+      const scan = await storage.getScanById(scanId);
+      if (!scan) {
+        return res.status(404).json({ error: 'Scan not found' });
+      }
+
+      const { id: userId, role } = req.session!.user!;
+      const isStaff = ['admin', 'doctor', 'radiologist'].includes(role);
+      if (!isStaff && scan.patientId !== userId) {
+        return res.status(403).json({ error: 'Not your scan' });
+      }
+
+      if (!scan.imagePath) {
+        return res.status(404).json({ error: 'No image stored for this scan' });
+      }
+
+      if (scan.imagePath.startsWith('gs://')) {
+        // Redirect to a short-lived signed URL rather than proxying the bytes.
+        const url = await getSignedScanUrl(scan.imagePath, 10);
+        return res.redirect(302, url);
+      }
+
+      if (scan.imagePath.startsWith('file://')) {
+        const objectName = scan.imagePath.slice('file://'.length);
+        const uploadsRoot = path.resolve(process.cwd(), 'uploads');
+        const absolute = path.resolve(uploadsRoot, objectName);
+
+        // The stored value is generated server-side, but resolving it and
+        // checking containment costs nothing and closes the path-traversal case
+        // if a row is ever written by something else.
+        if (!absolute.startsWith(uploadsRoot + path.sep)) {
+          return res.status(400).json({ error: 'Invalid image reference' });
+        }
+        if (!fs.existsSync(absolute)) {
+          return res.status(404).json({ error: 'Stored image is missing' });
+        }
+
+        res.setHeader('Cache-Control', 'private, no-store');
+        return res.sendFile(absolute);
+      }
+
+      return res.status(500).json({ error: 'Unrecognised image reference' });
+    } catch (error) {
+      console.error('Failed to serve scan image:', error);
+      res.status(500).json({ error: 'Failed to serve scan image' });
+    }
   });
+
+  /**
+   * Records what a scan turned out to be.
+   *
+   * The single change that makes production accuracy measurable at all. Before
+   * this existed, every endpoint asked how well the models perform on real
+   * patients correctly answered null — not because nobody had computed it, but
+   * because the comparison had no second operand.
+   *
+   * Clinical staff only, and append-only: a revised adjudication is a new row,
+   * never an update, so a diagnosis that changed is distinguishable from one that
+   * was always this. Recording an outcome does not alter the scan's stored
+   * result; the model's prediction is evidence about the model and must not be
+   * retconned once the answer is known.
+   */
+  app.post("/api/scans/:id/outcome", auditLog('RECORD_SCAN_OUTCOME'), requireAuth, requireMedicalAccess, async (req: AuthenticatedRequest, res) => {
+    try {
+      const scanId = parseInt(req.params.id, 10);
+      if (!Number.isInteger(scanId)) {
+        return res.status(400).json({ error: 'Invalid scan id' });
+      }
+
+      const { outcome, method, notes } = req.body ?? {};
+
+      if (!OUTCOME_VALUES.includes(outcome)) {
+        return res.status(400).json({
+          error: 'Invalid outcome',
+          allowed: OUTCOME_VALUES,
+        });
+      }
+      if (!OUTCOME_METHODS.includes(method)) {
+        return res.status(400).json({
+          error: 'Invalid method',
+          allowed: OUTCOME_METHODS,
+          hint: 'How the outcome was established. Histopathology and a second look are not equivalent evidence.',
+        });
+      }
+
+      const scan = await storage.getScanById(scanId);
+      if (!scan) {
+        return res.status(404).json({ error: 'Scan not found' });
+      }
+
+      const recorded = await storage.recordScanOutcome({
+        scanId,
+        outcome,
+        method,
+        recordedBy: req.session!.user!.id,
+        notes: typeof notes === 'string' ? notes.slice(0, 2000) : '',
+      });
+
+      // Tell the patient their result was confirmed, and by what.
+      await storage
+        .createNotification({
+          recipientId: scan.patientId,
+          actorId: req.session!.user!.id,
+          type: 'scan_result',
+          title: 'A clinician confirmed your scan result',
+          body: `Your ${scan.scanType} scan was reviewed and confirmed by ${method.replace(/_/g, ' ')}.`,
+          link: '/',
+        })
+        .catch((error) => console.error('Failed to record outcome notification:', error));
+
+      enhancedWsManager?.sendToUser(scan.patientId, {
+        type: 'scan_completed',
+        data: { scanId, adjudicated: true },
+      });
+
+      // Reach them off-platform too. A patient who closed the tab a week ago
+      // learns nothing from an in-app notification, and a confirmed result is
+      // exactly the case where that matters.
+      //
+      // The message says a result is ready and nothing about what it says: email
+      // and SMS are not confidential channels, and a lock-screen preview naming
+      // a diagnosis discloses it to whoever is holding the phone.
+      const patient = await storage.getUser(scan.patientId);
+      if (patient) {
+        deliverInBackground(
+          patient,
+          'A result is ready in your HealthAI account',
+          'A clinician has confirmed the result of a recent scan.',
+          '/'
+        );
+      }
+
+      res.status(201).json({
+        success: true,
+        outcome: recorded,
+        // Whether the model was right about this one. Stated plainly, because
+        // the point of collecting these is to find out.
+        modelWasCorrect:
+          scan.predictedPositive === null || outcome === 'indeterminate'
+            ? null
+            : scan.predictedPositive === (outcome === 'malignant'),
+      });
+    } catch (error) {
+      console.error('Failed to record scan outcome:', error);
+      res.status(500).json({ error: 'Failed to record outcome' });
+    }
+  });
+
+  /** The current adjudication for a scan, plus the full history behind it. */
+  app.get("/api/scans/:id/outcome", auditLog('READ_SCAN_OUTCOME'), requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const scanId = parseInt(req.params.id, 10);
+      if (!Number.isInteger(scanId)) {
+        return res.status(400).json({ error: 'Invalid scan id' });
+      }
+
+      const scan = await storage.getScanById(scanId);
+      if (!scan) {
+        return res.status(404).json({ error: 'Scan not found' });
+      }
+
+      const { id: userId, role } = req.session!.user!;
+      const isStaff = ['admin', 'doctor', 'radiologist'].includes(role);
+      if (!isStaff && scan.patientId !== userId) {
+        return res.status(403).json({ error: 'Not your scan' });
+      }
+
+      const [current, history] = await Promise.all([
+        storage.getCurrentOutcome(scanId),
+        storage.getOutcomeHistory(scanId),
+      ]);
+
+      res.json({
+        scanId,
+        predictedPositive: scan.predictedPositive,
+        current: current ?? null,
+        // More than one row means the adjudication was revised. Staff see that;
+        // patients see only where it stands now.
+        history: isStaff ? history : [],
+        awaitingAdjudication: !current && scan.predictedPositive !== null,
+      });
+    } catch (error) {
+      console.error('Failed to read scan outcome:', error);
+      res.status(500).json({ error: 'Failed to read outcome' });
+    }
+  });
+
+  /**
+   * The measurement backlog: predictions with no confirmed answer yet.
+   *
+   * Flagged scans sort first. A missed cancer costs more than a false alarm, so
+   * confirming the positives is what surfaces the failures worth knowing about.
+   */
+  app.get("/api/radiologist/awaiting-outcome", auditLog('READ_OUTCOME_QUEUE'), requireAuth, requireMedicalAccess, async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string, 10) || 50, 200);
+      const scans = await storage.getScansAwaitingOutcome(limit);
+
+      const patientIds = Array.from(new Set(scans.map((scan) => scan.patientId)));
+      const patients = new Map<number, string>();
+      for (const id of patientIds) {
+        const patient = await storage.getUser(id);
+        if (patient) patients.set(id, patient.fullName || patient.username);
+      }
+
+      res.json(
+        scans.map((scan) => ({
+          id: scan.id,
+          patientId: scan.patientId,
+          patientName: patients.get(scan.patientId) ?? null,
+          scanType: scan.scanType,
+          predictedPositive: scan.predictedPositive,
+          result: scan.result,
+          aiConfidence: scan.aiConfidence,
+          modelVersion: scan.modelVersion,
+          createdAt: scan.createdAt,
+          hasImage: Boolean(scan.imagePath),
+        }))
+      );
+    } catch (error) {
+      console.error('Failed to fetch outcome queue:', error);
+      res.status(500).json({ error: 'Failed to fetch outcome queue' });
+    }
+  });
+
+  /**
+   * Measured performance on this deployment's own patients.
+   *
+   * Not the same question as /api/models/cards, and deliberately a separate
+   * endpoint. A model card reports a held-out evaluation — reproducible, fixed,
+   * and about a dataset. This reports what the model has actually done here,
+   * against confirmed outcomes, with the denominators and confidence intervals
+   * attached so a small sample cannot masquerade as a result.
+   *
+   * `?evidence=biopsy` restricts the calculation to biopsy or histopathology
+   * confirmations. Agreement with a radiologist and confirmation by tissue are
+   * different claims, and a caller should be able to ask for either.
+   */
+  app.get("/api/models/performance", requireAuth, requireMedicalAccess, async (req, res) => {
+    try {
+      const evidence = typeof req.query.evidence === 'string' ? req.query.evidence : undefined;
+      if (evidence && !OUTCOME_METHODS.includes(evidence as any)) {
+        return res.status(400).json({ error: 'Unknown evidence level', allowed: OUTCOME_METHODS });
+      }
+
+      const matrix = await storage.getOutcomeMatrix(evidence);
+      const performance: ProductionPerformance[] = matrix.map((row) =>
+        summarise(row, evidence ?? 'any')
+      );
+
+      res.json({
+        models: performance,
+        measuredAt: new Date().toISOString(),
+        explanation:
+          'Computed from confirmed outcomes recorded against this deployment. ' +
+          'Held-out evaluation figures, which describe a different question, are ' +
+          'at /api/models/cards.',
+      });
+    } catch (error) {
+      console.error('Failed to compute production performance:', error);
+      res.status(500).json({ error: 'Failed to compute production performance' });
+    }
+  });
+
+  app.post("/api/scan/upload", requireAuth, upload.single('image'), handleScanAnalysis);
+  app.post("/api/scans/analyze", requireAuth, upload.single('image'), handleScanAnalysis);
+
+
+  // New route for /api/scans/analyze to fix client-server mismatch
+
 
   // Patient dashboard stats API endpoint
   app.get("/api/patient/stats", requireAuth, async (req, res) => {
@@ -2532,23 +2850,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Doctor reports endpoint
   app.get("/api/doctor/reports", auditLog('READ_REPORT_LIST'), requireAuth, requireMedicalAccess, async (req, res) => {
     try {
-      const allScans = await storage.getScans();
-      const allUsers = await storage.getAllUsers();
-      
-      const reports = allScans.map(scan => {
-        const patient = allUsers.find(user => user.id === scan.patientId);
-        return {
-          id: scan.id,
-          patientName: patient ? patient.fullName : `Patient ${scan.patientId}`,
-          scanType: scan.scanType || 'Medical Scan',
-          submittedAt: scan.createdAt || new Date().toISOString(),
-          status: scan.status === 'Processing' ? 'pending' : 'completed',
-          priority: scan.result && scan.result.toLowerCase().includes('urgent') ? 'urgent' : 'medium',
-          findings: scan.result || 'Analysis completed',
-          radiologist: 'Dr. Johnson',
-          aiConfidence: scan.aiConfidence || '85%'
-        };
-      });
+      // One indexed join, limited in the database. This was two full table
+      // reads plus a linear .find() per row to attach the patient name.
+      const scans = await storage.listScansWithPatient({ limit: 200 });
+
+      const reports = scans.map(scan => ({
+        id: scan.id,
+        patientName: scan.patientName,
+        scanType: scan.scanType || null,
+        submittedAt: scan.createdAt,
+        // The stored workflow status, verbatim. This compared `status` against
+        // 'Processing' — a value that only ever appears in `result` — so the
+        // branch never matched and every report was labelled 'completed'.
+        status: scan.status ?? 'pending',
+        priority: scan.priority ?? 'medium',
+        findings: scan.result,
+        // Was the literal 'Dr. Johnson' on every row.
+        radiologistId: scan.radiologistId,
+        // Was `|| '85%'`, which invented a confidence for any scan that had
+        // none, including ones no model ever ran on.
+        aiConfidence: scan.aiConfidence ?? null
+      }));
 
       res.json(reports);
     } catch (error) {
@@ -2560,9 +2882,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Doctor recent activities API endpoint
   app.get("/api/doctor/activities/recent", requireAuth, requireMedicalAccess, async (req, res) => {
     try {
-      const allScans = await storage.getScans();
-      
-      const recentActivities = allScans.slice(-5).map(scan => ({
+      // Five rows, ordered and limited by the database rather than by reading
+      // every scan and slicing the tail of the array.
+      const allScans = await storage.listScansWithPatient({ limit: 5 });
+
+      const recentActivities = allScans.map(scan => ({
         message: `Patient scan ${scan.scanType} completed`,
         timestamp: scan.createdAt ? new Date(scan.createdAt).toLocaleTimeString() : new Date().toLocaleTimeString(),
         type: 'scan'
@@ -2691,23 +3015,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin staff listing endpoint
   app.get("/api/admin/staff", requireAuth, requireAdmin, async (req, res) => {
     try {
-      const allUsers = await storage.getAllUsers();
-      const staffMembers = allUsers
-        .filter(user => ['doctor', 'radiologist'].includes(user.role))
-        .map(staff => ({
-          id: staff.id,
-          username: staff.username,
-          fullName: staff.fullName,
-          email: staff.email,
-          phone: staff.phone,
-          role: staff.role,
-          specialization: staff.specialization,
-          licenseNumber: staff.licenseNumber,
-          isActive: staff.isActive !== undefined ? staff.isActive : true,
-          createdAt: staff.createdAt || new Date().toISOString()
-        }));
+      // Filtered in the database. Reading every user to keep the clinicians
+      // also read every password hash and reset token into this process.
+      const staff = await storage.getStaffDirectory(['doctor', 'radiologist']);
 
-      res.json({ data: staffMembers });
+      res.json({
+        data: staff.map(member => ({
+          ...member,
+          isActive: member.isActive !== false,
+        }))
+      });
     } catch (error) {
       console.error('Error fetching staff members:', error);
       res.status(500).json({ 
@@ -2748,6 +3065,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Delete the staff member
       const deleted = await storage.deleteUser(staffId);
+      // Revoke immediately. Removing the account without ending its sessions
+      // left the holder authenticated until their cookie expired.
+      if (deleted) {
+        const revoked = await storage.revokeSessionsForUser(staffId);
+        if (revoked) console.log(`Revoked ${revoked} session(s) for deleted staff ${staffId}`);
+      }
       
       if (deleted) {
         res.status(200).json({
@@ -2799,6 +3122,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Permanently delete the staff member
       const deleted = await storage.permanentlyDeleteUser(staffId);
+      if (deleted) {
+        const revoked = await storage.revokeSessionsForUser(staffId);
+        if (revoked) console.log(`Revoked ${revoked} session(s) for purged staff ${staffId}`);
+      }
       
       if (deleted) {
         res.status(200).json({
@@ -2928,102 +3255,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Admin dashboard endpoints
-  // Duplicate admin endpoints below will be removed to avoid conflicts; keep only authenticated variants above
-  /*
-  app.get("/api/admin/stats", async (req, res) => {
-    try {
-      const allUsers = await storage.getAllUsers();
-      const allScans = await storage.getScans();
-      const todayScans = allScans.filter(scan => {
-        if (!scan.createdAt) return false;
-        const scanDate = new Date(scan.createdAt);
-        const today = new Date();
-        return scanDate.toDateString() === today.toDateString();
-      });
-
-      const stats = {
-        totalUsers: allUsers.length,
-        activeScans: allScans.filter(scan => scan.result === 'Processing').length,
-        systemUptime: 99.8,
-        aiAccuracy: allScans.length > 0 ? Math.round(allScans.reduce((sum, scan) => {
-          const confidence = scan.aiConfidence ? parseFloat(scan.aiConfidence.replace('%', '')) : 0;
-          return sum + confidence;
-        }, 0) / allScans.length) : 0,
-        dailyScans: todayScans.length,
-        criticalAlerts: allScans.filter(scan => 
-          scan.result && (scan.result.includes('urgent') || scan.result.includes('critical'))
-        ).length,
-        databaseHealth: 98,
-        securityStatus: 'secure'
-      };
-      res.json(stats);
-    } catch (error) {
-      console.error('Error fetching admin stats:', error);
-      res.status(500).json({ error: 'Failed to fetch admin stats' });
-    }
-  });
-
-  app.get("/api/admin/users/metrics", async (req, res) => {
-    try {
-      // Get all users from database
-      const allUsers = await storage.getAllUsers();
-      
-      // Count users by role
-      const adminCount = allUsers.filter(user => user.role === 'admin').length;
-      const radiologistCount = allUsers.filter(user => user.role === 'radiologist').length;
-      const doctorCount = allUsers.filter(user => user.role === 'doctor').length;
-      const patientCount = allUsers.filter(user => user.role === 'patient').length;
-      
-      // Calculate active users (approximately 70% of total users)
-      const activeUsers = Math.floor((adminCount + radiologistCount + doctorCount + patientCount) * 0.7);
-      
-      // Get today's date to filter new users created today
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      // Count users created today
-      const newUsersToday = allUsers.filter(user => {
-        if (!user.createdAt) return false;
-        const createdDate = new Date(user.createdAt);
-        return createdDate >= today;
-      }).length;
-
-      const metrics = {
-        admins: adminCount,
-        radiologists: radiologistCount,
-        doctors: doctorCount,
-        patients: patientCount,
-        activeUsers: activeUsers,
-        newUsersToday: newUsersToday
-      };
-      
-      console.log('User metrics:', metrics);
-      res.json(metrics);
-    } catch (error) {
-      console.error('Error fetching user metrics:', error);
-      res.status(500).json({ error: 'Failed to fetch user metrics' });
-    }
-  });
-  
+  // Admin user management.
+  //
+  // These four routes spent time inside a block comment that opened above the
+  // duplicate, unauthenticated copies of /api/admin/stats and friends and did not
+  // close until after them. The duplicates deserved to go; these did not, and they
+  // went silently: the admin dashboard Edit, Delete and Reset-password buttons
+  // called endpoints that answered 404, and the user list quietly fell back to
+  // /api/admin/staff, which omits patients. The duplicates are deleted rather than
+  // commented out, so nothing can be swallowed by a comment again.
   // Get all users for admin management
   app.get("/api/admin/users", auditLog('READ_USER_LIST'), requireAuth, requireAdmin, async (req, res) => {
     try {
-      const allUsers = await storage.getAllUsers();
-      
-      // Map users to a consistent format
-      const formattedUsers = allUsers.map(user => ({
-        id: user.id,
-        username: user.username,
-        fullName: user.fullName,
-        email: user.email,
-        role: user.role,
-        specialization: user.specialization,
-        isActive: user.isActive !== undefined ? user.isActive : true,
-        createdAt: user.createdAt || new Date().toISOString()
-      }));
-      
-      res.json(formattedUsers);
+      // Paged, and projected in the database.
+      //
+      // This is the one listing that legitimately wants every role, but it never
+      // wanted every column: getAllUsers() selects `*`, so each render read every
+      // password hash and every live password-reset token into this process in
+      // order to display a name and an email. The columns below are the ones the
+      // response actually contains.
+      //
+      // ?page= and ?pageSize= because an unbounded user list is fine on a
+      // developer's database and is what falls over first in production.
+      const page = Math.max(1, Number.parseInt(req.query.page as string, 10) || 1);
+      const pageSize = Math.min(
+        Math.max(1, Number.parseInt(req.query.pageSize as string, 10) || 100),
+        500
+      );
+
+      const { users: rows, total } = await storage.listUsersPage({ page, pageSize });
+
+      res.json(
+        Object.assign(
+          rows.map(user => ({
+            id: user.id,
+            username: user.username,
+            fullName: user.fullName,
+            email: user.email,
+            role: user.role,
+            specialization: user.specialization,
+            isActive: user.isActive !== false,
+            createdAt: user.createdAt
+          })),
+          // Attached to the array so the existing client, which treats the body
+          // as a list, keeps working unchanged.
+          { page, pageSize, total }
+        )
+      );
     } catch (error) {
       console.error('Error fetching users:', error);
       res.status(500).json({ error: 'Failed to fetch users' });
@@ -3080,10 +3358,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('Updating user with data:', updateData);
       
       const updatedUser = await storage.updateUser(userId, updateData);
-      
+
+      // A change of role or a deactivation has to take effect now, not when the
+      // cookie expires. requireAdmin and requireMedicalAccess read the role out
+      // of the session, so a demoted admin kept administrative access for the
+      // life of their session, and a deactivated account stayed usable.
+      const roleChanged = existingUser.role !== updateData.role;
+      const deactivated = existingUser.isActive !== false && updateData.isActive === false;
+      if (roleChanged || deactivated) {
+        const revoked = await storage.revokeSessionsForUser(userId);
+        console.log(
+          `Revoked ${revoked} session(s) for user ${userId} (` +
+            `${roleChanged ? 'role change' : ''}${roleChanged && deactivated ? ', ' : ''}` +
+            `${deactivated ? 'deactivated' : ''})`
+        );
+      }
+
       res.json({
         success: true,
-        user: updatedUser
+        user: updatedUser,
+        sessionsRevoked: roleChanged || deactivated
       });
     } catch (error) {
       console.error('Error updating user:', error);
@@ -3112,6 +3406,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Delete user
       const deleted = await storage.deleteUser(userId);
+      if (deleted) {
+        const revoked = await storage.revokeSessionsForUser(userId);
+        if (revoked) console.log(`Revoked ${revoked} session(s) for deleted user ${userId}`);
+      }
       
       if (deleted) {
         res.json({
@@ -3151,10 +3449,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Update user password
       await storage.updateUserPassword(userId, hashedPassword);
-      
+
+      // Ending the old sessions is the point of an administrative reset: it is
+      // done when an account may be compromised, and leaving the attacker's
+      // existing session alive defeats it.
+      const revoked = await storage.revokeSessionsForUser(userId);
+
       res.json({
         success: true,
-        message: 'Password reset successfully'
+        message: 'Password reset successfully',
+        sessionsRevoked: revoked
       });
     } catch (error) {
       console.error('Error resetting password:', error);
@@ -3162,108 +3466,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/scans/metrics", async (req, res) => {
-    try {
-      const metrics = {
-        totalScans: 1247,
-        pendingScans: 12,
-        completedToday: 8,
-        cancerDetections: 23,
-        averageProcessingTime: 2.3,
-        aiConfidenceAverage: 94
-      };
-      res.json(metrics);
-    } catch (error) {
-      console.error('Error fetching scan metrics:', error);
-      res.status(500).json({ error: 'Failed to fetch scan metrics' });
-    }
-  });
-
-  app.get("/api/admin/activities/recent", async (req, res) => {
-    try {
-      const activities = [
-        {
-          message: "New doctor account created",
-          timestamp: "2 hours ago",
-          type: "user_creation"
-        },
-        {
-          message: "System backup completed successfully",
-          timestamp: "4 hours ago",
-          type: "system"
-        },
-        {
-          message: "AI model updated to v2.1.4",
-          timestamp: "6 hours ago",
-          type: "ai_update"
-        },
-        {
-          message: "Security scan completed - no issues found",
-          timestamp: "8 hours ago",
-          type: "security"
-        },
-        {
-          message: "Database optimization completed",
-          timestamp: "12 hours ago",
-          type: "database"
-        }
-      ];
-      res.json(activities);
-    } catch (error) {
-      console.error('Error fetching activities:', error);
-      res.status(500).json({ error: 'Failed to fetch activities' });
-    }
-  });
-
-
-
-  app.post("/api/admin/doctors", async (req, res) => {
-    try {
-      const { username, password, fullName, email, specialization, licenseNumber, role } = req.body;
-      
-      if (!username || !password || !fullName || !email) {
-        return res.status(400).json({ error: 'Username, password, full name, and email are required' });
-      }
-
-      // Check if username already exists
-      const existingUser = await storage.getUserByUsername(username);
-      if (existingUser) {
-        return res.status(409).json({ error: 'Username already exists' });
-      }
-
-      // Create the doctor/radiologist
-      const hashedPassword = await hashPassword(password);
-      const userData = {
-        username,
-        password: hashedPassword,
-        fullName,
-        email,
-        role: role || 'doctor',
-        specialization: specialization || 'General Practice',
-        licenseNumber: licenseNumber || '',
-        isActive: true
-      };
-
-      const newUser = await storage.createUser(userData);
-      
-      res.json({
-        success: true,
-        user: {
-          id: newUser.id,
-          username: newUser.username,
-          fullName: newUser.fullName,
-          email: newUser.email,
-          role: newUser.role,
-          specialization: newUser.specialization
-        },
-        message: `${role === 'radiologist' ? 'Radiologist' : 'Doctor'} created successfully`
-      });
-    } catch (error) {
-      console.error('Error creating doctor/radiologist:', error);
-      res.status(500).json({ error: 'Failed to create account' });
-    }
-  });
-  */
 
   // The mock radiologist endpoints that stood here have been removed.
   //
@@ -3619,7 +3821,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Missing questionnaire responses or patient ID" });
       }
 
-      // Simple mock risk assessment logic based on responses
+      /*
+       * An additive tally over self-reported answers.
+       *
+       * It is labelled honestly in the response below and is NOT a validated
+       * risk model. It is not Gail, Tyrer-Cuzick, PLCOm2012 or any other
+       * instrument with published discrimination and calibration; the weights
+       * below were chosen by hand and have never been fitted to or evaluated
+       * against outcome data. Two people with the same score have no established
+       * relationship to each other's actual risk.
+       *
+       * The comment here previously read "Simple mock risk assessment logic",
+       * while the response called the output a `riskAssessment` with a `level` of
+       * low/moderate/high and drove an appointment urgency from it. Whatever the
+       * source called it, the patient was shown a cancer risk level. The
+       * calculation is unchanged; what it claims about itself is not.
+       */
       let riskScore = 0;
 
       // Age factor
@@ -3662,7 +3879,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (riskScore >= 10) riskLevel = 'high';
       else if (riskScore >= 5) riskLevel = 'moderate';
 
-      // Mock recommendations
       const recommendations: string[] = [];
       if (riskLevel === 'high') {
         recommendations.push("Consult a specialist immediately.");
@@ -3674,7 +3890,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         recommendations.push("Continue regular health monitoring.");
       }
 
-      // Mock appointment suggestion
       const appointmentSuggestion = {
         recommended: riskLevel !== 'low',
         urgency: riskLevel === 'high' ? 'urgent' : 'routine',
@@ -3684,14 +3899,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         specialization: "Oncology"
       };
 
-      const riskAssessment = {
-        score: riskScore,
-        level: riskLevel,
-        recommendations
-      };
+      // The maximum reachable score, so a bare number has a scale attached.
+      const MAX_SCORE = 18;
 
       res.json({
-        riskAssessment,
+        riskAssessment: {
+          score: riskScore,
+          maxScore: MAX_SCORE,
+          level: riskLevel,
+          recommendations,
+
+          // Travels with the result so no consumer can present it as a clinical
+          // risk estimate by accident.
+          method: 'unvalidated_additive_questionnaire',
+          validated: false,
+          disclaimer:
+            'This is a simple tally of self-reported answers, not a validated ' +
+            'cancer risk model. It has not been fitted to or evaluated against ' +
+            'outcome data, and it does not estimate your probability of having ' +
+            'or developing cancer. Discuss screening with a clinician.',
+        },
         appointmentSuggestion
       });
 
@@ -3701,35 +3928,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  /**
+   * Who a given role is allowed to exchange messages with.
+   *
+   * One definition, consulted by both the participant list and the send guard.
+   * They used to disagree: the list offered patients only clinicians, while
+   * /api/chat/send accepted any receiverId at all, so any authenticated account
+   * could message any other account by guessing its id — patient to patient
+   * included — and the recipient's UI rendered it as a normal message.
+   */
+  const CHAT_MATRIX: Record<string, string[]> = {
+    patient: ['doctor', 'radiologist'],
+    doctor: ['patient'],
+    radiologist: ['patient'],
+  };
+
+  const canChat = (senderRole: string, recipientRole: string): boolean =>
+    (CHAT_MATRIX[senderRole] ?? []).includes(recipientRole);
+
   // Chat API endpoints
-  app.get("/api/chat/participants", requireAuth, async (req, res) => {
+  app.get("/api/chat/participants", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
-      const userRole = req.query.role as string;
-      const allUsers = await storage.getAllUsers();
+      // The role is the session's, not the query string's. Reading it from
+      // ?role= let a caller ask for another role's address book.
+      const userRole = req.session!.user!.role;
+      const allowedRoles = CHAT_MATRIX[userRole] ?? [];
+
+      // The chat address book is polled; it has no business reading the whole
+      // user table, still less the password column, to build itself.
+      const participants = (await storage.listDirectory(allowedRoles)).filter(
+        user => user.fullName && user.fullName.trim() !== ''
+      );
       
-      let participants: any[] = [];
-      if (userRole === 'patient') {
-        // Patients can chat with doctors and radiologists
-        participants = allUsers.filter(user => 
-          ['doctor', 'radiologist'].includes(user.role) && 
-          user.fullName && 
-          user.fullName.trim() !== ''
-        );
-      } else if (['doctor', 'radiologist'].includes(userRole)) {
-        // Medical staff can chat with patients
-        participants = allUsers.filter(user => 
-          user.role === 'patient' && 
-          user.fullName && 
-          user.fullName.trim() !== ''
-        );
-      }
-      
+      // Online status comes from the WebSocket manager, which already tracks
+      // exactly this. It was hardcoded to false with a comment saying real status
+      // "would require WebSocket tracking" — the tracking existed; nothing asked
+      // it. Every participant therefore rendered as offline, permanently.
+      const online = new Map(
+        (enhancedWsManager?.getOnlineUsers() ?? []).map((u) => [u.id, u.lastSeen])
+      );
+
       const chatParticipants = participants.map(user => ({
         id: user.id,
         name: user.fullName || user.username,
         role: user.role,
-        isOnline: false, // Real online status would require WebSocket tracking
-        lastSeen: null
+        isOnline: online.has(user.id),
+        lastSeen: online.get(user.id) ?? null
       }));
       
       // Removed excessive logging
@@ -3758,37 +4002,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/chat/send", requireAuth, validateInput, async (req, res) => {
+  app.post("/api/chat/send", requireAuth, validateInput, async (req: AuthenticatedRequest, res) => {
     try {
       const { receiverId, message } = req.body;
-      const currentUserId = (req.session as any)?.user?.id;
-      const currentUser = await storage.getUser(currentUserId);
-      
-      if (!currentUserId || !receiverId || !message) {
+      const currentUserId = req.session!.user!.id;
+
+      const parsedReceiverId = parseInt(receiverId, 10);
+      if (!Number.isInteger(parsedReceiverId) || typeof message !== 'string' || !message.trim()) {
         return res.status(400).json({ error: 'Missing required fields' });
       }
-      
-      // Create message object
-      const messageData = {
+
+      // A message addressed to an id that does not exist used to reach the
+      // insert and fail on the foreign key as a 500. It is a bad request.
+      const [currentUser, recipient] = await Promise.all([
+        storage.getUser(currentUserId),
+        storage.getUser(parsedReceiverId),
+      ]);
+      if (!recipient) {
+        return res.status(404).json({ error: 'Recipient not found' });
+      }
+
+      // Same matrix the participant list is built from, so the two cannot drift.
+      if (!currentUser || !canChat(currentUser.role, recipient.role)) {
+        return res.status(403).json({ error: 'You may not message this user' });
+      }
+
+      const savedMessage = await storage.createChatMessage({
         senderId: currentUserId,
-        receiverId: parseInt(receiverId),
+        receiverId: parsedReceiverId,
         message: message.trim(),
         messageType: 'text',
-        status: 'sent'
-      };
-      
-      // Store in database
-      const savedMessage = await storage.createChatMessage(messageData);
-      
-      // Return message with sender info
+        status: 'sent',
+      });
+
+      const senderName = currentUser?.fullName || currentUser?.username || 'Unknown';
       const responseMessage = {
         ...savedMessage,
-        senderName: currentUser?.fullName || currentUser?.username || 'Unknown',
-        timestamp: savedMessage.createdAt
+        senderName,
+        timestamp: savedMessage.createdAt,
       };
-      
-      console.log(`💬 Message sent from ${responseMessage.senderName} to user ${receiverId}`);
-      
+
+      // Delivery and the notification are the server's job, not the sender's.
+      //
+      // The client used to POST /api/chat/notify itself after sending, on an
+      // endpoint with no authentication that accepted any recipient id, sender
+      // name and body: anyone could push a notification claiming to be from any
+      // clinician to any patient. And nothing was ever delivered over the
+      // WebSocket, so "real-time chat" only updated when the receiver refetched.
+      // Both now happen here, where the sender's identity is already known.
+      await storage
+        .createNotification({
+          recipientId: parsedReceiverId,
+          actorId: currentUserId,
+          type: 'chat_message',
+          title: `New message from ${senderName}`,
+          body: message.trim().slice(0, 140),
+          link: '/chat',
+        })
+        .catch((error) => console.error('Failed to record chat notification:', error));
+
+      enhancedWsManager?.sendToUser(parsedReceiverId, {
+        type: 'new_chat_message',
+        data: responseMessage,
+      });
+
       res.json(responseMessage);
     } catch (error) {
       console.error('Failed to send message:', error);
@@ -3796,48 +4073,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/chat/mark-read", async (req, res) => {
+  /**
+   * Marks a conversation read.
+   *
+   * The previous body was `res.json({ success: true })` with no authentication
+   * and no database call: it reported success without doing anything, so unread
+   * counts never cleared and chat_messages.read_at stayed null forever. The
+   * reader is the session user — you can only mark messages addressed to you.
+   */
+  app.post("/api/chat/mark-read", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
-      res.json({ success: true });
+      const receiverId = req.session!.user!.id;
+      const senderId = parseInt(req.body?.senderId ?? req.body?.participantId, 10);
+
+      if (!Number.isInteger(senderId)) {
+        return res.status(400).json({ error: 'senderId is required' });
+      }
+
+      const marked = await storage.markMessagesAsRead(senderId, receiverId);
+
+      // Let the sender's open tabs update their read receipts.
+      if (marked > 0) {
+        enhancedWsManager?.sendToUser(senderId, {
+          type: 'messages_read',
+          data: { readerId: receiverId, count: marked, at: new Date() },
+        });
+      }
+
+      res.json({ success: true, marked });
     } catch (error) {
+      console.error('Failed to mark messages as read:', error);
       res.status(500).json({ error: 'Failed to mark as read' });
     }
   });
 
-  // In-memory notification storage (replace with database in production)
-  const notifications: any[] = [];
-
-  app.post("/api/chat/notify", async (req, res) => {
-    try {
-      const { recipientId, senderId, senderName, message, timestamp } = req.body;
-      
-      // Store notification in memory
-      const notification = {
-        id: Date.now(),
-        recipientId: parseInt(recipientId),
-        senderId: parseInt(senderId),
-        senderName,
-        message: `${message.substring(0, 50)}${message.length > 50 ? '...' : ''}`,
-        timestamp,
-        type: 'chat_message',
-        read: false
-      };
-      
-      notifications.unshift(notification); // Add to beginning
-      
-      // Keep only last 50 notifications
-      if (notifications.length > 50) {
-        notifications.splice(50);
-      }
-      
-      console.log(`📧 Notification sent to user ${recipientId}: ${senderName} sent a message`);
-      
-      res.json({ success: true, notificationId: notification.id });
-    } catch (error) {
-      console.error('Notification error:', error);
-      res.status(500).json({ error: 'Failed to send notification' });
-    }
-  });
+  // POST /api/chat/notify has been removed, and the module-scoped
+  // `const notifications: any[] = []` that backed it with it.
+  //
+  // The endpoint had no authentication and took recipientId, senderId,
+  // senderName and the message body straight from the request, so anyone who
+  // could reach the server could push a notification to any patient attributed
+  // to any clinician — in an app whose notifications carry names and scan
+  // outcomes. It also had no reason to exist: the only caller was the chat UI,
+  // immediately after POST /api/chat/send, which already knows the sender from
+  // the session and now writes the notification itself.
+  //
+  // The array behind it lost every notification on restart, was per-process
+  // (so behind two instances a notification existed only for whichever one
+  // received it), and was capped at 50 rows globally rather than per user, so a
+  // busy conversation silently evicted everyone else's. Notifications are rows
+  // in the `notifications` table now.
 
   // The recipient is the caller, taken from the session.
   //
@@ -3850,12 +4135,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/chat/notifications", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const userId = req.session!.user!.id;
+      const [rows, unread] = await Promise.all([
+        storage.getNotifications(userId, 20),
+        storage.countUnreadNotifications(userId),
+      ]);
 
-      const userNotifications = notifications
-        .filter(n => n.recipientId === userId)
-        .slice(0, 10); // Return only last 10 notifications
-
-      res.json(userNotifications);
+      // Shape kept compatible with the previous in-memory objects so the client
+      // needs no change: `read` is derived from readAt, `message` from body.
+      res.json(
+        rows.map((n) => ({
+          id: n.id,
+          recipientId: n.recipientId,
+          senderId: n.actorId,
+          senderName: n.title,
+          message: n.body,
+          type: n.type,
+          link: n.link,
+          timestamp: n.createdAt,
+          read: n.readAt !== null,
+          unreadTotal: unread,
+        }))
+      );
     } catch (error) {
       console.error('Failed to fetch notifications:', error);
       res.status(500).json({ error: 'Failed to fetch notifications' });
@@ -3864,20 +4164,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/chat/notifications/mark-read", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
-      const { notificationId } = req.body;
       const userId = req.session!.user!.id;
+      const { notificationId } = req.body ?? {};
 
-      // Ownership is part of the lookup: a notification belonging to someone
-      // else simply is not found.
-      const notification = notifications.find(n =>
-        n.id === parseInt(notificationId) && n.recipientId === userId
-      );
-
-      if (notification) {
-        notification.read = true;
+      // Ownership is part of the WHERE clause, so a notification belonging to
+      // someone else is never matched. Omitting the id marks the whole feed read,
+      // which is what the bell's "mark all" affordance needs.
+      if (notificationId === undefined || notificationId === null) {
+        const marked = await storage.markAllNotificationsRead(userId);
+        return res.json({ success: true, marked });
       }
 
-      res.json({ success: true });
+      const id = parseInt(notificationId, 10);
+      if (!Number.isInteger(id)) {
+        return res.status(400).json({ error: 'Invalid notification id' });
+      }
+
+      const marked = await storage.markNotificationRead(id, userId);
+      res.json({ success: true, marked: marked ? 1 : 0 });
     } catch (error) {
       console.error('Failed to mark notification as read:', error);
       res.status(500).json({ error: 'Failed to mark as read' });
@@ -3952,11 +4256,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Twilio voice calling endpoints
-  app.post("/api/voice/token", async (req, res) => {
+  app.post("/api/voice/token", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
-      const currentUserId = (req.session as any)?.user?.id;
-      const currentUser = await storage.getUser(currentUserId);
-      
+      const currentUser = await storage.getUser(req.session!.user!.id);
+
       if (!currentUser) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
@@ -3975,36 +4278,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/voice/call", async (req, res) => {
+  /**
+   * Places a real phone call, so it is guarded like one.
+   *
+   * Previously it had no requireAuth, no rate limit and no relationship check:
+   * any caller could POST a recipientId and the platform would dial that
+   * person's number. Walking the id space turned this into an auto-dialler
+   * pointed at the patient list, billed to the account's Twilio balance. It is
+   * now restricted to pairs who are allowed to talk to each other at all, and to
+   * the sensitive-operation rate limit.
+   */
+  app.post("/api/voice/call", auditLog('INITIATE_VOICE_CALL'), requireAuth, sensitiveOperationLimit, async (req: AuthenticatedRequest, res) => {
     try {
-      const { recipientId } = req.body;
-      const currentUserId = (req.session as any)?.user?.id;
-      const currentUser = await storage.getUser(currentUserId);
-      const recipient = await storage.getUser(recipientId);
-      
+      const recipientId = parseInt(req.body?.recipientId, 10);
+      if (!Number.isInteger(recipientId)) {
+        return res.status(400).json({ error: 'Invalid recipient' });
+      }
+
+      const [currentUser, recipient] = await Promise.all([
+        storage.getUser(req.session!.user!.id),
+        storage.getUser(recipientId),
+      ]);
+
       if (!currentUser || !recipient) {
         return res.status(400).json({ error: 'Invalid users' });
       }
 
-      // Check if recipient has a valid phone number
-      if (!recipient.phone || recipient.phone.trim() === '') {
-        return res.status(400).json({ error: 'Recipient does not have a phone number configured' });
+      if (!canChat(currentUser.role, recipient.role)) {
+        return res.status(403).json({ error: 'You may not call this user' });
       }
 
       const { TwilioService } = await import('./twilio-service');
-      
-      // Use recipient's phone number from database
-      const phoneNumber = recipient.phone;
-      
-      console.log(`Attempting to call ${phoneNumber} from ${currentUser.fullName}`);
-      
+      const phoneNumber = (recipient.phone ?? '').trim();
+
+      if (!phoneNumber) {
+        return res.status(400).json({ error: 'Recipient does not have a phone number configured' });
+      }
+      if (!TwilioService.isValidPhoneNumber(phoneNumber)) {
+        return res.status(400).json({ error: 'Recipient phone number is not in E.164 format' });
+      }
+
+      // The number itself is not logged: it is personal information, and this
+      // line previously printed it on every attempt.
+      console.log(`Placing call to user ${recipient.id} on behalf of user ${currentUser.id}`);
+
       const result = await TwilioService.makeCall(phoneNumber, currentUser.fullName || currentUser.username);
-      
-      console.log('Call result:', result);
       res.json(result);
     } catch (error) {
       console.error('Call initiation error:', error);
-      res.status(500).json({ error: (error as Error).message || 'Failed to initiate call' });
+      // The upstream message can name the account and the number; it is logged
+      // above, not returned.
+      res.status(502).json({ error: 'Failed to initiate call' });
     }
   });
 
@@ -4012,11 +4336,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ADVANCED FEATURES INTEGRATION
   // ===============================
   
-  // Apply performance optimization middleware
-  app.use(createCompressionMiddleware());
-  app.use(ResponseOptimizer.createETagMiddleware());
-  app.use(ResponseOptimizer.createResponseTimeMiddleware());
-  app.use(PerformanceMonitor.createPerformanceMiddleware());
+  // Performance middleware is NOT registered here.
+  //
+  // It used to be, at the bottom of this function, after every route above had
+  // already been mounted. Express runs middleware in registration order and a
+  // route handler that sends a response never calls next(), so compression, the
+  // response-time header and the performance monitor never ran for any of them.
+  // They now live in server/index.ts ahead of the router, which is the only
+  // position from which they can wrap a response.
 
   // Mount advanced routes
   app.use('/api/advanced', advancedRoutes);
@@ -4025,32 +4352,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Every data-touching route inside enforces consent and writes an audit entry.
   app.use('/api/genomics', genomicsRoutes);
 
-  // Track application usage for analytics
-  app.use('/api/*', async (req: AuthenticatedRequest, res, next) => {
-    if (req.session?.user) {
-      await analyticsEngine.trackUserActivity({
-        userId: req.session.user.id,
-        action: `${req.method}_${req.path}`,
-        resource: req.path,
-        timestamp: new Date(),
-        metadata: {
-          userAgent: req.headers['user-agent'],
-          ip: req.ip
-        }
-      });
-    }
-    next();
-  });
+  // Usage tracking is registered in server/index.ts, ahead of these routes, for
+  // the same reason: mounted here it sat behind every handler and recorded
+  // nothing.
 
   console.log('🚀 Advanced features integrated successfully');
 
-  const httpServer = createServer(app);
-  
-  // Initialize enhanced WebSocket server
-  const { initializeEnhancedWebSocket } = await import("./websocket");
-  const wsManager = initializeEnhancedWebSocket(httpServer);
-  
-  console.log("✅ Enhanced WebSocket server initialized");
-  
-  return httpServer;
+  // The WebSocket server is deliberately NOT started here.
+  //
+  // It used to be, and server/index.ts started one too, against this same HTTP
+  // server. Both managers registered an 'upgrade' listener, so the first client
+  // to open /ws was handed to handleUpgrade twice and ws threw
+  // "server.handleUpgrade() was called more than once with the same socket"
+  // out of an event handler — an uncaught exception that killed the process.
+  // The app's own frontend opens that socket on load, so the server died on the
+  // first page view. Ownership of the socket now sits with the entry point.
+  return createServer(app);
 }
