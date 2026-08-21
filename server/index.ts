@@ -9,11 +9,13 @@ import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import rateLimit from "express-rate-limit";
 import { registerRoutes } from "./routes";
-import { registerHealthRoute } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
-import { applySecurityMiddleware } from "./security-config";
+import { applySecurityMiddleware, applyRateLimiting } from "./security-config";
 import { setupMonitoring } from "./monitoring";
+import { createCompressionMiddleware, ResponseOptimizer, PerformanceMonitor } from "./performance-optimizer";
+import { trackApiUsage } from "./analytics-engine";
+import { requestLogger, installProcessHandlers } from "./request-log";
 import { initializeEnhancedWebSocket } from "./websocket";
 import { enhancedWsManager } from "./websocket";
 
@@ -24,6 +26,17 @@ applySecurityMiddleware(app);
 
 // Setup monitoring middleware and routes
 setupMonitoring(app);
+
+// Performance middleware, ahead of every router.
+//
+// These three used to be registered at the bottom of registerRoutes, after all
+// the handlers. Express runs middleware in registration order and a handler that
+// responds never calls next(), so none of them ever executed: nothing was
+// compressed, X-Response-Time was never set, and the performance monitor
+// recorded no samples. Wrapping a response requires being in front of it.
+app.use(createCompressionMiddleware());
+app.use(ResponseOptimizer.createResponseTimeMiddleware());
+app.use(PerformanceMonitor.createPerformanceMiddleware());
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
@@ -99,40 +112,16 @@ let sessionConfig: any = {
   name: 'healthai.sid' // Custom session name
 };
 
-app.use((req, res, next) => {
-  const start = Date.now();
-  const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
+// Request logging.
+//
+// The previous logger wrapped res.json to capture every response body and
+// appended it to the line, truncated to eighty characters — which for
+// /api/patient/profile/:id is a patient's name and the start of their email
+// address, written to stdout and collected by whatever aggregates logs on the
+// host. See server/request-log.ts. Nothing is logged from a response body now.
+app.use(requestLogger);
 
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
-
-  res.on("finish", () => {
-    const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
-
-      log(logLine);
-    }
-  });
-
-  next();
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  // Application specific logging, throwing an error, or other logic here
-});
+installProcessHandlers();
 
 (async () => {
   try {
@@ -161,7 +150,20 @@ process.on('unhandledRejection', (reason, promise) => {
       log("Using memory session store (database connection failed)");
     }
     
-    app.use(session(sessionConfig));
+    // Kept as a reference so the WebSocket upgrade handler can run the exact same
+    // middleware and recover the same session. Sockets authenticate from the
+    // session cookie; without this they would have to trust whatever identity the
+    // client claimed, which is what they used to do.
+    const sessionMiddleware = session(sessionConfig);
+    app.use(sessionMiddleware);
+
+    // Rate limiting reads req.session to meter per account rather than per IP,
+    // so it has to come after the session middleware and before the routes.
+    applyRateLimiting(app);
+
+    // Needs the session, so it goes after it — and ahead of the routes, so it
+    // actually sees requests.
+    app.use('/api', trackApiUsage);
     
     // Apply enhanced session security after session middleware
     try {
@@ -191,7 +193,13 @@ process.on('unhandledRejection', (reason, promise) => {
       res.sendFile('manifest.json', { root: process.cwd() });
     });
 
-    // Lightweight health endpoint for uptime checks
+    /**
+     * Liveness. Cheap, always 200 while the process is running.
+     *
+     * Deliberately does not touch the database: a liveness probe that fails on a
+     * transient database blip gets the container killed and restarted, which
+     * does not fix a database.
+     */
     app.get('/api/health', (_req, res) => {
       res.setHeader('Content-Type', 'application/json');
       res.status(200).send(JSON.stringify({
@@ -202,6 +210,64 @@ process.on('unhandledRejection', (reason, promise) => {
           connections: enhancedWsManager.getConnectionCount(),
         } : { connections: 0 }
       }));
+    });
+
+    /**
+     * Readiness: can this instance actually serve requests?
+     *
+     * Separate from /api/health because they answer different questions and a
+     * load balancer needs the second one. The server starts even when the
+     * database is unreachable — it falls back to an in-memory store holding no
+     * accounts, so every login fails — and /api/health still answered
+     * {"status":"ok"}, so a broken instance stayed in rotation indefinitely,
+     * silently refusing every login it received.
+     *
+     * The result is cached briefly so a health check every second does not become
+     * a query every second.
+     */
+    let readinessCache: { at: number; ok: boolean; detail: any } | null = null;
+    const READINESS_TTL_MS = 5000;
+
+    app.get('/api/ready', async (_req, res) => {
+      const now = Date.now();
+      if (!readinessCache || now - readinessCache.at > READINESS_TTL_MS) {
+        let ok = false;
+        let detail: any = { database: 'unreachable' };
+        try {
+          const { pool } = await import('./db');
+          const started = Date.now();
+          await pool.query('SELECT 1');
+          ok = true;
+          detail = {
+            database: 'ok',
+            latencyMs: Date.now() - started,
+            pool: {
+              total: pool.totalCount,
+              idle: pool.idleCount,
+              waiting: pool.waitingCount,
+            },
+          };
+        } catch (error) {
+          detail = { database: 'unreachable', error: (error as Error).message };
+        }
+        readinessCache = { at: now, ok, detail };
+      }
+
+      // Which channels can actually reach a patient. Not part of readiness — the
+      // instance serves fine without them — but an operator checking this endpoint
+      // should be able to see that nothing can be delivered.
+      const { deliveryChannelStatus } = await import('./notification-delivery');
+      // Key ids and a count, never key material. An operator needs to know which
+      // key is active before retiring the previous one.
+      const { keyringStatus } = await import('./crypto/keyring');
+
+      res.status(readinessCache.ok ? 200 : 503).json({
+        status: readinessCache.ok ? 'ready' : 'not_ready',
+        uptimeSec: Math.round(process.uptime()),
+        ...readinessCache.detail,
+        notificationChannels: deliveryChannelStatus(),
+        encryption: keyringStatus(),
+      });
     });
 
     // Optional dev seeding
@@ -215,21 +281,24 @@ process.on('unhandledRejection', (reason, promise) => {
       console.warn('Dev seed failed:', seedError);
     }
 
-    // Register basic health endpoint before other middleware that may catch-all
-    try { registerHealthRoute(app); } catch {}
-
     const server = await registerRoutes(app);
 
-    // Initialize enhanced WebSocket
-    const wsManager = initializeEnhancedWebSocket(server);
+    // Initialize enhanced WebSocket. This is the only place it is started:
+    // a second manager on the same server crashes the process on the first
+    // upgrade (see initializeEnhancedWebSocket).
+    initializeEnhancedWebSocket(server, sessionMiddleware);
     console.log('🔌 Enhanced WebSocket server initialized');
 
-    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-      const status = err.status || err.statusCode || 500;
-      const message = err.message || "Internal Server Error";
-      
-      log(`Error: ${message}`);
-      res.status(status).json({ message });
+    // An unmatched /api path is a 404, not the single-page app.
+    //
+    // Both setupVite and serveStatic end in app.use("*", ...) serving
+    // client/index.html with status 200. That catch-all also swallowed every
+    // mistyped or removed API route: GET /api/does-not-exist answered 200 with a
+    // page of HTML, so client code calling response.json() on it failed with a
+    // parse error somewhere unrelated instead of seeing a 404. Registered here,
+    // ahead of the SPA fallback, so only /api is affected.
+    app.use('/api', (req, res) => {
+      res.status(404).json({ error: 'Not found', path: req.originalUrl });
     });
 
     // Setup vite in development mode
@@ -238,6 +307,31 @@ process.on('unhandledRejection', (reason, promise) => {
     } else {
       serveStatic(app);
     }
+
+    // Error handler last.
+    //
+    // Express resumes from the failing layer forward when next(err) is called,
+    // so a handler registered before the middleware that throws is never
+    // reached. This sat above setupVite/serveStatic, which meant errors from the
+    // SPA fallback — a missing build directory, an unreadable index.html —
+    // bypassed it and hit Express's default handler, which in development
+    // returns a stack trace to the browser.
+    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+      const status = err.status || err.statusCode || 500;
+      const message = err.message || "Internal Server Error";
+
+      log(`Error: ${message}`);
+
+      // Never leak an internal message to the client in production; it has
+      // carried SQL text and file paths before.
+      const body =
+        status >= 500 && process.env.NODE_ENV === 'production'
+          ? { message: 'Internal Server Error' }
+          : { message };
+
+      if (res.headersSent) return;
+      res.status(status).json(body);
+    });
 
     const port = parseInt(process.env.PORT || '5000', 10);
     server.listen(port, '0.0.0.0', () => {

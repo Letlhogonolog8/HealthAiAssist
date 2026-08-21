@@ -1,8 +1,21 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { Server } from 'http';
-import { IncomingMessage } from 'http';
-import { parse } from 'url';
-import cookie from 'cookie';
+import { IncomingMessage, ServerResponse } from 'http';
+import type { RequestHandler } from 'express';
+
+/**
+ * The identity a socket is allowed to act as.
+ *
+ * Resolved from the session cookie during the HTTP upgrade and never from
+ * anything the socket sends afterwards.
+ */
+export interface SocketIdentity {
+  id: number;
+  username: string;
+  role: string;
+  fullName: string;
+  email?: string;
+}
 
 interface ConnectedUser {
   id: number;
@@ -30,7 +43,11 @@ export class EnhancedWebSocketManager {
   private messageCount = 0;
   private heartbeatInterval: NodeJS.Timeout;
 
-  constructor(server: Server) {
+  private sessionMiddleware?: RequestHandler;
+
+  constructor(server: Server, sessionMiddleware?: RequestHandler) {
+    this.sessionMiddleware = sessionMiddleware;
+
     // `noServer` plus a manual upgrade route, rather than `{ server, path }`.
     //
     // With `{ server, path: '/ws' }` the ws library attaches its own upgrade
@@ -43,10 +60,7 @@ export class EnhancedWebSocketManager {
     //
     // Routing upgrades by hand lets anything that is not ours pass through
     // untouched.
-    this.wss = new WebSocketServer({
-      noServer: true,
-      verifyClient: this.verifyClient.bind(this),
-    });
+    this.wss = new WebSocketServer({ noServer: true });
 
     server.on('upgrade', (request, socket, head) => {
       let pathname: string;
@@ -58,36 +72,94 @@ export class EnhancedWebSocketManager {
 
       if (pathname !== '/ws') return; // Not ours: Vite's HMR, or anything else.
 
-      this.wss.handleUpgrade(request, socket as any, head, (ws) => {
-        this.wss.emit('connection', ws, request);
-      });
+      // Authenticate before the handshake completes.
+      //
+      // This used to accept every upgrade (`verifyClient` returned a hardcoded
+      // `true`) and then take the connecting client's word for who it was: the
+      // first `user_authenticate` frame carried an id and a role, and the server
+      // stored them verbatim. Sending `{id: 7, role: 'admin'}` was enough to be
+      // registered as user 7, appear in the online-users roster every client
+      // receives, and be handed every direct message and notification the server
+      // routed to that id. Identity now comes from the session cookie, which the
+      // client cannot forge, and the frame's contents are ignored.
+      this.resolveIdentity(request)
+        .then((identity) => {
+          if (!identity) {
+            socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+            socket.destroy();
+            return;
+          }
+
+          this.wss.handleUpgrade(request, socket as any, head, (ws) => {
+            this.wss.emit('connection', ws, request, identity);
+          });
+        })
+        .catch((error) => {
+          console.error('WebSocket session resolution failed:', error);
+          socket.write('HTTP/1.1 500 Internal Server Error\r\nConnection: close\r\n\r\n');
+          socket.destroy();
+        });
     });
 
     this.setupWebSocket();
     this.startHeartbeat();
   }
 
-  private verifyClient(info: { origin: string; secure: boolean; req: IncomingMessage }): boolean {
-    try {
-      // Parse cookies to get session information
-      const cookies = cookie.parse(info.req.headers.cookie || '');
-      
-      // Allow connection if we have a session cookie
-      // In production, you'd want to validate the session more thoroughly
-      return true; // For now, accept all connections
-    } catch (error) {
-      console.error('WebSocket verification error:', error);
-      return false;
+  /**
+   * Runs the Express session middleware over the upgrade request to recover the
+   * logged-in user, or null when there is no valid session.
+   *
+   * The middleware needs a response object to hang its save hook on; a bare
+   * ServerResponse is enough because nothing is ever written to it. Fails closed:
+   * any error, timeout, or missing middleware yields null and the upgrade is
+   * refused.
+   */
+  private resolveIdentity(request: IncomingMessage): Promise<SocketIdentity | null> {
+    if (!this.sessionMiddleware) {
+      console.error(
+        'WebSocket manager started without session middleware; refusing all connections.'
+      );
+      return Promise.resolve(null);
     }
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (identity: SocketIdentity | null) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(identity);
+      };
+
+      const timer = setTimeout(() => finish(null), 5000);
+
+      try {
+        const res = new ServerResponse(request);
+        this.sessionMiddleware!(request as any, res as any, () => {
+          const user = (request as any).session?.user;
+          if (!user || typeof user.id !== 'number') return finish(null);
+          finish({
+            id: user.id,
+            username: user.username ?? 'unknown',
+            role: user.role ?? 'patient',
+            fullName: user.fullName ?? user.username ?? 'Unknown User',
+            email: user.email,
+          });
+        });
+      } catch (error) {
+        console.error('WebSocket session middleware error:', error);
+        finish(null);
+      }
+    });
   }
 
   private setupWebSocket() {
-    this.wss.on('connection', (ws: WebSocket, request: IncomingMessage) => {
+    this.wss.on('connection', (ws: WebSocket, request: IncomingMessage, identity: SocketIdentity) => {
       this.connectionCount++;
       console.log(`🔌 WebSocket connection established. Total: ${this.connectionCount}`);
 
       // Enhanced connection setup
-      this.setupConnection(ws, request);
+      this.setupConnection(ws, request, identity);
     });
 
     this.wss.on('error', (error) => {
@@ -95,10 +167,9 @@ export class EnhancedWebSocketManager {
     });
   }
 
-  private setupConnection(ws: WebSocket, request: IncomingMessage) {
+  private setupConnection(ws: WebSocket, request: IncomingMessage, identity: SocketIdentity) {
     // Connection metadata
     const connectionId = `${Date.now()}-${Math.random()}`;
-    let userId: number | null = null;
     let lastMessageTime = 0;
     const messageThrottleInterval = 100; // milliseconds
 
@@ -128,7 +199,7 @@ export class EnhancedWebSocketManager {
         const message: WebSocketMessage = JSON.parse(rawMessage.toString());
         message.timestamp = new Date();
         
-        await this.handleMessage(ws, message, connectionId);
+        await this.handleMessage(ws, message, connectionId, identity);
         this.messageCount++;
       } catch (error) {
         console.error(`🚨 Message parsing error (${connectionId}):`, error);
@@ -141,39 +212,51 @@ export class EnhancedWebSocketManager {
       type: 'connection_established',
       data: { connectionId, timestamp: new Date() }
     });
+
+    // The session already said who this is, so register immediately rather than
+    // waiting for a frame to ask. Clients still send `user_authenticate` and
+    // still get `authentication_success`; that exchange is now a formality.
+    void this.registerConnection(ws, identity, connectionId);
   }
 
-  private async handleMessage(ws: WebSocket, message: WebSocketMessage, connectionId: string) {
+  private async handleMessage(
+    ws: WebSocket,
+    message: WebSocketMessage,
+    connectionId: string,
+    identity: SocketIdentity
+  ) {
     switch (message.type) {
       case 'register':
       case 'user_authenticate':
-        await this.handleUserAuthentication(ws, message.data, connectionId);
+        // message.data is ignored: identity comes from the session.
+        await this.registerConnection(ws, identity, connectionId);
         break;
       
       case 'heartbeat':
-        await this.handleHeartbeat(ws, message.data?.userId);
+        await this.handleHeartbeat(ws, identity.id);
         break;
       
       case 'new_message':
       case 'chat_message':
-        await this.handleChatMessage(message);
+        await this.handleChatMessage(message, identity);
         break;
       
       case 'typing':
       case 'typing_indicator':
-        await this.handleTypingIndicator(message);
+        await this.handleTypingIndicator(message, identity);
         break;
       
       case 'activity_update':
-        await this.broadcastActivity(message.data);
-        break;
-      
       case 'scan_update':
-        await this.broadcastScanUpdate(message.data);
-        break;
-      
       case 'notification':
-        await this.handleNotification(message);
+        // Fan-out primitives, not client capabilities.
+        //
+        // These used to broadcast whatever the socket sent: any connected client
+        // could push a fabricated scan result or a notification addressed to
+        // another user, and every dashboard listening would render it as if the
+        // server had said it. Server code reaches the same broadcasts through the
+        // public notifyUser / notifyRole / broadcastToAll methods.
+        this.sendError(ws, `\`${message.type}\` may only originate from the server`);
         break;
       
       default:
@@ -182,51 +265,50 @@ export class EnhancedWebSocketManager {
     }
   }
 
-  private async handleUserAuthentication(ws: WebSocket, userData: any, connectionId: string) {
+  /** Registers an already-authenticated socket under its session identity. */
+  private async registerConnection(ws: WebSocket, identity: SocketIdentity, connectionId: string) {
     try {
-      if (!userData || !userData.id) {
-        this.sendError(ws, 'Invalid user data');
+      const key = `${identity.id}`;
+      const existing = this.connectedUsers.get(key);
+
+      // Already registered on this same socket: acknowledge and stop, so a client
+      // that sends `user_authenticate` after connecting does not re-broadcast a
+      // status change to everyone.
+      if (existing?.ws === ws) {
+        this.sendMessage(ws, {
+          type: 'authentication_success',
+          data: { userId: identity.id, timestamp: new Date() }
+        });
         return;
       }
 
+      if (existing) existing.ws.close(1000, 'New connection established');
+
       const connectedUser: ConnectedUser = {
-        id: userData.id,
-        username: userData.username || 'Unknown',
-        role: userData.role || 'patient',
-        fullName: userData.fullName || userData.username || 'Unknown User',
+        id: identity.id,
+        username: identity.username,
+        role: identity.role,
+        fullName: identity.fullName,
         lastSeen: new Date(),
-        ws: ws,
+        ws,
         sessionId: connectionId
       };
 
-      // Remove existing connection for this user
-      const existingUserKey = `${userData.id}`;
-      if (this.connectedUsers.has(existingUserKey)) {
-        const existingUser = this.connectedUsers.get(existingUserKey);
-        if (existingUser && existingUser.ws !== ws) {
-          existingUser.ws.close(1000, 'New connection established');
-        }
-      }
+      this.connectedUsers.set(key, connectedUser);
+      this.userSockets.set(identity.id, ws);
 
-      this.connectedUsers.set(existingUserKey, connectedUser);
-      this.userSockets.set(userData.id, ws);
-
-      // Send authentication success
       this.sendMessage(ws, {
         type: 'authentication_success',
-        data: { userId: userData.id, timestamp: new Date() }
+        data: { userId: identity.id, timestamp: new Date() }
       });
 
-      // Broadcast user online status
       await this.broadcastUserStatus('online', connectedUser);
-      
-      // Send current online users
       this.sendOnlineUsers(ws);
 
-      console.log(`👤 User authenticated: ${connectedUser.fullName} (${connectedUser.role})`);
+      console.log(`👤 User connected: ${connectedUser.fullName} (${connectedUser.role})`);
     } catch (error) {
-      console.error('Authentication error:', error);
-      this.sendError(ws, 'Authentication failed');
+      console.error('Connection registration error:', error);
+      this.sendError(ws, 'Registration failed');
     }
   }
 
@@ -241,9 +323,16 @@ export class EnhancedWebSocketManager {
     });
   }
 
-  private async handleChatMessage(message: WebSocketMessage) {
-    const { data } = message;
-    
+  private async handleChatMessage(message: WebSocketMessage, identity: SocketIdentity) {
+    // The sender is stamped from the session, so a client cannot put someone
+    // else's name on a message.
+    const data = {
+      ...message.data,
+      senderId: identity.id,
+      senderName: identity.fullName,
+      senderRole: identity.role,
+    };
+
     if (data.targetUserId) {
       // Direct message to specific user
       const targetWs = this.userSockets.get(data.targetUserId);
@@ -262,30 +351,34 @@ export class EnhancedWebSocketManager {
     }
   }
 
-  private async handleNotification(message: WebSocketMessage) {
-    const { data } = message;
-    
-    if (data.targetUserId) {
-      // Send to specific user
-      const targetWs = this.userSockets.get(data.targetUserId);
-      if (targetWs && targetWs.readyState === WebSocket.OPEN) {
-        this.sendMessage(targetWs, {
-          type: 'notification',
-          data: data
-        });
-      }
-    } else if (data.targetRole) {
-      // Send to all users with specific role
-      this.broadcastToRole(data.targetRole, {
-        type: 'notification',
-        data: data
-      });
-    }
+  /**
+   * Pushes a message to one user's open sockets, if any.
+   *
+   * Returns whether it was delivered, so callers can tell "sent" from "the
+   * recipient is offline" instead of assuming the first. Delivery is best-effort
+   * by design: the durable copy is the row the caller has already written, and a
+   * user who was offline picks it up on their next fetch.
+   *
+   * This replaces handleNotification(), which fanned out whatever a *client*
+   * sent: any connected socket could address a notification to another user, or
+   * to a whole role, and every dashboard would render it as though the server
+   * had said it.
+   */
+  public sendToUser(userId: number, message: { type: string; data: any }): boolean {
+    const ws = this.userSockets.get(userId);
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+    this.sendMessage(ws, message);
+    return true;
   }
 
-  private async handleTypingIndicator(message: WebSocketMessage) {
-    const { data } = message;
-    
+  /** Pushes to every connected user holding `role`. */
+  public sendToRole(role: string, message: { type: string; data: any }): void {
+    this.broadcastToRole(role, message);
+  }
+
+  private async handleTypingIndicator(message: WebSocketMessage, identity: SocketIdentity) {
+    const data = { ...message.data, senderId: identity.id, senderName: identity.fullName };
+
     if (data.targetUserId) {
       const targetWs = this.userSockets.get(data.targetUserId);
       if (targetWs && targetWs.readyState === WebSocket.OPEN) {
@@ -353,17 +446,25 @@ export class EnhancedWebSocketManager {
     });
   }
 
-  private async broadcastActivity(activity: any) {
+  /**
+   * Announces that a scan changed state.
+   *
+   * Public because the callers are routes, not sockets. Both this and the
+   * activity broadcast used to be private methods driven straight off inbound
+   * client frames, which meant a connected client could fabricate a scan result
+   * and every open dashboard would show it.
+   */
+  public broadcastScanUpdate(scan: any) {
     this.broadcast({
-      type: 'activity_update',
-      data: { ...activity, timestamp: new Date() }
+      type: 'scan_completed',
+      data: { ...scan, timestamp: new Date() }
     });
   }
 
-  private async broadcastScanUpdate(scan: any) {
+  public broadcastActivity(activity: any) {
     this.broadcast({
-      type: 'scan_update',
-      data: { ...scan, timestamp: new Date() }
+      type: 'patient_activity',
+      data: { ...activity, timestamp: new Date() }
     });
   }
 
@@ -527,7 +628,24 @@ export class EnhancedWebSocketManager {
 
 export let enhancedWsManager: EnhancedWebSocketManager;
 
-export function initializeEnhancedWebSocket(server: Server) {
-  enhancedWsManager = new EnhancedWebSocketManager(server);
+/**
+ * Starts the WebSocket manager, once.
+ *
+ * Idempotent on purpose. A second manager on the same HTTP server adds a second
+ * 'upgrade' listener, and both call handleUpgrade on the same socket; ws throws
+ * from inside the listener and the uncaught exception takes the process down on
+ * the first client to connect. Returning the existing manager makes a stray
+ * second call harmless instead of fatal.
+ */
+export function initializeEnhancedWebSocket(server: Server, sessionMiddleware?: RequestHandler) {
+  if (enhancedWsManager) {
+    console.warn(
+      '⚠️  initializeEnhancedWebSocket() called again; returning the existing manager. ' +
+        'Only the process entry point should start it.'
+    );
+    return enhancedWsManager;
+  }
+
+  enhancedWsManager = new EnhancedWebSocketManager(server, sessionMiddleware);
   return enhancedWsManager;
 }

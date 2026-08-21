@@ -21,21 +21,14 @@ export const applySecurityMiddleware = (app: express.Application) => {
   // 3. Apply security headers
   app.use(securityHeaders);
 
-  // 4. Configure CORS
-  app.use(corsConfig);
+  // 4. Configure CORS, on the API only.
+  //
+  // Static assets are same-origin by construction and gain nothing from CORS
+  // headers. Running this middleware over them is what turned a rejected origin
+  // into a 500 on the application's own JavaScript.
+  app.use('/api', corsConfig);
 
-  // 5. Rate limiting
-  const { generalLimiter, authLimiter, medicalLimiter, chatLimiter } = createRateLimiters();
-  
-  // Apply different rate limits to different routes
-  app.use('/api/auth', authLimiter);
-  app.use('/api/patient', medicalLimiter);
-  app.use('/api/doctor', medicalLimiter);
-  app.use('/api/radiologist', medicalLimiter);
-  app.use('/api/scans', medicalLimiter);
-  app.use('/api/appointments', medicalLimiter);
-  app.use('/api/chat', chatLimiter);
-  app.use('/api', generalLimiter); // General limiter for other API routes
+  // 5. Rate limiting is NOT applied here. See applyRateLimiting() below.
 
   // 6. Input validation and sanitization
   app.use(validateInput);
@@ -46,6 +39,35 @@ export const applySecurityMiddleware = (app: express.Application) => {
   app.use(auditMedicalAccess);
 
   console.log('🔒 Enhanced security middleware applied successfully');
+};
+
+/**
+ * Installs the rate limiters. Must be called AFTER the session middleware.
+ *
+ * These used to be part of applySecurityMiddleware(), which runs at module scope
+ * before the session store has been configured — the session is set up inside
+ * an async block once the database connection has been tested. Every limiter
+ * therefore saw `req.session === undefined`, so the per-account keys and
+ * ceilings they are configured with could never take effect and every request in
+ * the system, from every user behind a shared address, competed for one
+ * anonymous IP budget.
+ */
+export const applyRateLimiting = (app: express.Application) => {
+  const { generalLimiter, authLimiter, medicalLimiter, chatLimiter } = createRateLimiters();
+
+  // Most specific prefix first: Express runs them in registration order and each
+  // one that passes calls next(), so a /api/patient request is metered by the
+  // medical limiter and then by the general one.
+  app.use('/api/auth', authLimiter);
+  app.use('/api/patient', medicalLimiter);
+  app.use('/api/doctor', medicalLimiter);
+  app.use('/api/radiologist', medicalLimiter);
+  app.use('/api/scans', medicalLimiter);
+  app.use('/api/appointments', medicalLimiter);
+  app.use('/api/chat', chatLimiter);
+  app.use('/api', generalLimiter);
+
+  console.log('🚦 Rate limiting applied (per-account where authenticated)');
 };
 
 // Additional middleware for specific security requirements
