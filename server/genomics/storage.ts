@@ -6,6 +6,7 @@
  * out of habit should not find a genomic accessor sitting next to the others.
  */
 import { getDb } from '../db';
+import { encryptRow, decryptRow, decryptRows } from '../crypto';
 import {
   genomicProfiles,
   genomicVariants,
@@ -120,17 +121,27 @@ export async function saveRiskAssessment(
   values: Partial<RiskAssessment> & { patientId: number; condition: string }
 ): Promise<RiskAssessment> {
   const db = getDb() as any;
-  const [row] = await db.insert(riskAssessments).values(values).returning();
-  return row;
+  // `caveats` and `contributions` are encrypted at rest: both are free text
+  // about one identified person's genome, and neither is ever queried. The
+  // structured columns beside them (riskBand, percentile, coverage) stay in
+  // plaintext because the equity report aggregates over them.
+  const [row] = await db
+    .insert(riskAssessments)
+    .values(encryptRow('genomic_risk_assessments', values))
+    .returning();
+  return decryptRow('genomic_risk_assessments', row);
 }
 
 export async function getRiskAssessments(patientId: number): Promise<RiskAssessment[]> {
   const db = getDb() as any;
-  return db
-    .select()
-    .from(riskAssessments)
-    .where(eq(riskAssessments.patientId, patientId))
-    .orderBy(desc(riskAssessments.createdAt));
+  return decryptRows(
+    'genomic_risk_assessments',
+    await db
+      .select()
+      .from(riskAssessments)
+      .where(eq(riskAssessments.patientId, patientId))
+      .orderBy(desc(riskAssessments.createdAt))
+  );
 }
 
 export async function getAccessLog(patientId: number, limit = 200) {
