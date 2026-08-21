@@ -1,4 +1,5 @@
 import { useState } from "react";
+import OutcomeReviewPanel from "./outcome-review-panel";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -344,7 +345,7 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
 
       {/* Enhanced Radiologist Interface */}
       <Tabs value={activeSection} onValueChange={setActiveSection}>
-        <TabsList className="grid w-full grid-cols-3 bg-slate-800 border-slate-600">
+        <TabsList className="grid w-full grid-cols-4 bg-slate-800 border-slate-600">
           <TabsTrigger value="overview" className="text-slate-300 data-[state=active]:text-white">
             Workstation
           </TabsTrigger>
@@ -353,6 +354,12 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
           </TabsTrigger>
           <TabsTrigger value="completed" className="text-slate-300 data-[state=active]:text-white">
             Completed ({safeCompletedScans.length})
+          </TabsTrigger>
+          {/* The step that turns predictions into measurements. Without it the
+              platform can report what the models said and never whether they
+              were right. */}
+          <TabsTrigger value="outcomes" className="text-slate-300 data-[state=active]:text-white">
+            Outcomes
           </TabsTrigger>
         </TabsList>
 
@@ -706,6 +713,10 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
           </Card>
         </TabsContent>
 
+
+        <TabsContent value="outcomes" className="space-y-4">
+          <OutcomeReviewPanel />
+        </TabsContent>
 
       </Tabs>
 

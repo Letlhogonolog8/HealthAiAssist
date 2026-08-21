@@ -532,21 +532,99 @@ export class AIEngine {
    * They were previously randomised, which published an invented accuracy rate
    * on the admin analytics dashboard.
    */
+  /**
+   * Operational metrics for one modality, counted from the scans it produced.
+   *
+   * Volume, mean confidence and mean latency are recorded on every row that
+   * medical_scans stores, so they are measured here rather than returned as
+   * nulls — which is what this did previously, for all four fields at once.
+   *
+   * accuracyRate is computed from adjudicated scans — the `scan_outcomes` table
+   * records what each scan turned out to be, so the comparison the figure needs
+   * now has a second operand. It stays null until at least one scan has both a
+   * prediction and a confirmed outcome, and the richer breakdown (sensitivity,
+   * specificity, predictive values, confidence intervals) is at
+   * /api/models/performance, because a single accuracy number hides the
+   * asymmetry that matters in screening.
+   */
   async getModelPerformanceMetrics(modelType: string): Promise<{
     totalPredictions: number | null;
     averageConfidence: number | null;
     averageProcessingTime: number | null;
     accuracyRate: number | null;
+    adjudicatedCount?: number;
     instrumented: boolean;
+    note: string;
   }> {
-    return {
-      totalPredictions: null,
-      averageConfidence: null,
-      averageProcessingTime: null,
-      // Accuracy requires labelled ground truth, not just logged predictions.
-      accuracyRate: null,
-      instrumented: false
-    };
+    try {
+      const { pool } = await import('./db');
+      const { rows } = await pool.query(
+        `SELECT count(*)::int AS total,
+                avg(nullif(replace(ai_confidence, '%', ''), '')::numeric) AS avg_confidence_pct,
+                avg(processing_time_ms)::numeric AS avg_processing_ms
+           FROM medical_scans
+          WHERE scan_type = $1
+            AND ai_confidence IS NOT NULL`,
+        [modelType]
+      );
+
+      const row = rows[0];
+      const total = row?.total ?? 0;
+
+      // Accuracy over adjudicated scans only: predictions with a confirmed
+      // outcome, indeterminate results excluded.
+      const { rows: adjudicated } = await pool.query(
+        `WITH latest AS (
+           SELECT DISTINCT ON (o.scan_id) o.scan_id, o.outcome
+             FROM scan_outcomes o
+            ORDER BY o.scan_id, o.recorded_at DESC, o.id DESC
+         )
+         SELECT count(*)::int AS n,
+                count(*) FILTER (
+                  WHERE s.predicted_positive = (l.outcome = 'malignant')
+                )::int AS correct
+           FROM medical_scans s
+           JOIN latest l ON l.scan_id = s.id
+          WHERE s.scan_type = $1
+            AND s.predicted_positive IS NOT NULL
+            AND l.outcome IN ('malignant', 'benign')`,
+        [modelType]
+      );
+
+      const n = adjudicated[0]?.n ?? 0;
+      const correct = adjudicated[0]?.correct ?? 0;
+
+      return {
+        totalPredictions: total,
+        averageConfidence:
+          total > 0 && row.avg_confidence_pct !== null
+            ? Number(row.avg_confidence_pct) / 100
+            : null,
+        averageProcessingTime:
+          total > 0 && row.avg_processing_ms !== null ? Number(row.avg_processing_ms) : null,
+        accuracyRate: n > 0 ? Number((correct / n).toFixed(4)) : null,
+        adjudicatedCount: n,
+        instrumented: total > 0,
+        note:
+          n > 0
+            ? `Accuracy over ${n} adjudicated scan(s). A single accuracy figure hides ` +
+              'the difference between missing a cancer and raising a false alarm; ' +
+              'see /api/models/performance for sensitivity, specificity and intervals.'
+            : 'Confidence and latency are observed in production. No scan of this type ' +
+              'has a confirmed outcome yet, so accuracy is not yet measurable.',
+      };
+    } catch (error) {
+      console.error('Model metrics query failed:', error);
+      return {
+        totalPredictions: null,
+        averageConfidence: null,
+        averageProcessingTime: null,
+        accuracyRate: null,
+        adjudicatedCount: 0,
+        instrumented: false,
+        note: 'Metrics unavailable: ' + (error as Error).message,
+      };
+    }
   }
 
   // Cleanup method

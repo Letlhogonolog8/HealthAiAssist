@@ -55,6 +55,18 @@ export const medicalScans = pgTable("medical_scans", {
    * existed, and on scans queued for manual review where no model ran.
    */
   modelVersion: text("model_version"),
+  /**
+   * The model's binary call, stored as a boolean rather than inferred later.
+   *
+   * Production performance is a comparison between what the model said and what
+   * turned out to be true, so both sides have to be recorded unambiguously.
+   * `result` is a human-readable sentence ("Lung Cancer detected - high risk"),
+   * and deriving the prediction by searching it for the word "cancer" makes the
+   * confusion matrix depend on copy-editing. Null where no model ran — a scan
+   * queued for manual review, or a row written before this column existed — and
+   * those rows are excluded from measurement rather than guessed at.
+   */
+  predictedPositive: boolean("predicted_positive"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow(),
   reviewedAt: timestamp("reviewed_at"),
@@ -150,6 +162,75 @@ export type AuditEvent = typeof auditEvents.$inferSelect;
 export type InsertAuditEvent = typeof auditEvents.$inferInsert;
 
 /**
+ * What a scan turned out to be, established by a human.
+ *
+ * This is the missing half of every performance claim the platform makes. A
+ * model's held-out evaluation says how it behaved on a fixed dataset in a lab;
+ * it says nothing about how it behaves on this hospital's patients, this
+ * scanner, this population. That second question needs a confirmed answer per
+ * scan to compare the prediction against, and until this table existed the
+ * system recorded none — so every endpoint that wanted to report production
+ * accuracy correctly returned null, because the number was not merely unmeasured
+ * but unmeasurable.
+ *
+ * Append-only, like `genomic_consents` and `processing_consents`. Rows are never
+ * updated: an adjudication that is later revised is a new row, and the current
+ * answer is the newest row per scan. A diagnosis that changed and a diagnosis
+ * that was always this are different facts, and an audit needs to tell them
+ * apart.
+ *
+ * `method` is not decoration. Histopathology and "the radiologist looked again"
+ * are not equally strong evidence, and a performance figure computed only from
+ * the weakest available confirmations is worth less than one that says which
+ * confirmations it used.
+ */
+export const scanOutcomes = pgTable("scan_outcomes", {
+  id: serial("id").primaryKey(),
+  scanId: integer("scan_id").references(() => medicalScans.id).notNull(),
+
+  /**
+   * "malignant" | "benign" | "indeterminate"
+   *
+   * Indeterminate is a real answer, not a missing one: a biopsy can be
+   * inconclusive. Those rows are counted and reported separately rather than
+   * being forced into one of the other two, which would bias the matrix.
+   */
+  outcome: text("outcome").notNull(),
+
+  /**
+   * How it was established, strongest first:
+   * "histopathology" | "biopsy" | "specialist_review" | "imaging_followup" |
+   * "clinical_followup"
+   */
+  method: text("method").notNull(),
+
+  recordedBy: integer("recorded_by").references(() => users.id).notNull(),
+  notes: text("notes").default(""),
+  recordedAt: timestamp("recorded_at").defaultNow().notNull(),
+}, (table) => ({
+  // "the newest outcome for this scan" is the only read on the hot path.
+  scanIdx: index("idx_scan_outcomes_scan").on(table.scanId, table.recordedAt),
+  outcomeIdx: index("idx_scan_outcomes_outcome").on(table.outcome),
+}));
+
+export type ScanOutcome = typeof scanOutcomes.$inferSelect;
+export type InsertScanOutcome = typeof scanOutcomes.$inferInsert;
+
+/** Adjudications this platform accepts, ordered strongest evidence first. */
+export const OUTCOME_METHODS = [
+  'histopathology',
+  'biopsy',
+  'specialist_review',
+  'imaging_followup',
+  'clinical_followup',
+] as const;
+
+export const OUTCOME_VALUES = ['malignant', 'benign', 'indeterminate'] as const;
+
+export type OutcomeMethod = (typeof OUTCOME_METHODS)[number];
+export type OutcomeValue = (typeof OUTCOME_VALUES)[number];
+
+/**
  * Consent for processing that is not genomic — currently the AI assistant, which
  * forwards messages to a processor outside South Africa.
  *
@@ -175,6 +256,40 @@ export const processingConsents = pgTable("processing_consents", {
 
 export type ProcessingConsent = typeof processingConsents.$inferSelect;
 export type InsertProcessingConsent = typeof processingConsents.$inferInsert;
+
+/**
+ * In-app notifications.
+ *
+ * These lived in a module-scoped array in server/routes.ts, under a comment
+ * reading "replace with database in production". Three consequences, all live:
+ * every notification vanished on restart or redeploy; a second instance behind a
+ * load balancer had its own array, so whether a user saw a notification depended
+ * on which process answered; and the array was capped at 50 entries globally, so
+ * one busy conversation evicted everyone else's.
+ *
+ * `readAt` is a timestamp rather than a boolean so "when was this seen" is
+ * answerable, which matters for anything clinical.
+ */
+export const notifications = pgTable("notifications", {
+  id: serial("id").primaryKey(),
+  recipientId: integer("recipient_id").references(() => users.id).notNull(),
+  /** Null for notifications the system raises rather than a person. */
+  actorId: integer("actor_id").references(() => users.id),
+  // "chat_message" | "appointment" | "scan_result" | "report"
+  type: text("type").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull().default(""),
+  /** Where the UI should send the reader, e.g. "/chat". */
+  link: text("link"),
+  readAt: timestamp("read_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  recipientIdx: index("idx_notifications_recipient").on(table.recipientId, table.createdAt),
+  unreadIdx: index("idx_notifications_unread").on(table.recipientId, table.readAt),
+}));
+
+export type Notification = typeof notifications.$inferSelect;
+export type InsertNotification = typeof notifications.$inferInsert;
 
 // ---------------------------------------------------------------------------
 // Genomics
