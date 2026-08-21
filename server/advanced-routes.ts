@@ -5,7 +5,7 @@ import {
   TwoFactorAuth, 
   AuditLogger, 
   ComplianceChecker,
-  SessionManager,
+  SessionStore,
   SecurityMonitor,
   PasswordSecurity
 } from './advanced-security';
@@ -154,12 +154,16 @@ router.get('/security/compliance', requireMedicalAccess, async (req, res) => {
 // Active Sessions Management
 router.get('/security/sessions', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
-    const sessions = SessionManager.getActiveSessionsForUser(req.session.user?.id!);
-    
+    const sessions = await SessionStore.listForUser(req.session.user?.id!);
+    const withCurrent = sessions.map((session) => ({
+      ...session,
+      current: session.sessionId === req.sessionID,
+    }));
+
     res.json({
       currentSession: req.sessionID,
-      activeSessions: sessions,
-      totalSessions: sessions.length
+      activeSessions: withCurrent,
+      totalSessions: withCurrent.length
     });
 
   } catch (error) {
@@ -171,7 +175,7 @@ router.get('/security/sessions', requireAuth, async (req: AuthenticatedRequest, 
 // Terminate All Sessions
 router.post('/security/sessions/terminate-all', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
-    const terminatedCount = SessionManager.terminateAllUserSessions(
+    const terminatedCount = await SessionStore.terminateAllExcept(
       req.session.user?.id!,
       req.sessionID
     );
@@ -187,10 +191,16 @@ router.post('/security/sessions/terminate-all', requireAuth, async (req: Authent
       metadata: { terminatedSessions: terminatedCount }
     });
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       terminatedSessions: terminatedCount,
-      message: 'All other sessions have been terminated'
+      // Says what happened. The previous message asserted that all other
+      // sessions were terminated even when the count was zero because none had
+      // ever been tracked.
+      message:
+        terminatedCount === 0
+          ? 'No other active sessions were found'
+          : `${terminatedCount} other session(s) terminated`
     });
 
   } catch (error) {
@@ -234,11 +244,14 @@ router.get('/analytics/medical-insights', requireMedicalAccess, async (req, res)
   try {
     const insights = await analyticsEngine.generateMedicalInsights();
     
+    // `highConfidenceInsights` counted insights whose confidence exceeded 0.8,
+    // where the confidences were three hardcoded constants. The count was
+    // therefore fixed by the source rather than by the data.
     res.json({
       insights,
       generatedAt: new Date().toISOString(),
       totalInsights: insights.length,
-      highConfidenceInsights: insights.filter(i => i.confidence > 0.8).length
+      scoredInsights: insights.filter((i) => i.confidence !== null).length
     });
 
   } catch (error) {
@@ -380,18 +393,17 @@ router.post('/performance/cache/clear', requireMedicalAccess, async (req, res) =
 // Database Performance Analysis
 router.get('/performance/database', requireMedicalAccess, async (req, res) => {
   try {
-    const analysis = await databaseOptimizer.analyzeQueryPerformance();
-    const connectionStats = databaseOptimizer.getConnectionPoolStats();
+    const [analysis, connectionStats] = await Promise.all([
+      databaseOptimizer.analyzeQueryPerformance(),
+      databaseOptimizer.getConnectionPoolStats(),
+    ]);
 
+    // The static "recommendations" list that used to be returned alongside this
+    // has been dropped. It was the same four lines regardless of what the
+    // database was doing, which made it advice-shaped noise rather than advice.
     res.json({
       queryAnalysis: analysis,
       connectionPool: connectionStats,
-      recommendations: [
-        'Implement query result caching',
-        'Add database monitoring',
-        'Optimize slow queries',
-        'Consider read replicas for heavy read workloads'
-      ]
     });
 
   } catch (error) {

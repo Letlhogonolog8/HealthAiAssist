@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, lazy, Suspense } from "react";
 import { useQuery } from '@tanstack/react-query';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,31 +28,46 @@ import {
 import { ThemeToggle } from "@/components/theme-toggle";
 import AIScanSimulator from "./ai-scan-simulator-fixed";
 import ModelPerformancePanel from "./model-performance-panel";
-import GoogleAIScanner from "./google-ai-scanner";
-import PatientPortalFinal from "./patient-portal-final";
+const GoogleAIScanner = lazy(() => import("./google-ai-scanner"));
+const PatientPortalFinal = lazy(() => import("./patient-portal-final"));
 import AppointmentScheduler from "./appointment-scheduler";
 import SimpleAppointmentBooking from "./simple-appointment-booking";
 
-import PatientManagement from "./patient-management";
-import AdminDashboard from "./admin-dashboard";
+const PatientManagement = lazy(() => import("./patient-management"));
+/**
+ * Role dashboards are loaded when the tab that needs them is opened.
+ *
+ * This file eagerly imported all of them, so a patient's browser downloaded the
+ * admin dashboard (96 kB of source), the radiologist review queue and the
+ * doctor portal in order to render a patient portal it would never leave.
+ */
+const AdminDashboard = lazy(() => import("./admin-dashboard"));
 
-import RadiologistDashboard from "./radiologist-dashboard";
-import DoctorPortal from "./doctor-portal";
+const RadiologistDashboard = lazy(() => import("./radiologist-dashboard"));
+const DoctorPortal = lazy(() => import("./doctor-portal"));
 import DoctorReports from "./doctor-reports";
 import DoctorPatients from "./doctor-patients";
 import { DoctorAppointmentSection } from "./doctor-appointment-section";
-import CancerDetection from "@/pages/cancer-detection";
-import EnhancedChatbot from "./enhanced-chatbot";
-import BloodTestAnalyzer from "./blood-test-analyzer";
+const CancerDetection = lazy(() => import("@/pages/cancer-detection"));
+const EnhancedChatbot = lazy(() => import("./enhanced-chatbot"));
+const BloodTestAnalyzer = lazy(() => import("./blood-test-analyzer"));
 import CancerRiskQuestionnaire from "./cancer-risk-questionnaire";
-import LungCancerAnalyzer from "./lung-cancer-analyzer";
-import MedicalImageViewer from "./medical-image-viewer";
-import RealTimeSkinScanner from "./real-time-skin-scanner";
+const LungCancerAnalyzer = lazy(() => import("./lung-cancer-analyzer"));
+const MedicalImageViewer = lazy(() => import("./medical-image-viewer"));
+const RealTimeSkinScanner = lazy(() => import("./real-time-skin-scanner"));
 import ChatNotifications from "./chat-notifications";
 
 interface DashboardLayoutProps {
   user: any;
   onLogout: () => void;
+}
+
+/** Seconds of process uptime, rendered for a human. */
+function formatProcessUptime(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+  return `${Math.floor(seconds / 86400)}d ${Math.floor((seconds % 86400) / 3600)}h`;
 }
 
 export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps) {
@@ -501,6 +516,17 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
               })}
             </TabsList>
 
+            {/* A local boundary, so switching to a lazily-loaded tab shows a
+                small placeholder in the content area rather than replacing the
+                whole page with the route-level fallback. */}
+            <Suspense
+              fallback={
+                <div className="flex items-center justify-center py-24">
+                  <div className="w-10 h-10 bg-blue-600 rounded-full animate-pulse" />
+                </div>
+              }
+            >
+
             <>
               <TabsContent value="overview">
                 {user.role === 'admin' ? (
@@ -734,22 +760,43 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                           </CardTitle>
                         </CardHeader>
                         <CardContent>
+                          {/* Every value in this card was a literal: 99.8%, 1.2s,
+                              98% and a green "Secure" badge, rendered identically
+                              whether the system was healthy, degraded or down.
+                              They come from /api/admin/stats now, and an unknown
+                              value renders as an em dash. */}
                           <div className="space-y-3">
                             <div className="flex justify-between items-center">
-                              <span className="text-slate-300">System Uptime</span>
-                              <span className="text-green-400 font-medium">99.8%</span>
+                              <span className="text-slate-300">Process Uptime</span>
+                              <span className="text-green-400 font-medium">
+                                {statsData?.uptimeSec != null
+                                  ? formatProcessUptime(statsData.uptimeSec)
+                                  : '\u2014'}
+                              </span>
                             </div>
                             <div className="flex justify-between items-center">
-                              <span className="text-slate-300">Response Time</span>
-                              <span className="text-blue-400 font-medium">1.2s</span>
-                            </div>
-                            <div className="flex justify-between items-center">
-                              <span className="text-slate-300">Database Health</span>
-                              <span className="text-green-400 font-medium">98%</span>
+                              <span className="text-slate-300">Database Latency</span>
+                              <span className="text-blue-400 font-medium">
+                                {statsData?.database
+                                  ? statsData.database.reachable
+                                    ? `${statsData.database.latencyMs} ms`
+                                    : 'unreachable'
+                                  : '\u2014'}
+                              </span>
                             </div>
                             <div className="flex justify-between items-center">
                               <span className="text-slate-300">Security Status</span>
-                              <Badge className="bg-green-600">Secure</Badge>
+                              <Badge
+                                className={
+                                  statsData?.securityStatus === 'secure'
+                                    ? 'bg-green-600'
+                                    : statsData?.securityStatus
+                                      ? 'bg-amber-600'
+                                      : 'bg-slate-600'
+                                }
+                              >
+                                {statsData?.securityStatus ?? 'unknown'}
+                              </Badge>
                             </div>
                           </div>
                         </CardContent>
@@ -766,11 +813,11 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                           <div className="space-y-3">
                             <div className="flex justify-between items-center">
                               <span className="text-slate-300">Daily Scans</span>
-                              <span className="text-purple-400 font-medium">{statsData?.dailyScans || 45}</span>
+                              <span className="text-purple-400 font-medium">{statsData?.dailyScans ?? '\u2014'}</span>
                             </div>
                             <div className="flex justify-between items-center">
                               <span className="text-slate-300">Active Users</span>
-                              <span className="text-blue-400 font-medium">{statsData?.totalUsers || 156}</span>
+                              <span className="text-blue-400 font-medium">{statsData?.totalUsers ?? '\u2014'}</span>
                             </div>
                             <div className="flex justify-between items-center">
                               <span className="text-slate-300">Critical Alerts</span>
@@ -780,7 +827,12 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                             </div>
                             <div className="flex justify-between items-center">
                               <span className="text-slate-300">AI Accuracy</span>
-                              <span className="text-cyan-400 font-medium">{statsData?.aiAccuracy || 94}%</span>
+                              {/* `|| 94` here reported 94% whenever the real value was 0
+                                  or missing, which is every deployment with no scans yet.
+                                  It is also confidence, not accuracy. */}
+                              <span className="text-cyan-400 font-medium">
+                                {statsData?.aiAccuracy != null ? `${statsData.aiAccuracy}%` : '\u2014'}
+                              </span>
                             </div>
                           </div>
                         </CardContent>
@@ -945,9 +997,10 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
               </TabsContent>
             )}
 
+            </Suspense>
         </Tabs>
       </main>
-      
+
       {/* Enhanced Chatbot */}
       <EnhancedChatbot 
         user={user}

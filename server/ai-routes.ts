@@ -218,14 +218,12 @@ router.get('/models/:modelType/metrics', requireMedicalAccess, async (req, res) 
     const { modelType } = req.params;
     const metrics = await aiEngine.getModelPerformanceMetrics(modelType);
     
+    // The `benchmarks` block that used to sit here published targetAccuracy 0.90
+    // next to a null accuracy, which reads as a claim about this model. Targets
+    // nobody set are not benchmarks.
     res.json({
       modelType,
       performance: metrics,
-      benchmarks: {
-        targetAccuracy: 0.90,
-        targetProcessingTime: 1000,
-        targetConfidence: 0.80
-      },
       insights: {
         performanceGrade: getPerformanceGrade(metrics),
         recommendations: getPerformanceRecommendations(metrics)
@@ -378,7 +376,19 @@ function getRecommendedTests(condition: string, modelType: string): string[] {
   return testMap[modelType] || ['Clinical correlation', 'Additional imaging'];
 }
 
-function getPerformanceGrade(metrics: any): string {
+/**
+ * A letter grade, or null when there is nothing to grade.
+ *
+ * This used to average averageConfidence and accuracyRate. accuracyRate is
+ * always null and null coerces to 0 in arithmetic, so the score was
+ * `confidence / 2` at best and 0 at worst — every model was graded "C",
+ * including ones with no predictions at all. Grading a model on the confidence
+ * it assigns itself is also circular: a model that is confidently wrong scores
+ * highest.
+ */
+function getPerformanceGrade(metrics: any): string | null {
+  if (!metrics?.instrumented || metrics.accuracyRate === null) return null;
+
   const score = (metrics.averageConfidence + metrics.accuracyRate) / 2;
   if (score >= 0.95) return 'A+';
   if (score >= 0.90) return 'A';
@@ -387,16 +397,33 @@ function getPerformanceGrade(metrics: any): string {
   return 'C';
 }
 
+/**
+ * Advice only where a number exists to justify it.
+ *
+ * Each comparison here was previously made against a null, which is < any
+ * threshold, so every model was permanently advised to retrain and to improve
+ * its dataset regardless of how it was doing.
+ */
 function getPerformanceRecommendations(metrics: any): string[] {
   const recommendations: string[] = [];
-  if (metrics.averageConfidence < 0.80) {
-    recommendations.push('Consider model retraining with additional data');
+  if (!metrics) return recommendations;
+
+  if (typeof metrics.averageConfidence === 'number' && metrics.averageConfidence < 0.8) {
+    recommendations.push('Mean confidence in production is below 0.80; review inputs and thresholds');
   }
-  if (metrics.averageProcessingTime > 2000) {
-    recommendations.push('Optimize model for faster inference');
+  if (typeof metrics.averageProcessingTime === 'number' && metrics.averageProcessingTime > 2000) {
+    recommendations.push('Mean inference time exceeds 2s; optimise the model or the host');
   }
-  if (metrics.accuracyRate < 0.85) {
-    recommendations.push('Review and improve training dataset quality');
+  if (metrics.accuracyRate === null) {
+    recommendations.push(
+      'No scan of this type has a confirmed outcome yet. Record outcomes via ' +
+        'POST /api/scans/:id/outcome to make production accuracy measurable'
+    );
+  } else if ((metrics.adjudicatedCount ?? 0) < 40) {
+    recommendations.push(
+      `Accuracy is based on ${metrics.adjudicatedCount} adjudicated scan(s) — too few to act on. ` +
+        'See /api/models/performance for the confidence intervals'
+    );
   }
   return recommendations;
 }

@@ -24,7 +24,6 @@ export default function SimpleAppointmentBooking({ user }: { user: any }) {
     time: string;
     doctor: string;
     doctorId: number;
-    doctorEmail: string;
   }>>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
 
@@ -67,8 +66,8 @@ export default function SimpleAppointmentBooking({ user }: { user: any }) {
       appointmentTime: string;
       type: string;
       provider: string;
+      doctorId: number;
       doctorName: string;
-      doctorEmail: string;
       reason: string;
     }) => {
       const response = await fetch('/api/patient/appointments', {
@@ -125,41 +124,54 @@ export default function SimpleAppointmentBooking({ user }: { user: any }) {
 
     setLoadingSlots(true);
     try {
-      // Check real availability from server
-      const response = await fetch(`/api/appointments/available-slots?date=${bookingForm.date}&type=${bookingForm.type}`, {
-        credentials: 'include'
-      });
-      
-      if (response.ok) {
-        const serverSlots = await response.json();
-        setAvailableSlots(serverSlots);
-      } else {
-        // Fallback: Generate slots and check against existing appointments
-        const allTimeSlots = ['09:00 AM', '10:30 AM', '02:00 PM', '03:30 PM', '04:00 PM'];
-        const bookedSlots = appointments
-          .filter((apt: any) => apt.appointmentDate === bookingForm.date)
-          .map((apt: any) => apt.appointmentTime);
-        
-        const availableTimeSlots = allTimeSlots.filter(time => !bookedSlots.includes(time));
-        
-        const slots = availableTimeSlots.map(time => {
-          const doctor = availableDoctors.find((d: any) => d.role === (bookingForm.provider || 'doctor')) || availableDoctors[0];
-          return {
-            time,
-            doctor: doctor?.name || (bookingForm.provider === 'radiologist' ? 'Dr. Radiologist' : 'Dr. Available'),
-            doctorId: doctor?.id || 1,
-            doctorEmail: doctor?.email || 'doctor@healthai.com'
-          };
-        });
-        
-        setAvailableSlots(slots);
+      // The endpoint is addressed by year and month, and answers with a map of
+      // date -> slots.
+      //
+      // This used to send ?date=&type=, which the server does not read: it parsed
+      // year and month out of the query, got NaN for both, and fell back to the
+      // current month. The response was therefore an object keyed by date, while
+      // this component stored it straight into an array-typed state and rendered
+      // `availableSlots.length > 0`. On an object that is undefined, so the
+      // picker showed "No slots available for selected date" for every date,
+      // whatever the calendar actually held. The request never failed either, so
+      // the fabricated fallback below it never ran and merely sat there — it
+      // invented five fixed times attributed to "Dr. Available" at doctorId 1.
+      const [year, month] = bookingForm.date.split('-');
+      const response = await fetch(
+        `/api/appointments/available-slots?year=${year}&month=${Number(month)}`,
+        { credentials: 'include' }
+      );
+
+      if (!response.ok) {
+        throw new Error('The availability service is unavailable');
       }
-      
+
+      const byDate = await response.json();
+      const forDate = Array.isArray(byDate[bookingForm.date]) ? byDate[bookingForm.date] : [];
+
+      // Honour the requested provider type instead of showing every clinician's
+      // slots regardless of what was asked for.
+      const wanted = bookingForm.provider || 'doctor';
+      setAvailableSlots(
+        forDate
+          .filter((slot: any) => !bookingForm.provider || slot.role === wanted)
+          .map((slot: any) => ({
+            time: slot.time,
+            doctor: slot.doctor,
+            doctorId: slot.doctorId,
+          }))
+      );
+
       setShowTimeSlots(true);
     } catch (error) {
+      // No invented slots on failure. Showing times that were never checked
+      // means the patient books one and the server rejects it, or worse, does
+      // not.
+      setAvailableSlots([]);
+      setShowTimeSlots(false);
       toast({
-        title: "Error",
-        description: "Failed to check availability. Please try again.",
+        title: "Could not check availability",
+        description: error instanceof Error ? error.message : "Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -171,16 +183,18 @@ export default function SimpleAppointmentBooking({ user }: { user: any }) {
     time: string;
     doctor: string;
     doctorId: number;
-    doctorEmail: string;
   }) => {
     const appointmentData = {
+      // patientId is ignored by the server for patient sessions — it books
+      // for whoever is logged in — and is sent only so staff booking on a
+      // patient's behalf continues to work.
       patientId: user.id,
       appointmentDate: bookingForm.date,
       appointmentTime: slot.time,
       type: bookingForm.type,
       provider: bookingForm.provider,
+      doctorId: slot.doctorId,
       doctorName: slot.doctor,
-      doctorEmail: slot.doctorEmail,
       reason: bookingForm.reason
     };
     
@@ -202,10 +216,12 @@ export default function SimpleAppointmentBooking({ user }: { user: any }) {
         dateTime: new Date(new Date(`${bookingForm.date}T${convertTo24Hour(slot.time)}`).getTime() + 60*60*1000).toISOString(),
         timeZone: 'UTC'
       },
-      attendees: [
-        { email: user.email },
-        { email: slot.doctorEmail }
-      ]
+      // Only the patient is invited from the browser. The clinician's address
+      // used to be attached here, defaulting to a literal 'doctor@healthai.com'
+      // when it was missing — and the public clinician endpoint no longer
+      // hands out staff email addresses at all. Inviting the clinician is the
+      // server's job, from the record it just wrote.
+      attendees: [{ email: user.email }]
     };
     
     try {

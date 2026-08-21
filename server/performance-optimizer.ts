@@ -133,97 +133,108 @@ export class CacheManager {
 }
 
 // Database Performance Optimizer
+/**
+ * Reports on the database, from the database.
+ *
+ * Everything this class returned used to be written by hand. `getConnectionPoolStats`
+ * described a pool object it had invented rather than the pg pool the server
+ * actually uses; `analyzeQueryPerformance` returned a fixed list of index
+ * suggestions and one fabricated slow query ("SELECT * FROM medical_scans
+ * WHERE...", 245ms, 150 calls) that corresponded to nothing. An operations
+ * dashboard that makes up its own numbers is worse than no dashboard: it is
+ * consulted during incidents.
+ *
+ * There was also an optimizedQuery()/executeQuery() pair whose executor logged
+ * the SQL and returned `{ mockResult: true, queryTime: Math.random() * 100 }`.
+ * Nothing called it, and a cache in front of a fake executor is not something to
+ * repair, so it is gone.
+ */
 export class DatabaseOptimizer {
-  private connectionPool: any = null;
-  private queryCache = new Map<string, { result: any; timestamp: number; ttl: number }>();
-
-  // Query optimization with caching
-  async optimizedQuery(sql: string, params: any[] = [], cacheTTL: number = 300000): Promise<any> {
-    const cacheKey = this.generateQueryCacheKey(sql, params);
-    
-    // Check cache first
-    if (this.queryCache.has(cacheKey)) {
-      const cached = this.queryCache.get(cacheKey)!;
-      if (Date.now() - cached.timestamp < cached.ttl) {
-        return cached.result;
-      } else {
-        this.queryCache.delete(cacheKey);
-      }
+  /**
+   * Live pool counters from pg.
+   *
+   * `waiting` is the number that matters under load: persistently above zero
+   * means requests are queuing for a connection and `max` is too low.
+   */
+  async getConnectionPoolStats(): Promise<any> {
+    try {
+      const { pool } = await import('./db');
+      return {
+        total: pool.totalCount,
+        idle: pool.idleCount,
+        waiting: pool.waitingCount,
+        active: pool.totalCount - pool.idleCount,
+        source: 'pg.Pool',
+      };
+    } catch (error) {
+      return { error: 'Connection pool unavailable', detail: (error as Error).message };
     }
-
-    // Execute query (mock implementation)
-    const result = await this.executeQuery(sql, params);
-    
-    // Cache the result
-    this.queryCache.set(cacheKey, {
-      result,
-      timestamp: Date.now(),
-      ttl: cacheTTL
-    });
-
-    return result;
   }
 
-  private generateQueryCacheKey(sql: string, params: any[]): string {
-    return `query:${sql}:${JSON.stringify(params)}`;
-  }
-
-  private async executeQuery(sql: string, params: any[]): Promise<any> {
-    // Mock query execution - in production this would use your actual DB client
-    console.log(`Executing optimized query: ${sql.substring(0, 50)}...`);
-    return { mockResult: true, queryTime: Math.random() * 100 };
-  }
-
-  // Index suggestions based on query patterns
+  /**
+   * Real table statistics, and real slow queries when the server can provide
+   * them.
+   *
+   * pg_stat_user_tables is always available. pg_stat_statements is an extension
+   * and is frequently not installed, so its absence is reported as such instead
+   * of being papered over with example data.
+   */
   async analyzeQueryPerformance(): Promise<any> {
-    return {
-      suggestedIndexes: [
-        {
-          table: 'medical_scans',
-          columns: ['patient_id', 'created_at'],
-          reason: 'Frequent filtering by patient and date'
-        },
-        {
-          table: 'users',
-          columns: ['role', 'is_active'],
-          reason: 'Role-based queries are common'
-        },
-        {
-          table: 'appointments',
-          columns: ['appointment_date', 'status'],
-          reason: 'Date range and status filtering'
-        }
-      ],
-      slowQueries: [
-        {
-          query: 'SELECT * FROM medical_scans WHERE...',
-          avgExecutionTime: 245,
-          frequency: 150,
-          suggestion: 'Add composite index on (patient_id, scan_type)'
-        }
-      ],
-      recommendations: [
-        'Enable query plan analysis',
-        'Implement query result caching',
-        'Consider database connection pooling',
-        'Add database monitoring'
-      ]
-    };
-  }
+    try {
+      const { pool } = await import('./db');
 
-  // Connection pool management
-  async initializeConnectionPool(config: any): Promise<void> {
-    console.log('🔗 Initializing database connection pool...');
-    // Mock implementation - in production use pg-pool or similar
-    this.connectionPool = {
-      totalConnections: config.max || 20,
-      idleConnections: config.max || 20,
-      activeConnections: 0
-    };
-  }
+      const tableStats = await pool.query(`
+        SELECT relname AS table_name,
+               seq_scan,
+               idx_scan,
+               n_live_tup AS live_rows
+        FROM pg_stat_user_tables
+        ORDER BY seq_scan DESC
+        LIMIT 20
+      `);
 
-  getConnectionPoolStats(): any {
-    return this.connectionPool || { error: 'Connection pool not initialized' };
+      let slowQueries: any[] = [];
+      let slowQueryNote =
+        'pg_stat_statements is not installed; per-query timings are unavailable. ' +
+        'Enable it with CREATE EXTENSION pg_stat_statements.';
+
+      try {
+        const slow = await pool.query(`
+          SELECT calls,
+                 round(mean_exec_time::numeric, 2) AS mean_ms,
+                 round(total_exec_time::numeric, 2) AS total_ms,
+                 left(query, 200) AS query
+          FROM pg_stat_statements
+          ORDER BY mean_exec_time DESC
+          LIMIT 10
+        `);
+        slowQueries = slow.rows;
+        slowQueryNote = 'From pg_stat_statements.';
+      } catch {
+        /* extension absent: leave the note as-is */
+      }
+
+      // A table read mostly by sequential scan, with enough rows for that to
+      // cost something, is the one signal worth surfacing without guessing.
+      const sequentialScanHeavy = tableStats.rows
+        .filter((row: any) => Number(row.seq_scan) > Number(row.idx_scan ?? 0) && Number(row.live_rows) > 1000)
+        .map((row: any) => ({
+          table: row.table_name,
+          seqScans: Number(row.seq_scan),
+          indexScans: Number(row.idx_scan ?? 0),
+          liveRows: Number(row.live_rows),
+        }));
+
+      return {
+        tableStats: tableStats.rows,
+        sequentialScanHeavy,
+        slowQueries,
+        slowQueryNote,
+        measuredAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      return { error: 'Query analysis unavailable', detail: (error as Error).message };
+    }
   }
 }
 
@@ -340,27 +351,14 @@ export class ResponseOptimizer {
     };
   }
 
-  static createETagMiddleware(): express.RequestHandler {
-    return (req, res, next) => {
-      const originalSend = res.send;
-      
-      res.send = function(data) {
-        if (typeof data === 'object') {
-          const etag = `"${Buffer.from(JSON.stringify(data)).toString('base64').slice(0, 16)}"`;
-          res.set('ETag', etag);
-          
-          if (req.headers['if-none-match'] === etag) {
-            res.status(304).end();
-            return res;
-          }
-        }
-        
-        return originalSend.call(this, data);
-      };
-      
-      next();
-    };
-  }
+  // createETagMiddleware() was removed rather than repaired.
+  //
+  // Two independent reasons. It only acted when res.send() received an object,
+  // and res.json() — which every route here uses — serialises first and calls
+  // res.send() with a string, so the branch never ran. And Express already emits
+  // a weak ETag for exactly these responses via its own `etag` setting, which
+  // does work, hashes the whole body instead of the first 16 base64 characters,
+  // and does not risk two different payloads sharing a tag.
 
   static createResponseTimeMiddleware(): express.RequestHandler {
     return (req, res, next) => {

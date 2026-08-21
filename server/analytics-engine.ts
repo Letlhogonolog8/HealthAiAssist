@@ -20,7 +20,13 @@ interface UserActivity {
 interface MedicalInsight {
   type: 'population_health' | 'treatment_outcome' | 'risk_assessment' | 'screening_effectiveness';
   insight: string;
-  confidence: number;
+  /**
+   * Null where no confidence was computed.
+   *
+   * Three of the four generators returned hardcoded literals here (0.8, 0.75,
+   * 0.85), which the API then filtered on to report a "high confidence" count.
+   */
+  confidence: number | null;
   data: any;
   recommendations: string[];
 }
@@ -145,20 +151,28 @@ export class AnalyticsEngine {
       if (completedScans.length < 10) return null; // Need sufficient data
 
       const outcomesByType = this.groupScansByType(completedScans);
-      const successRates = this.calculateSuccessRates(outcomesByType);
+      const negativeRates = this.calculateNegativeRates(outcomesByType);
 
+      // The recommendations that used to accompany this said "Improve treatment
+      // protocols for {type} cases" whenever the rate fell below 0.7 — clinical
+      // advice derived from how often a classifier said "no cancer".
       return {
         type: 'treatment_outcome',
-        insight: `Treatment success rates vary by scan type: ${Object.entries(successRates)
-          .map(([type, rate]) => `${type}: ${((rate as number) * 100).toFixed(1)}%`)
-          .join(', ')}`,
-        confidence: 0.8,
+        insight:
+          `Share of completed scans with no malignancy in the result, by modality: ` +
+          Object.entries(negativeRates)
+            .map(([type, rate]) => `${type}: ${((rate as number) * 100).toFixed(1)}%`)
+            .join(', ') +
+          `. This reflects model output, not patient outcomes.`,
+        confidence: null,
         data: {
           outcomesByType,
-          successRates,
+          negativeRates,
           totalCompleted: completedScans.length
         },
-        recommendations: this.generateTreatmentRecommendations(successRates)
+        recommendations: [
+          'Outcomes are not recorded, so no treatment inference can be drawn from this',
+        ]
       };
     } catch (error) {
       console.error('Treatment outcome analysis error:', error);
@@ -177,8 +191,14 @@ export class AnalyticsEngine {
       
       return {
         type: 'risk_assessment',
-        insight: `Identified ${patterns.commonFactors.length} common risk factors in high-risk cases`,
-        confidence: 0.75,
+        insight:
+          `${highRiskScans.length} of ${scans.length} scans are recorded at high or ` +
+          `critical risk; the most frequent modalities are ` +
+          `${patterns.commonFactors.join(', ') || 'none'}.`,
+        // Was 0.75, a constant. /api/advanced/analytics/medical-insights counts
+        // insights with confidence > 0.8 as "high confidence", so these literals
+        // decided that count rather than any measurement.
+        confidence: null,
         data: {
           highRiskCount: highRiskScans.length,
           totalScans: scans.length,
@@ -211,15 +231,27 @@ export class AnalyticsEngine {
 
       const effectiveness = this.calculateScreeningEffectiveness(recentScans);
 
+      // `effectiveness.detectionRate` was read here after
+      // calculateScreeningEffectiveness stopped returning it: the field is gone,
+      // so the expression was `(undefined * 100).toFixed(1)` and this insight
+      // rendered the string "NaN% early detection rate" on the dashboard.
+      //
+      // It was also the wrong claim. A flag rate is the proportion of scans the
+      // model marked for review; calling it an early detection rate asserts that
+      // those flags were correct and early, neither of which anything here
+      // confirms.
       return {
         type: 'screening_effectiveness',
-        insight: `Current screening programs show ${(effectiveness.detectionRate * 100).toFixed(1)}% early detection rate`,
-        confidence: 0.85,
+        insight:
+          `${effectiveness.flaggedScans} of ${effectiveness.totalScreenings} scans in the last ` +
+          `six months were flagged for review (${(effectiveness.flagRate * 100).toFixed(1)}%). ` +
+          `Whether those flags were correct is not recorded.`,
+        // Not a measured confidence. Reported as null rather than a constant that
+        // the endpoint then counts as "high confidence".
+        confidence: null,
         data: effectiveness,
         recommendations: [
-          'Maintain current screening protocols for effective programs',
-          'Review and improve underperforming screening methods',
-          'Consider expanding successful screening to broader populations'
+          'Record a confirmed outcome per scan so screening performance can be measured',
         ]
       };
     } catch (error) {
@@ -402,9 +434,11 @@ export class AnalyticsEngine {
       recommendations.unshift('Investigate causes of high-risk prevalence');
     }
 
+    // The last of the four hardcoded confidences. Null, like the others: nothing
+    // here estimates how reliable this summary is.
     return {
       message,
-      confidence: 0.8,
+      confidence: null,
       recommendations
     };
   }
@@ -418,35 +452,28 @@ export class AnalyticsEngine {
     }, {});
   }
 
-  private calculateSuccessRates(outcomesByType: any): any {
-    const successRates: any = {};
-    
+  /**
+   * The proportion of completed scans per modality whose result did NOT mention
+   * cancer or malignancy.
+   *
+   * Named for what it counts. It used to be called a "treatment success rate",
+   * which is a claim about patient outcomes: this system records no treatment,
+   * no follow-up and no confirmed diagnosis, so it cannot know whether any
+   * treatment succeeded. A scan the model did not flag is not a cured patient.
+   */
+  private calculateNegativeRates(outcomesByType: any): any {
+    const negativeRates: any = {};
+
     for (const [type, scans] of Object.entries(outcomesByType)) {
       const scanArray = scans as any[];
-      const successfulScans = scanArray.filter(s => 
-        s.result && !s.result.toLowerCase().includes('malignant') && 
+      const negativeScans = scanArray.filter(s =>
+        s.result && !s.result.toLowerCase().includes('malignant') &&
         !s.result.toLowerCase().includes('cancer')
       );
-      successRates[type] = scanArray.length > 0 ? successfulScans.length / scanArray.length : 0;
+      negativeRates[type] = scanArray.length > 0 ? negativeScans.length / scanArray.length : 0;
     }
-    
-    return successRates;
-  }
 
-  private generateTreatmentRecommendations(successRates: any): string[] {
-    const recommendations: string[] = [];
-    
-    for (const [type, rate] of Object.entries(successRates)) {
-      if ((rate as number) < 0.7) {
-        recommendations.push(`Improve treatment protocols for ${type} cases`);
-      }
-    }
-    
-    if (recommendations.length === 0) {
-      recommendations.push('Maintain current high-quality treatment standards');
-    }
-    
-    return recommendations;
+    return negativeRates;
   }
 
   private identifyRiskPatterns(highRiskScans: any[]): any {
@@ -631,12 +658,37 @@ export class AnalyticsEngine {
     };
   }
 
+  /**
+   * Demand by modality, counted from the scans table.
+   *
+   * The rest of this object used to be marketing copy served from an analytics
+   * endpoint: a fixed "growingDemandAreas", an "emergingTechnologies" list, and
+   * a "competitivePosition" of "Strong in AI-powered diagnostics" — a claim
+   * about the market that no data here could support, presented next to figures
+   * that were real. Its neighbours (revenue, satisfaction, efficiency) were
+   * already reduced to nulls with `instrumented: false`; this one was missed.
+   */
   private identifyMarketTrends(scans: any[], users: any[]): any {
+    const byType = scans.reduce((counts: Record<string, number>, scan: any) => {
+      const type = scan.scanType || 'unknown';
+      counts[type] = (counts[type] || 0) + 1;
+      return counts;
+    }, {});
+
+    const demandByScanType = Object.entries(byType)
+      .sort(([, a], [, b]) => (b as number) - (a as number))
+      .map(([scanType, count]) => ({ scanType, count }));
+
     return {
-      growingDemandAreas: ['skin cancer screening', 'preventive care'],
-      emergingTechnologies: ['AI-assisted diagnosis', 'telemedicine'],
-      competitivePosition: 'Strong in AI-powered diagnostics',
-      marketOpportunities: ['expand to rural areas', 'mobile health solutions']
+      demandByScanType,
+      totalScans: scans.length,
+      registeredPatients: users.filter((u: any) => u.role === 'patient').length,
+      // Market position and technology trends are claims about the world outside
+      // this database. Nothing here can measure them.
+      competitivePosition: null,
+      marketOpportunities: null,
+      instrumented: false,
+      note: 'Demand counts are from the scans table. Market position is not measured.'
     };
   }
 
@@ -714,7 +766,54 @@ export class AnalyticsEngine {
 // Singleton instance
 export const analyticsEngine = new AnalyticsEngine();
 
-// Start cleanup interval
+// Start cleanup interval. Unref'd so an idle timer cannot hold the process open
+// — without it a short-lived run (a test harness, a one-shot script) sits for up
+// to 24 hours after its work is done.
 setInterval(() => {
   analyticsEngine.cleanupOldData();
-}, 24 * 60 * 60 * 1000); // Daily cleanup
+}, 24 * 60 * 60 * 1000).unref(); // Daily cleanup
+
+/**
+ * Collapses the variable parts of a path so one route is one metric.
+ *
+ * Metric names are Map keys with no eviction by key, so recording
+ * `GET_/api/patient/profile/1173` verbatim adds a permanent entry per patient
+ * viewed: the map grows with traffic and never shrinks. Numeric and UUID-shaped
+ * segments become `:id`, which bounds the key space by the number of routes.
+ */
+export function normalizeResourcePath(path: string): string {
+  return path
+    .split('/')
+    .map((seg) =>
+      /^\d+$/.test(seg) ||
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(seg)
+        ? ':id'
+        : seg
+    )
+    .join('/');
+}
+
+/**
+ * Records authenticated API usage.
+ *
+ * Registered ahead of the routers. The previous copy sat at the very bottom of
+ * registerRoutes, behind every handler, so it recorded nothing at all. It also
+ * `await`ed the recording before calling next(), putting the tracker on the
+ * request's critical path; it is fire-and-forget now.
+ */
+export function trackApiUsage(req: any, _res: any, next: () => void): void {
+  const user = req.session?.user;
+  if (user?.id) {
+    const resource = normalizeResourcePath(req.path);
+    void analyticsEngine
+      .trackUserActivity({
+        userId: user.id,
+        action: `${req.method}_${resource}`,
+        resource,
+        timestamp: new Date(),
+        metadata: { userAgent: req.headers['user-agent'], ip: req.ip },
+      })
+      .catch((error) => console.error('Analytics tracking failed:', error));
+  }
+  next();
+}

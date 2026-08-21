@@ -70,10 +70,13 @@ export class AuditLogger {
       ...event
     };
 
-    // Log to console in development
-    console.log('🔐 Security Event:', JSON.stringify(logEntry, null, 2));
+    // Console only in development. This used to print the whole entry,
+    // metadata included, on every event in every environment; the metadata can
+    // carry identifiers, and production logs are frequently shipped elsewhere.
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`🔐 Security Event: ${logEntry.severity} ${event.action} ${event.outcome}`);
+    }
 
-    // In production, this would write to secure log files and/or external systems
     try {
       await this.writeToSecureLog(logEntry);
       await this.checkForSecurityPatterns(logEntry);
@@ -88,20 +91,56 @@ export class AuditLogger {
     return 'low';
   }
 
+  /**
+   * Persists a security event to the audit_events table.
+   *
+   * It used to append JSON to logs/security-audit.log. That directory is
+   * gitignored and, more importantly, lives on the container filesystem: on
+   * Railway, Render or any other ephemeral host the whole security audit trail
+   * is destroyed by the next deploy or restart. The application already has an
+   * append-only audit table that the auditLog() middleware writes to; security
+   * events belong in the same place, queryable and backed up with everything
+   * else.
+   *
+   * The file fallback is kept for the case where the database itself is the
+   * thing that failed — losing a security event because the write target was
+   * down is the one outcome worth avoiding.
+   */
   private static async writeToSecureLog(entry: any): Promise<void> {
-    // Mock implementation - in production use secure logging service
-    const fs = await import('fs/promises');
-    const path = await import('path');
-    
-    const logFile = path.join(process.cwd(), 'logs', 'security-audit.log');
-    const logLine = JSON.stringify(entry) + '\n';
-    
     try {
-      await fs.appendFile(logFile, logLine);
-    } catch (error) {
-      // Ensure log directory exists
-      await fs.mkdir(path.dirname(logFile), { recursive: true });
-      await fs.appendFile(logFile, logLine);
+      const { getDb } = await import('./db');
+      const { auditEvents } = await import('@shared/schema');
+      const db = getDb() as any;
+      if (!db) throw new Error('no database handle');
+
+      await db.insert(auditEvents).values({
+        action: `SECURITY_${String(entry.action).toUpperCase()}`,
+        actorUserId: entry.userId ?? null,
+        actorUsername: null,
+        actorRole: entry.userRole ?? null,
+        method: null,
+        path: entry.resource ?? null,
+        statusCode: null,
+        ipAddress: entry.ipAddress ?? null,
+        // Severity and outcome only. The metadata object can contain the very
+        // information the event is about, and an audit log holding the data it
+        // audits has multiplied the exposure rather than recorded it.
+        detail: `severity=${entry.severity} outcome=${entry.outcome} eventId=${entry.eventId}`,
+      });
+    } catch (dbError) {
+      console.error('Security audit DB write failed, falling back to file:', dbError);
+
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const logFile = path.join(process.cwd(), 'logs', 'security-audit.log');
+      const logLine = JSON.stringify(entry) + '\n';
+
+      try {
+        await fs.appendFile(logFile, logLine);
+      } catch {
+        await fs.mkdir(path.dirname(logFile), { recursive: true });
+        await fs.appendFile(logFile, logLine);
+      }
     }
   }
 
@@ -116,26 +155,73 @@ export class AuditLogger {
     }
   }
 
+  /**
+   * Counts recent failed logins from the audit table and warns above a
+   * threshold.
+   *
+   * The previous body logged "Checking failed login patterns for IP: ..." and
+   * did nothing else, which read like brute-force detection in the logs while
+   * detecting nothing. It queries the trail now. Blocking is deliberately not
+   * done here: the login route is already behind loginLimiter, and a second
+   * blocking mechanism that can be driven by a spoofable X-Forwarded-For is a
+   * way to lock legitimate users out.
+   */
   private static async checkFailedLoginAttempts(ipAddress: string, userId?: number): Promise<void> {
-    // Mock implementation for failed login pattern detection
-    console.log(`🚨 Checking failed login patterns for IP: ${ipAddress}, User: ${userId}`);
-    
-    // In production, this would:
-    // 1. Query recent failed attempts from log database
-    // 2. Trigger IP blocking if threshold exceeded
-    // 3. Send alerts to security team
-    // 4. Implement progressive delays
+    if (!ipAddress) return;
+
+    try {
+      const { pool } = await import('./db');
+      const { rows } = await pool.query(
+        `SELECT count(*)::int AS failures
+           FROM audit_events
+          WHERE ip_address = $1
+            AND action LIKE 'SECURITY_%FAILED%'
+            AND occurred_at > now() - interval '15 minutes'`,
+        [ipAddress]
+      );
+
+      const failures = rows[0]?.failures ?? 0;
+      if (failures >= 10) {
+        console.warn(
+          `🚨 ${failures} failed authentication events from ${ipAddress} in 15 minutes` +
+            (userId ? ` (most recent against user ${userId})` : '')
+        );
+      }
+    } catch (error) {
+      console.error('Failed-login pattern check failed:', error);
+    }
   }
 
+  /**
+   * Flags one account reading an unusual number of patient records in a short
+   * window — the shape of a bulk export.
+   *
+   * Also previously a console.log that claimed to be checking and was not.
+   */
   private static async checkUnusualDataAccess(userId?: number, resource?: string): Promise<void> {
-    // Mock implementation for unusual access pattern detection
-    console.log(`🔍 Checking access patterns for User: ${userId}, Resource: ${resource}`);
-    
-    // In production, this would:
-    // 1. Compare with user's normal access patterns
-    // 2. Check for bulk data access
-    // 3. Verify access outside normal hours
-    // 4. Alert on sensitive data access
+    if (!userId) return;
+
+    try {
+      const { pool } = await import('./db');
+      const { rows } = await pool.query(
+        `SELECT count(DISTINCT path)::int AS distinct_records
+           FROM audit_events
+          WHERE actor_user_id = $1
+            AND action LIKE 'READ_PATIENT%'
+            AND occurred_at > now() - interval '10 minutes'`,
+        [userId]
+      );
+
+      const distinctRecords = rows[0]?.distinct_records ?? 0;
+      if (distinctRecords >= 50) {
+        console.warn(
+          `🔍 User ${userId} read ${distinctRecords} distinct patient records in 10 minutes` +
+            (resource ? ` (latest: ${resource})` : '')
+        );
+      }
+    } catch (error) {
+      console.error('Unusual-access pattern check failed:', error);
+    }
   }
 }
 
@@ -251,104 +337,76 @@ export class ComplianceChecker {
   }
 }
 
-// Advanced Session Management
-export class SessionManager {
-  private static activeSessions = new Map<string, {
-    userId: number;
-    createdAt: Date;
-    lastActivity: Date;
-    ipAddress: string;
-    userAgent: string;
-    deviceFingerprint?: string;
-  }>();
+/**
+ * Reads and revokes sessions from the session store, not from process memory.
+ *
+ * SessionManager below keeps its own Map, and nothing ever calls its
+ * createSession() — so getActiveSessionsForUser() returned an empty array for
+ * every user and terminateAllUserSessions() returned 0 while the endpoint
+ * answered "All other sessions have been terminated". A user who believed their
+ * account was compromised, clicked sign-out-everywhere and saw a success message
+ * still had every other session live. The Map is also per-process, so it could
+ * never have been right behind more than one instance.
+ *
+ * express-session's rows are the truth, so these query them directly.
+ */
+export class SessionStore {
+  /** Sessions belonging to `userId` that have not expired. */
+  static async listForUser(userId: number): Promise<Array<{
+    sessionId: string;
+    createdAt: string | null;
+    expiresAt: Date;
+    current: boolean;
+  }>> {
+    const { pool } = await import('./db');
+    const { rows } = await pool.query(
+      `SELECT sid, sess, expire
+         FROM session
+        WHERE (sess -> 'user' ->> 'id')::int = $1
+          AND expire > now()
+        ORDER BY expire DESC`,
+      [userId]
+    );
 
-  static createSession(userId: number, sessionId: string, metadata: {
-    ipAddress: string;
-    userAgent: string;
-    deviceFingerprint?: string;
-  }): void {
-    this.activeSessions.set(sessionId, {
-      userId,
-      createdAt: new Date(),
-      lastActivity: new Date(),
-      ...metadata
-    });
-
-    // Log session creation
-    AuditLogger.logSecurityEvent({
-      userId,
-      action: 'session_created',
-      resource: 'user_session',
-      outcome: 'success',
-      ipAddress: metadata.ipAddress,
-      userAgent: metadata.userAgent
-    });
+    return rows.map((row: any) => ({
+      sessionId: row.sid,
+      createdAt: row.sess?.cookie?.expires
+        ? new Date(
+            new Date(row.sess.cookie.expires).getTime() -
+              (row.sess.cookie.originalMaxAge ?? 0)
+          ).toISOString()
+        : null,
+      expiresAt: row.expire,
+      current: false,
+    }));
   }
 
-  static updateActivity(sessionId: string): void {
-    const session = this.activeSessions.get(sessionId);
-    if (session) {
-      session.lastActivity = new Date();
-    }
-  }
-
-  static terminateSession(sessionId: string, reason: string = 'user_logout'): void {
-    const session = this.activeSessions.get(sessionId);
-    if (session) {
-      this.activeSessions.delete(sessionId);
-      
-      AuditLogger.logSecurityEvent({
-        userId: session.userId,
-        action: 'session_terminated',
-        resource: 'user_session',
-        outcome: 'success',
-        ipAddress: session.ipAddress,
-        userAgent: session.userAgent,
-        metadata: { reason }
-      });
-    }
-  }
-
-  static getActiveSessionsForUser(userId: number): any[] {
-    return Array.from(this.activeSessions.entries())
-      .filter(([, session]) => session.userId === userId)
-      .map(([sessionId, session]) => ({
-        sessionId,
-        createdAt: session.createdAt,
-        lastActivity: session.lastActivity,
-        ipAddress: session.ipAddress,
-        userAgent: session.userAgent
-      }));
-  }
-
-  static terminateAllUserSessions(userId: number, excludeSessionId?: string): number {
-    let terminatedCount = 0;
-    
-    for (const [sessionId, session] of this.activeSessions.entries()) {
-      if (session.userId === userId && sessionId !== excludeSessionId) {
-        this.terminateSession(sessionId, 'admin_termination');
-        terminatedCount++;
-      }
-    }
-    
-    return terminatedCount;
-  }
-
-  static cleanupExpiredSessions(): number {
-    const now = new Date();
-    const maxAge = 24 * 60 * 60 * 1000; // 24 hours
-    let cleanedCount = 0;
-
-    for (const [sessionId, session] of this.activeSessions.entries()) {
-      if (now.getTime() - session.lastActivity.getTime() > maxAge) {
-        this.terminateSession(sessionId, 'expired');
-        cleanedCount++;
-      }
-    }
-
-    return cleanedCount;
+  /**
+   * Deletes every session for `userId` except `keepSessionId`.
+   *
+   * Returns the number actually deleted, so the caller reports what happened
+   * rather than asserting it.
+   */
+  static async terminateAllExcept(userId: number, keepSessionId: string): Promise<number> {
+    const { pool } = await import('./db');
+    const { rowCount } = await pool.query(
+      `DELETE FROM session
+        WHERE (sess -> 'user' ->> 'id')::int = $1
+          AND sid <> $2`,
+      [userId, keepSessionId]
+    );
+    return rowCount ?? 0;
   }
 }
+
+// SessionManager was removed.
+//
+// It tracked sessions in a module-scoped Map that nothing ever wrote to:
+// createSession() had no callers, so getActiveSessionsForUser() returned an
+// empty array for every user and terminateAllUserSessions() reported 0 while
+// the endpoint told the user every other session had been terminated. A
+// per-process Map could not have worked behind more than one instance in any
+// case. SessionStore above queries express-session's own rows instead.
 
 // Device and Browser Fingerprinting
 export class DeviceFingerprinting {
@@ -379,12 +437,21 @@ export class DeviceFingerprinting {
 
 // Security Monitoring and Alerting
 export class SecurityMonitor {
-  private static suspiciousActivities = new Map<string, number>();
+  // `suspiciousActivities` (a Map<string, number> keyed by `${userId}-${action}`
+  // with no eviction) was removed along with the counter that fed it: it was
+  // reported as "failed logins" while counting every activity of any kind.
+  // `recentActivity` below is the bounded replacement.
   private static alertThresholds = {
     failedLogins: 5,
     rapidDataAccess: 10,
     unusualHours: 3
   };
+
+  /** Sliding five-minute window of recent actions, per user. */
+  private static recentActivity = new Map<number, Array<{ action: string; resource: string; at: number }>>();
+  private static readonly ACTIVITY_WINDOW_MS = 5 * 60 * 1000;
+  /** Cap on tracked users, so an id-enumeration burst cannot grow this forever. */
+  private static readonly MAX_TRACKED_USERS = 5000;
 
   static async monitorUserActivity(userId: number, activity: {
     action: string;
@@ -392,56 +459,115 @@ export class SecurityMonitor {
     ipAddress: string;
     timestamp: Date;
   }): Promise<void> {
-    const key = `${userId}-${activity.action}`;
-    const count = this.suspiciousActivities.get(key) || 0;
-    this.suspiciousActivities.set(key, count + 1);
+    const now = activity.timestamp.getTime();
+    const cutoff = now - this.ACTIVITY_WINDOW_MS;
 
-    // Check for suspicious patterns
+    const history = (this.recentActivity.get(userId) ?? []).filter((entry) => entry.at > cutoff);
+    history.push({ action: activity.action, resource: activity.resource, at: now });
+    this.recentActivity.set(userId, history);
+
+    // Bound the map. `suspiciousActivities`, which this replaces, was a
+    // Map keyed by `${userId}-${action}` with no eviction at all: one entry per
+    // user per distinct action, retained for the life of the process.
+    if (this.recentActivity.size > this.MAX_TRACKED_USERS) {
+      for (const [id, entries] of this.recentActivity) {
+        if (!entries.length || entries[entries.length - 1].at <= cutoff) {
+          this.recentActivity.delete(id);
+        }
+      }
+    }
+
     await this.checkSuspiciousPatterns(userId, activity);
   }
 
   private static async checkSuspiciousPatterns(userId: number, activity: any): Promise<void> {
     const hour = activity.timestamp.getHours();
-    
+
     // Check for unusual hours (outside 6 AM - 10 PM)
     if (hour < 6 || hour > 22) {
-      await this.triggerAlert('unusual_hours', { userId, activity });
+      await this.triggerAlert('unusual_hours', { userId, action: activity.action });
     }
 
-    // Check for rapid successive actions
+    // Rapid successive actions.
+    //
+    // getRecentActions() used to be a stub returning [], so `[].length > 10` was
+    // false on every call and this alert could not fire under any circumstances.
     const recentActions = this.getRecentActions(userId);
     if (recentActions.length > this.alertThresholds.rapidDataAccess) {
-      await this.triggerAlert('rapid_data_access', { userId, actions: recentActions });
+      await this.triggerAlert('rapid_data_access', {
+        userId,
+        actionCount: recentActions.length,
+        windowMinutes: this.ACTIVITY_WINDOW_MS / 60000,
+      });
     }
   }
 
-  private static getRecentActions(userId: number): any[] {
-    // Mock implementation - in production would query recent activity log
-    return [];
+  private static getRecentActions(userId: number): Array<{ action: string; resource: string; at: number }> {
+    const cutoff = Date.now() - this.ACTIVITY_WINDOW_MS;
+    return (this.recentActivity.get(userId) ?? []).filter((entry) => entry.at > cutoff);
   }
 
   private static async triggerAlert(alertType: string, data: any): Promise<void> {
-    console.log(`🚨 Security Alert: ${alertType}`, data);
+    // console.warn, not console.log: this is an alert, and on most log
+    // aggregators severity is what decides whether anyone ever sees it.
+    console.warn(`🚨 Security Alert: ${alertType}`, data);
     
-    // In production, this would:
-    // 1. Send alerts to security team
-    // 2. Log to security incident management system
-    // 3. Potentially trigger automatic responses
-    // 4. Update risk scores for users/IPs
+    // Routing these to a pager or a SIEM is a deployment concern: the alert is
+    // emitted at warn level with structured context so a log drain can act on
+    // it. There is deliberately no automatic user or IP lockout here — an
+    // automatic response driven by a spoofable header is itself an attack.
   }
 
+  /**
+   * Counters this process can actually answer for.
+   *
+   * The previous shape mislabelled its own data: `failedLogins` was the sum of a
+   * counter incremented on *every* monitored activity, failed or not, and
+   * `blockedIPs` and `activeSecurityAlerts` were the literals 0 with comments
+   * saying the feature did not exist. A security dashboard reading zero blocked
+   * IPs cannot be distinguished from one where blocking was never built.
+   *
+   * Failed logins are counted from the audit trail by
+   * getFailedLoginCount() instead, which is where they are recorded.
+   */
   static getSecurityMetrics(): {
-    failedLogins: number;
-    blockedIPs: number;
-    suspiciousActivities: number;
-    activeSecurityAlerts: number;
+    trackedUsers: number;
+    recentActions: number;
+    windowMinutes: number;
+    ipBlocking: 'not_implemented';
   } {
+    let recentActions = 0;
+    const cutoff = Date.now() - this.ACTIVITY_WINDOW_MS;
+    for (const entries of this.recentActivity.values()) {
+      recentActions += entries.filter((entry) => entry.at > cutoff).length;
+    }
+
     return {
-      failedLogins: Array.from(this.suspiciousActivities.values()).reduce((sum, count) => sum + count, 0),
-      blockedIPs: 0, // Would implement IP blocking
-      suspiciousActivities: this.suspiciousActivities.size,
-      activeSecurityAlerts: 0 // Would track active alerts
+      trackedUsers: this.recentActivity.size,
+      recentActions,
+      windowMinutes: this.ACTIVITY_WINDOW_MS / 60000,
+      // Named rather than reported as 0, so a reader cannot mistake "no feature"
+      // for "nothing blocked".
+      ipBlocking: 'not_implemented',
     };
+  }
+
+  /** Failed authentication events in the last `minutes`, from audit_events. */
+  static async getFailedLoginCount(minutes = 60): Promise<number | null> {
+    try {
+      const { pool } = await import('./db');
+      const { rows } = await pool.query(
+        `SELECT count(*)::int AS failures
+           FROM audit_events
+          WHERE action LIKE 'SECURITY_%FAILED%'
+            AND occurred_at > now() - ($1 || ' minutes')::interval`,
+        [String(minutes)]
+      );
+      return rows[0]?.failures ?? 0;
+    } catch (error) {
+      console.error('Failed-login count query failed:', error);
+      return null;
+    }
   }
 }
 
@@ -554,7 +680,6 @@ export class PasswordSecurity {
   }
 }
 
-// Initialize security monitoring cleanup
-setInterval(() => {
-  SessionManager.cleanupExpiredSessions();
-}, 60 * 60 * 1000); // Run every hour
+// The hourly SessionManager.cleanupExpiredSessions() timer went with it.
+// connect-pg-simple prunes expired rows from the session table on its own
+// schedule, so nothing here needs to.

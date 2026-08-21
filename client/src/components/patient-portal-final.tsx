@@ -24,37 +24,34 @@ import {
   AlertCircle, CheckCircle2, Clock, MoreVertical, BarChart3, Minimize2, Maximize2, Minus
 } from 'lucide-react';
 
+/**
+ * What /api/patient/profile/:id actually returns.
+ *
+ * Everything is nullable because the database genuinely may not hold it. This
+ * interface used to promise non-null allergies, conditions, medications, blood
+ * pressure and a four-part health score; the server met that promise by making
+ * the values up, identically for every patient. It now returns null for what it
+ * does not know, and any renderer must handle that rather than assume a value.
+ */
 interface PatientData {
   id: number;
   personalInfo: {
     name: string;
-    age: number;
-    gender: string;
-    bloodType: string;
-    phone: string;
-    email: string;
-    address: string;
-    emergencyContact: string;
+    age: number | null;
+    gender: string | null;
+    bloodType: string | null;
+    phone: string | null;
+    email: string | null;
+    address: string | null;
+    emergencyContact: string | null;
   };
-  medicalHistory: {
-    allergies: string[];
-    conditions: string[];
-    medications: string[];
-  };
-  vitals: {
-    bloodPressure: string;
-    heartRate: number;
-    temperature: number;
-    weight: number;
-    bmi: number;
-    lastUpdated: string;
-  };
-  healthScore: {
-    overall: number;
-    cardiovascular: number;
-    respiratory: number;
-    metabolic: number;
-  };
+  /** Null: this platform does not record a medical history. */
+  medicalHistory: null;
+  /** Null: this platform does not record vitals. */
+  vitals: null;
+  /** Null: no health score is computed. */
+  healthScore: null;
+  unavailable?: Record<string, string>;
 }
 
 export default function PatientPortalFinal({ user }: { user: any }) {

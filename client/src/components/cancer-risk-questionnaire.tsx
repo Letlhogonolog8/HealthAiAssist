@@ -81,9 +81,12 @@ export default function CancerRiskQuestionnaire({ user, onAppointmentRecommended
         onAppointmentRecommended(data.appointmentSuggestion);
       }
       
+      // "Your cancer risk level is X" told the patient this was a clinical risk
+      // estimate. It is a tally of their own answers, and the server now says so
+      // in the payload; the wording here matches.
       toast({
-        title: "Risk Assessment Complete",
-        description: `Your cancer risk level is ${data.riskAssessment.level}. ${data.appointmentSuggestion?.recommended ? 'An appointment is recommended.' : 'Continue with regular checkups.'}`,
+        title: "Questionnaire complete",
+        description: `Screening questionnaire scored: ${data.riskAssessment.level}. ${data.appointmentSuggestion?.recommended ? 'Speaking to a clinician is suggested.' : 'Continue with regular checkups.'}`,
       });
     },
     onError: (error: any) => {
@@ -460,21 +463,36 @@ export default function CancerRiskQuestionnaire({ user, onAppointmentRecommended
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {results && getRiskIcon(results.riskAssessment.level)}
-              Cancer Risk Assessment Results
+              Screening Questionnaire Result
             </DialogTitle>
           </DialogHeader>
           
           {results && (
             <div className="space-y-6">
+              {/* The disclaimer sits above the score, not in a footnote. A
+                  patient reading "HIGH" needs to know in the same glance that
+                  this is not a validated risk model. */}
+              <Alert className="border-2 border-amber-400 bg-amber-50 text-amber-900">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription className="text-sm">
+                  {results.riskAssessment.disclaimer ??
+                    'This is a tally of self-reported answers, not a validated cancer ' +
+                      'risk model. Discuss screening with a clinician.'}
+                </AlertDescription>
+              </Alert>
+
               <div className={`p-4 rounded-lg border ${getRiskColor(results.riskAssessment.level)}`}>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-semibold">Risk Level</span>
+                  <span className="font-semibold">Questionnaire band</span>
                   <Badge className={getRiskColor(results.riskAssessment.level)}>
                     {results.riskAssessment.level.toUpperCase()}
                   </Badge>
                 </div>
                 <p className="text-sm">
-                  Risk Score: {results.riskAssessment.score}/15
+                  {/* The denominator was hardcoded to 15 while the maximum
+                      reachable score is 18, so a maximal answer set displayed as
+                      "18/15". It comes from the server now. */}
+                  Score: {results.riskAssessment.score}/{results.riskAssessment.maxScore ?? 18}
                 </p>
               </div>
 

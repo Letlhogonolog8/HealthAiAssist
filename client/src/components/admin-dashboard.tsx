@@ -19,6 +19,17 @@ import { MetricCard } from "./metric-card";
 import ModelPerformancePanel, { useModelCards } from "./model-performance-panel";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
+/** Renders a process uptime in seconds as something a human reads. */
+function formatUptime(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+  return `${Math.floor(seconds / 86400)}d ${Math.floor((seconds % 86400) / 3600)}h`;
+}
+
+import { LanguageCoverage } from "./language-switcher";
+import DeliveryReachPanel from "./delivery-reach-panel";
+
 interface DashboardData {
   stats: {
     totalUsers: number;
@@ -28,10 +39,14 @@ interface DashboardData {
     // databaseHealth 95, systemUptime 99.9) that were indistinguishable from
     // measured values.
     systemUptime: number | null;
+    /** Seconds this process has been running. Not availability over a window. */
+    uptimeSec?: number;
     aiAccuracy: number | null;
     dailyScans: number;
     criticalAlerts: number;
     databaseHealth: number | null;
+    /** A live connectivity probe, replacing the constant "databaseHealth". */
+    database?: { reachable: boolean; latencyMs: number | null };
     securityStatus: string;
   };
   users: {
@@ -110,39 +125,50 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
     refetchInterval: 30000,
   });
 
+  /** Round trip the browser measured for the last /api/admin/stats call. */
+  const [statsResponseMs, setStatsResponseMs] = useState<number | null>(null);
+
   // Consolidated dashboard data fetch with real-time updates
   const { data: dashboardData, isLoading, error, refetch } = useQuery<DashboardData>({
     queryKey: ['/api/admin/dashboard'],
     queryFn: async () => {
       try {
-        const [statsRes, usersRes, staffRes, activitiesRes, wsStatsRes, metricsRes, debugUsersRes] = await Promise.all([
+        const startedAt = performance.now();
+        // /api/debug/users was in this list and does not exist on the server: it
+        // 404'd on every dashboard render, and the two "fallback" branches that
+        // consumed it could never fire. It has been dropped along with them.
+        const [statsRes, usersRes, staffRes, activitiesRes, wsStatsRes, metricsRes] = await Promise.all([
           fetch('/api/admin/stats', { credentials: 'include' }).catch(() => ({ ok: false } as Response)),
           fetch('/api/admin/users', { credentials: 'include' }).catch(() => ({ ok: false } as Response)),
           fetch('/api/admin/staff', { credentials: 'include' }).catch(() => ({ ok: false } as Response)),
           fetch('/api/admin/activities/recent', { credentials: 'include' }).catch(() => ({ ok: false } as Response)),
           fetch('/api/system/ws-stats', { credentials: 'include' }).catch(() => ({ ok: false } as Response)),
           fetch('/api/admin/users/metrics', { credentials: 'include' }).catch(() => ({ ok: false } as Response)),
-          fetch('/api/debug/users', { credentials: 'include' }).catch(() => ({ ok: false } as Response))
         ]);
+        setStatsResponseMs(Math.round(performance.now() - startedAt));
 
-        const [stats, users, staff, activities, wsStats, metrics, debugUsers]: any[] = await Promise.all([
+        const [stats, users, staff, activities, wsStats, metrics]: any[] = await Promise.all([
           statsRes.ok ? statsRes.json().catch(() => ({})) : {
             totalUsers: 0, activeScans: 0, systemUptime: null, aiAccuracy: null,
             dailyScans: 0, criticalAlerts: 0, databaseHealth: null, securityStatus: 'unknown'
           },
           usersRes.ok ? usersRes.json().catch(() => []) : [],
           staffRes.ok ? staffRes.json().catch(() => ({ data: [] })) : { data: [] },
-          activitiesRes.ok ? activitiesRes.json().catch(() => []) : [
-            { message: 'System initialized successfully', timestamp: '1 hour ago', type: 'system' }
-          ],
+          // An empty list, not a fabricated "System initialized successfully"
+          // entry timestamped "1 hour ago". A failed fetch is not an event.
+          activitiesRes.ok ? activitiesRes.json().catch(() => []) : [],
           wsStatsRes.ok ? wsStatsRes.json().catch(() => ({ connections: 0, messages: 0, onlineUsers: 0, roles: {} }))
                         : { connections: 0, messages: 0, onlineUsers: 0, roles: {} },
           metricsRes.ok ? metricsRes.json().catch(() => ({})) : {},
-          debugUsersRes.ok ? debugUsersRes.json().catch(() => ({})) : {}
         ]);
 
         let userList = Array.isArray(users) ? users : [] as any[];
-        // Fallback: if /api/admin/users returns empty, derive from /api/admin/staff
+        // Fallback: if /api/admin/users returns empty, derive from /api/admin/staff.
+        //
+        // This existed because /api/admin/users had been commented out of
+        // routes.ts and answered 404, so the user list silently degraded to
+        // staff-only — patients simply were not there, with nothing to say so.
+        // The route is restored; this stays as a genuine degradation path.
         if (userList.length === 0 && staff && Array.isArray((staff as any).data)) {
           userList = (staff as any).data.map((s: any) => ({
             id: s.id,
@@ -153,19 +179,6 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
             specialization: s.specialization,
             isActive: s.isActive ?? true,
             createdAt: s.createdAt || new Date().toISOString()
-          }));
-        }
-        // Fallback 2: debug endpoint if still empty
-        if (userList.length === 0 && (debugUsers as any)?.users && Array.isArray((debugUsers as any).users)) {
-          userList = (debugUsers as any).users.map((u: any) => ({
-            id: u.id,
-            username: u.username,
-            fullName: u.fullName,
-            email: u.email,
-            role: u.role,
-            specialization: u.specialization,
-            isActive: u.isActive ?? true,
-            createdAt: u.createdAt || new Date().toISOString()
           }));
         }
         // Build metrics from either metrics endpoint or computed list
@@ -367,20 +380,37 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
     });
   };
 
-  // Derived chart data
-  const scanTrendData = Array.from({ length: 7 }).map((_, i) => ({
-    day: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][i],
-    scans: Math.max(0, (dashboardData?.stats.dailyScans || 0) - (6 - i) * 2),
+  /**
+   * Chart series, from the database.
+   *
+   * Both of these used to be synthesised in the browser out of a single scalar.
+   * The scan trend was `dailyScans - (6 - i) * 2`, i.e. today's count with a
+   * fixed slope subtracted, labelled Sun-Sat regardless of what day it was. The
+   * user-growth bars were the current user count times 0.5, 0.6, 0.7, 0.78,
+   * 0.86, 0.93 and 1.0, labelled Jan-Jul forever. Neither had any history behind
+   * it, and both drew a rising curve on an empty database.
+   */
+  const { data: trends } = useQuery<{
+    scansPerDay: Array<{ day: string; scans: number }>;
+    usersByMonth: Array<{ month: string; users: number }>;
+  }>({
+    queryKey: ['/api/admin/trends'],
+    queryFn: async () => {
+      const response = await fetch('/api/admin/trends', { credentials: 'include' });
+      if (!response.ok) throw new Error('Could not load trends');
+      return response.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const scanTrendData = (trends?.scansPerDay ?? []).map((row) => ({
+    day: new Date(row.day).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' }),
+    scans: row.scans,
   }));
-  const userGrowthData = [
-    { month: 'Jan', users: Math.round((dashboardData?.users.list.length || 0) * 0.5) },
-    { month: 'Feb', users: Math.round((dashboardData?.users.list.length || 0) * 0.6) },
-    { month: 'Mar', users: Math.round((dashboardData?.users.list.length || 0) * 0.7) },
-    { month: 'Apr', users: Math.round((dashboardData?.users.list.length || 0) * 0.78) },
-    { month: 'May', users: Math.round((dashboardData?.users.list.length || 0) * 0.86) },
-    { month: 'Jun', users: Math.round((dashboardData?.users.list.length || 0) * 0.93) },
-    { month: 'Jul', users: Math.round((dashboardData?.users.list.length || 0) * 1.0) },
-  ];
+  const userGrowthData = (trends?.usersByMonth ?? []).map((row) => ({
+    month: row.month,
+    users: row.users,
+  }));
 
   function AdvancedPerformanceSection() {
     const { data, isLoading, error } = useQuery<{ ai: any; database: any; api: any; overall: any }>({
@@ -686,9 +716,16 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-purple-100 text-sm font-medium">System Uptime</p>
-                    <p className="text-3xl font-bold">{dashboardData?.stats.systemUptime || 0}%</p>
-                    <p className="text-purple-200 text-xs mt-1">Last 30 days</p>
+                    <p className="text-purple-100 text-sm font-medium">Process Uptime</p>
+                    <p className="text-3xl font-bold">
+                      {dashboardData?.stats.uptimeSec != null
+                        ? formatUptime(dashboardData.stats.uptimeSec)
+                        : '—'}
+                    </p>
+                    <p className="text-purple-200 text-xs mt-1">
+                      Since last restart. Availability over a window needs an
+                      external monitor.
+                    </p>
                   </div>
                   <div className="bg-white bg-opacity-20 rounded-full p-3">
                     <Server className="h-8 w-8" />
@@ -733,8 +770,14 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-gray-600">Database Health</p>
-                    <p className="text-2xl font-bold text-blue-600">{dashboardData?.stats.databaseHealth || 0}%</p>
+                    <p className="text-sm font-medium text-gray-600">Database Latency</p>
+                    <p className="text-2xl font-bold text-blue-600">
+                      {dashboardData?.stats.database
+                        ? dashboardData.stats.database.reachable
+                          ? `${dashboardData.stats.database.latencyMs} ms`
+                          : 'unreachable'
+                        : '—'}
+                    </p>
                   </div>
                   <Database className="h-8 w-8 text-blue-500" />
                 </div>
@@ -832,11 +875,16 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
                 <div className="space-y-6">
                   <div className="bg-gradient-to-r from-blue-50 to-blue-100 p-4 rounded-lg">
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-sm font-medium text-blue-900">Database Health</span>
-                      <span className="text-lg font-bold text-blue-700">{dashboardData?.stats.databaseHealth || 0}%</span>
+                      <span className="text-sm font-medium text-blue-900">Database Latency</span>
+                      <span className="text-lg font-bold text-blue-700">
+                        {dashboardData?.stats.database
+                          ? dashboardData.stats.database.reachable
+                            ? `${dashboardData.stats.database.latencyMs} ms`
+                            : 'unreachable'
+                          : '—'}
+                      </span>
                     </div>
-                    <Progress value={dashboardData?.stats.databaseHealth || 0} className="h-2" />
-                    <p className="text-xs text-blue-600 mt-1">Optimal performance</p>
+                    <p className="text-xs text-blue-600 mt-1">Round trip for SELECT 1</p>
                   </div>
                   
                   <div className="bg-gradient-to-r from-green-50 to-green-100 p-4 rounded-lg">
@@ -1289,8 +1337,10 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-blue-100 text-sm font-medium">Daily Scans</p>
-                    <p className="text-3xl font-bold">{dashboardData?.stats.dailyScans || 45}</p>
-                    <p className="text-blue-200 text-xs mt-1">+12% from yesterday</p>
+                    <p className="text-3xl font-bold">{dashboardData?.stats.dailyScans ?? 0}</p>
+                    {/* Was "+12% from yesterday", a constant. Nothing compared
+                        anything to yesterday. */}
+                    <p className="text-blue-200 text-xs mt-1">Today</p>
                   </div>
                   <Activity className="h-10 w-10 opacity-80" />
                 </div>
@@ -1302,8 +1352,8 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-green-100 text-sm font-medium">Active Users</p>
-                    <p className="text-3xl font-bold">{dashboardData?.users.activeUsers || 5}</p>
-                    <p className="text-green-200 text-xs mt-1">Currently online</p>
+                    <p className="text-3xl font-bold">{dashboardData?.users.activeUsers ?? 0}</p>
+                    <p className="text-green-200 text-xs mt-1">Holding a live session</p>
                   </div>
                   <Users className="h-10 w-10 opacity-80" />
                 </div>
@@ -1365,16 +1415,31 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
               <CardContent className="p-6 bg-white">
                 <div className="space-y-4">
                   <div className="flex justify-between items-center p-3 bg-blue-100 rounded-lg border border-blue-200">
-                    <span className="font-medium text-blue-900">System Uptime</span>
-                    <span className="font-bold text-blue-800">{dashboardData?.stats.systemUptime || 99.8}%</span>
+                    <span className="font-medium text-blue-900">Process Uptime</span>
+                    <span className="font-bold text-blue-800">
+                      {dashboardData?.stats.uptimeSec != null
+                        ? formatUptime(dashboardData.stats.uptimeSec)
+                        : '—'}
+                    </span>
                   </div>
                   <div className="flex justify-between items-center p-3 bg-green-100 rounded-lg border border-green-200">
-                    <span className="font-medium text-green-900">Response Time</span>
-                    <span className="font-bold text-green-800">1.2s</span>
+                    {/* "1.2s" was a literal. The API's own response time is on
+                        every reply as the X-Response-Time header; this reports the
+                        time the browser measured for the stats request itself. */}
+                    <span className="font-medium text-green-900">Stats Response</span>
+                    <span className="font-bold text-green-800">
+                      {statsResponseMs != null ? `${statsResponseMs} ms` : '\u2014'}
+                    </span>
                   </div>
                   <div className="flex justify-between items-center p-3 bg-purple-100 rounded-lg border border-purple-200">
-                    <span className="font-medium text-purple-900">Database Health</span>
-                    <span className="font-bold text-purple-800">{dashboardData?.stats.databaseHealth || 98}%</span>
+                    <span className="font-medium text-purple-900">Database Latency</span>
+                    <span className="font-bold text-purple-800">
+                      {dashboardData?.stats.database
+                        ? dashboardData.stats.database.reachable
+                          ? `${dashboardData.stats.database.latencyMs} ms`
+                          : 'unreachable'
+                        : '—'}
+                    </span>
                   </div>
                   <div className="flex justify-between items-center p-3 bg-orange-100 rounded-lg border border-orange-200">
                     <span className="font-medium text-orange-900">Security Status</span>
@@ -1396,11 +1461,11 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
                 <div className="space-y-4">
                   <div className="flex justify-between items-center p-3 bg-blue-100 rounded-lg border border-blue-200">
                     <span className="font-medium text-blue-900">Daily Scans</span>
-                    <span className="font-bold text-blue-800">{dashboardData?.stats.dailyScans || 45}</span>
+                    <span className="font-bold text-blue-800">{dashboardData?.stats.dailyScans ?? 0}</span>
                   </div>
                   <div className="flex justify-between items-center p-3 bg-green-100 rounded-lg border border-green-200">
                     <span className="font-medium text-green-900">Active Users</span>
-                    <span className="font-bold text-green-800">{dashboardData?.users.activeUsers || 5}</span>
+                    <span className="font-bold text-green-800">{dashboardData?.users.activeUsers ?? 0}</span>
                   </div>
                   <div className="flex justify-between items-center p-3 bg-red-100 rounded-lg border border-red-200">
                     <span className="font-medium text-red-900">Critical Alerts</span>
@@ -1586,15 +1651,39 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-6 space-y-4 bg-white">
+                <div className="p-4 bg-slate-100 rounded-lg border border-slate-200">
+                  <span className="font-semibold text-slate-900">Patient reach</span>
+                  <p className="text-sm text-slate-600 mb-3">
+                    Whether a result can reach someone who is not signed in
+                  </p>
+                  <div className="rounded bg-slate-900 p-3">
+                    <DeliveryReachPanel />
+                  </div>
+                </div>
+                <div className="p-4 bg-slate-100 rounded-lg border border-slate-200">
+                  <span className="font-semibold text-slate-900">Language coverage</span>
+                  <p className="text-sm text-slate-600 mb-3">
+                    Which languages patients can select, and why the others are withheld
+                  </p>
+                  <div className="rounded bg-slate-900 p-3">
+                    <LanguageCoverage />
+                  </div>
+                </div>
                 <div className="flex justify-between items-center p-4 bg-slate-100 rounded-lg border border-slate-200">
                   <div>
                     <span className="font-semibold text-slate-900">Maintenance Mode</span>
                     <p className="text-sm text-slate-600">System-wide maintenance window</p>
-                    <p className="text-xs text-slate-500 mt-1">Next scheduled: Sunday 3:00 AM</p>
+                    {/* "Next scheduled: Sunday 3:00 AM" described a maintenance
+                        window that nothing schedules or enforces. */}
+                    <p className="text-xs text-slate-500 mt-1">No window configured</p>
                   </div>
                   <div className="text-right">
                     <Badge className="bg-green-200 text-green-900 border border-green-300">Disabled</Badge>
-                    <p className="text-xs text-slate-500 mt-1">Uptime: 99.8%</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Uptime: {dashboardData?.stats.uptimeSec != null
+                        ? formatUptime(dashboardData.stats.uptimeSec)
+                        : '\u2014'}
+                    </p>
                   </div>
                 </div>
                 <div className="flex justify-between items-center p-4 bg-slate-100 rounded-lg border border-slate-200">

@@ -47,6 +47,24 @@ type Scan = {
 
 type Appointment = any; // Define proper type if needed
 
+/**
+ * A patient's profile, containing only what the database actually holds.
+ *
+ * Every field here used to have a fallback, and because none of medicalHistory,
+ * vitals or healthScore is a column on `users`, the fallbacks were not edge
+ * cases — they fired for every patient, every time. The endpoint reported that
+ * each patient was a 34-year-old female, blood type A+, allergic to penicillin
+ * and shellfish, with hypertension and type 2 diabetes, taking metformin,
+ * lisinopril and aspirin, with a blood pressure of 120/80 stamped
+ * `lastUpdated: now` so it read as a fresh measurement. Contact details had the
+ * same treatment: a missing phone number became +1 (555) 123-4567.
+ *
+ * Invented allergies and medications on a clinician's screen are a patient
+ * safety hazard, not a cosmetic defect, so nothing is invented here. A value
+ * that was never recorded is null, and the caller renders that as "not
+ * recorded". The three clinical sections the schema has no room for are returned
+ * as null with a note saying so, rather than being filled in.
+ */
 export async function getPatientProfile(patientId: number) {
   const user = await storage.getUser(patientId);
   if (!user || user.role !== 'patient') {
@@ -55,59 +73,69 @@ export async function getPatientProfile(patientId: number) {
   const patientScans = await storage.getScans(patientId);
   const patientAppointments: Appointment[] = await storage.getPatientAppointments(patientId);
 
-  // Type assertion for optional properties
-  const userWithOptional = user as User;
+  // Resolve clinician names once for the whole scan list rather than rendering
+  // "Dr. 42" from a raw foreign key, which is what the placeholder did.
+  const clinicianIds = Array.from(
+    new Set(
+      patientScans
+        .flatMap((scan: any) => [scan.doctorId, scan.radiologistId])
+        .filter((id: number | null): id is number => typeof id === 'number')
+    )
+  );
+  const clinicians = new Map<number, string>();
+  for (const id of clinicianIds) {
+    const clinician = await storage.getUser(id);
+    if (clinician) clinicians.set(id, clinician.fullName || clinician.username);
+  }
 
-  // Compose profile dynamically
   return {
     id: user.id,
-  personalInfo: {
-    name: user.fullName || user.username,
-    email: user.email || 'patient@example.com',
-    phone: user.phone || '+1 (555) 123-4567',
-    address: user.address || '123 Medical Center Blvd, Health City, HC 12345',
-    emergencyContact: user.emergencyContact || 'Emergency Contact - +1 (555) 987-6543',
-    age: user.age ?? 34,
-    gender: user.gender ?? 'Female',
-    bloodType: user.bloodType ?? 'A+',
-    height: user.height ?? "5'6\"",
-    weight: user.weight ?? '135 lbs'
-  },
-    medicalHistory: userWithOptional.medicalHistory ?? {
-      allergies: ['Penicillin', 'Shellfish'],
-      conditions: ['Hypertension', 'Type 2 Diabetes'],
-      medications: ['Metformin 500mg', 'Lisinopril 10mg', 'Aspirin 81mg'],
-      surgeries: ['Appendectomy (2018)', 'Gallbladder removal (2020)']
+    personalInfo: {
+      name: user.fullName || user.username,
+      email: user.email ?? null,
+      phone: user.phone ?? null,
+      address: user.address ?? null,
+      emergencyContact: user.emergencyContact ?? null,
+      age: user.age ?? null,
+      gender: user.gender ?? null,
+      bloodType: user.bloodType ?? null,
+      height: user.height ?? null,
+      weight: user.weight ?? null
     },
-  recentScans: patientScans.map(scan => ({
-    id: scan.id,
-    type: scan.scanType,
-    date: scan.createdAt ? new Date(scan.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-    result: scan.result || 'Processing',
-    confidence: scan.aiConfidence || '0%',
-    status: scan.status === 'completed' ? 'normal' : scan.status === 'pending' ? 'pending' : 'abnormal',
-    doctor: scan.doctorId ? `Dr. ${scan.doctorId}` : 'Dr. Unknown'
-  })),
-  appointments: patientAppointments.map(appointment => ({
-    ...appointment,
-    doctorName: appointment.doctorName || `Dr. ${appointment.doctorId || 'Unknown'}`,
-    status: appointment.status || 'scheduled',
-    type: appointment.type || 'General Consultation'
-  })),
-    vitals: userWithOptional.vitals ?? {
-      bloodPressure: '120/80',
-      heartRate: 72,
-      temperature: 98.6,
-      weight: 135,
-      bmi: 21.8,
-      lastUpdated: new Date().toISOString()
+    // Null, not a fabricated history. There is no schema for these, and the
+    // honest answer to "what are this patient's allergies" is that this system
+    // does not know.
+    medicalHistory: null,
+    vitals: null,
+    healthScore: null,
+    unavailable: {
+      medicalHistory: 'Not recorded by this platform',
+      vitals: 'Not recorded by this platform',
+      healthScore: 'Not computed'
     },
-    healthScore: userWithOptional.healthScore ?? {
-      overall: patientScans.length > 0 ? Math.max(70, 100 - (patientScans.filter(s => s.result && s.result.toLowerCase().includes('abnormal')).length * 10)) : 85,
-      cardiovascular: 88,
-      respiratory: 82,
-      metabolic: 85
-    }
+    recentScans: patientScans.map((scan: any) => ({
+      id: scan.id,
+      type: scan.scanType,
+      date: scan.createdAt ? new Date(scan.createdAt).toISOString().split('T')[0] : null,
+      result: scan.result || 'Processing',
+      confidence: scan.aiConfidence || null,
+      // The workflow status, verbatim. It used to be mapped onto 'normal' /
+      // 'abnormal', which turned "this scan has been processed" into a clinical
+      // finding: a completed scan showing cancer was labelled normal, and a
+      // failed one abnormal.
+      status: scan.status ?? 'pending',
+      modelVersion: scan.modelVersion ?? null,
+      reportingClinician:
+        (scan.doctorId && clinicians.get(scan.doctorId)) ||
+        (scan.radiologistId && clinicians.get(scan.radiologistId)) ||
+        null
+    })),
+    appointments: patientAppointments.map((appointment: any) => ({
+      ...appointment,
+      doctorName: appointment.doctorName ?? null,
+      status: appointment.status || 'scheduled',
+      type: appointment.type ?? null
+    }))
   };
 }
 

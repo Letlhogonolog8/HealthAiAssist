@@ -1,5 +1,5 @@
-import { useState, useRef } from "react";
-import { useMutation } from '@tanstack/react-query';
+import { useState, useRef, useEffect } from "react";
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -14,24 +14,56 @@ export default function AIScanSimulator({ userId }: { userId?: number }) {
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
   const [scanResult, setScanResult] = useState<any>(null);
-  const [scanType, setScanType] = useState<string>("mammography");
+  // No default modality: it is chosen once the server has said which exist.
+  const [scanType, setScanType] = useState<string>("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  // These carried per-modality accuracy labels — mammography 96%, MRI 98%,
-  // ultrasound 89% — none of which was ever measured, and none of which has a
-  // model behind it. Only chest imaging and dermoscopy are analysed; anything
-  // else returns 503 and is queued for a human. Measured figures for the two
-  // real models are in the model performance panel, from /api/models/cards.
-  const scanTypes = [
-    { id: "mammography", name: "Mammography", color: "bg-pink-500" },
-    { id: "chest-xray", name: "Chest X-Ray", color: "bg-blue-500" },
-    { id: "ct-scan", name: "CT Scan", color: "bg-purple-500" },
-    { id: "mri", name: "MRI", color: "bg-green-500" },
-    { id: "ultrasound", name: "Ultrasound", color: "bg-orange-500" },
-  ];
+  /**
+   * The modalities this server can actually analyse, read from the server.
+   *
+   * The list used to be five hardcoded entries — mammography, chest X-ray, CT,
+   * MRI, ultrasound — each with an accuracy label that had never been measured.
+   * The labels were removed; the list was not. Only two of the five have a model
+   * behind them, so four of the five choices on offer produced a 503 the moment
+   * the user pressed analyse. Driving the options from /api/models/cards means
+   * disabling a model in MODEL_REGISTRY immediately stops the UI offering it,
+   * which is how multi-cancer-detection-system.tsx already works.
+   */
+  const { data: cards, isLoading: loadingModels } = useQuery<{
+    models: Array<{ scanType: string; enabled: boolean; disabledReason: string | null }>;
+  }>({
+    queryKey: ['/api/models/cards'],
+    queryFn: async () => {
+      const response = await fetch('/api/models/cards');
+      if (!response.ok) throw new Error('Could not load model capabilities');
+      return response.json();
+    },
+    staleTime: 60 * 60 * 1000,
+  });
+
+  const palette: Record<string, string> = {
+    lung: 'bg-blue-500',
+    skin: 'bg-orange-500',
+  };
+
+  const scanTypes = (cards?.models ?? [])
+    .filter((m) => m.enabled)
+    .map((m) => ({
+      id: m.scanType,
+      name: m.scanType.charAt(0).toUpperCase() + m.scanType.slice(1),
+      color: palette[m.scanType] ?? 'bg-slate-500',
+    }));
+
+  // Pick the first available modality once the server has answered. The
+  // dependency is the id rather than the array, which is rebuilt on every render
+  // and would re-run this effect each time.
+  const firstAvailable = scanTypes[0]?.id;
+  useEffect(() => {
+    if (!scanType && firstAvailable) setScanType(firstAvailable);
+  }, [scanType, firstAvailable]);
 
   // Image upload mutation
   const uploadMutation = useMutation({
@@ -45,6 +77,7 @@ export default function AIScanSimulator({ userId }: { userId?: number }) {
 
       const response = await fetch('/api/scan/upload', {
         method: 'POST',
+        credentials: 'include',
         body: formData,
       });
 
@@ -175,7 +208,13 @@ export default function AIScanSimulator({ userId }: { userId?: number }) {
           {/* Scan Type Selection */}
           <div className="space-y-3">
             <Label className="text-white font-medium">Select Scan Type</Label>
-            <Select value={scanType} onValueChange={setScanType}>
+            {!loadingModels && scanTypes.length === 0 && (
+              <p className="text-sm text-amber-300">
+                No imaging model is currently available. Uploads are queued for
+                manual review.
+              </p>
+            )}
+            <Select value={scanType} onValueChange={setScanType} disabled={scanTypes.length === 0}>
               <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
                 <SelectValue />
               </SelectTrigger>
