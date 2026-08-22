@@ -304,10 +304,14 @@ router.get('/scan/:scanId/insights', requireMedicalAccess, async (req, res) => {
   try {
     const { scanId } = req.params;
     
-    // Get scan from database
-    const scans = await storage.getScans();
-    const scan = scans.find(s => s.id === parseInt(scanId));
-    
+    // One indexed lookup. This read every scan in the database and then ran
+    // Array.find() over the copy to reach a single row by its primary key.
+    const id = Number.parseInt(scanId, 10);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: 'Invalid scan id' });
+    }
+
+    const scan = await storage.getScanById(id);
     if (!scan) {
       return res.status(404).json({ error: 'Scan not found' });
     }

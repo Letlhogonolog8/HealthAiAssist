@@ -15,15 +15,32 @@ import {
   TrendingUp, Scan, Activity, Star, Timer, Image, RefreshCw, AlertTriangle
 } from "lucide-react";
 
+/**
+ * Matches what /api/radiologist/stats returns.
+ *
+ * `accuracyRate` is gone. The server returned the literal 96, and this file
+ * rendered it four times — as "96% accuracy" under the review-time tile, as a
+ * "Detection Confidence" progress bar filled to 96, and as an "Accuracy Rate"
+ * row in Performance Metrics. Nothing measured it. Accuracy needs confirmed
+ * outcomes, which live in `scan_outcomes` and are reported by
+ * /api/models/performance with a denominator and a confidence interval; a
+ * screening dashboard printing a bare 96% is exactly the claim this platform
+ * exists to avoid making.
+ *
+ * `avgReviewTime` (the literal 3.2) and `workloadHours` (todayScans * 0.2) are
+ * replaced by a measured median and the count it was computed from.
+ */
 interface RadiologyStats {
   pendingReviews: number;
   completedToday: number;
-  aiConfidence: number;
-  avgReviewTime: number;
   totalScansReviewed: number;
   criticalCases: number;
-  accuracyRate: number;
-  workloadHours: number;
+  /** Mean of the model's self-reported confidence. Null when nothing recorded one. */
+  meanAiConfidencePct: number | null;
+  /** Median hours from arrival to sign-off over 30 days. Null until measurable. */
+  medianReviewHours: number | null;
+  reviewsMeasured: number;
+  accuracy?: { available: boolean; reason: string; endpoint: string };
 }
 
 interface ScanReview {
@@ -244,17 +261,21 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
     );
   }
 
-  // Safe data access with fallbacks
-  const safeStats = radiologyStats || {
+  // Safe data access with fallbacks. The measured fields fall back to null, not
+  // to 0: "0 minutes median review time" is a claim, "—" says it is unknown.
+  const safeStats: RadiologyStats = radiologyStats || {
     pendingReviews: 0,
     completedToday: 0,
-    aiConfidence: 0,
-    avgReviewTime: 0,
     totalScansReviewed: 0,
     criticalCases: 0,
-    accuracyRate: 0,
-    workloadHours: 0
+    meanAiConfidencePct: null,
+    medianReviewHours: null,
+    reviewsMeasured: 0
   };
+
+  /** Renders a number that may not exist as a dash rather than as zero. */
+  const orDash = (value: number | null | undefined, suffix = '') =>
+    value === null || value === undefined ? '—' : `${value}${suffix}`;
 
   const safePendingScans = pendingScans || [];
   const safeCompletedScans = completedScans || [];
@@ -302,7 +323,9 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
                   {safeStats.completedToday || safeCompletedScans.length}
                 </p>
                 <p className="text-xs text-green-300">
-                  {safeStats.workloadHours}h workload
+                  {/* Was `workloadHours`, computed as todayScans * 0.2 — a made-up
+                      minutes-per-scan constant presented as hours worked. */}
+                  {safeStats.pendingReviews} still queued
                 </p>
               </div>
               <CheckCircle className="w-8 h-8 text-green-400" />
@@ -314,11 +337,15 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-purple-400">AI Collaboration</p>
+                <p className="text-sm font-medium text-purple-400">Mean AI Confidence</p>
                 <p className="text-3xl font-bold text-white">
-                  {safeStats.aiConfidence}%
+                  {safeStats.meanAiConfidencePct === null
+                    ? '—'
+                    : `${safeStats.meanAiConfidencePct}%`}
                 </p>
-                <p className="text-xs text-purple-300">avg confidence</p>
+                {/* Named for what it is. How sure the model was, not how often it
+                    was right — a model can be confidently wrong. */}
+                <p className="text-xs text-purple-300">not an accuracy figure</p>
               </div>
               <Brain className="w-8 h-8 text-purple-400" />
             </div>
@@ -329,12 +356,17 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-blue-400">Avg Review Time</p>
+                <p className="text-sm font-medium text-blue-400">Median Review Time</p>
                 <p className="text-3xl font-bold text-white">
-                  {safeStats.avgReviewTime}m
+                  {orDash(safeStats.medianReviewHours, 'h')}
                 </p>
                 <p className="text-xs text-blue-300">
-                  {safeStats.accuracyRate}% accuracy
+                  {/* The caption here read "96% accuracy" from a literal. It now
+                      reports the sample the median came from, so a median over
+                      three reviews is visibly a median over three reviews. */}
+                  {safeStats.reviewsMeasured > 0
+                    ? `over ${safeStats.reviewsMeasured} reviews, last 30 days`
+                    : 'not yet measurable'}
                 </p>
               </div>
               <Timer className="w-8 h-8 text-blue-400" />
@@ -443,13 +475,23 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
                       className="h-2" 
                     />
                   </div>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-sm text-slate-300">
-                      <span>Detection Confidence</span>
-                      <span>{safeStats.accuracyRate}%</span>
+                  {/*
+                    A progress bar labelled "Detection Confidence" and filled to
+                    safeStats.accuracyRate — the server's literal 96 — stood here.
+                    A bar is a strong visual claim of a measured proportion, and
+                    there was no measurement behind it. It is replaced with the
+                    mean model confidence, labelled as such, and rendered only
+                    when a value exists.
+                  */}
+                  {safeStats.meanAiConfidencePct !== null && (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-sm text-slate-300">
+                        <span>Mean AI confidence (not accuracy)</span>
+                        <span>{safeStats.meanAiConfidencePct}%</span>
+                      </div>
+                      <Progress value={safeStats.meanAiConfidencePct} className="h-2" />
                     </div>
-                    <Progress value={safeStats.accuracyRate} className="h-2" />
-                  </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -847,12 +889,16 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
                 <div className="text-sm text-slate-300">Completed Today</div>
               </div>
               <div className="bg-slate-700 p-4 rounded-lg text-center">
-                <div className="text-2xl font-bold text-purple-400">{safeStats.aiConfidence}%</div>
-                <div className="text-sm text-slate-300">AI Confidence</div>
+                <div className="text-2xl font-bold text-purple-400">
+                  {safeStats.meanAiConfidencePct === null ? '—' : `${safeStats.meanAiConfidencePct}%`}
+                </div>
+                <div className="text-sm text-slate-300">Mean AI Confidence</div>
               </div>
               <div className="bg-slate-700 p-4 rounded-lg text-center">
-                <div className="text-2xl font-bold text-blue-400">{safeStats.avgReviewTime}m</div>
-                <div className="text-sm text-slate-300">Avg Review Time</div>
+                <div className="text-2xl font-bold text-blue-400">
+                  {orDash(safeStats.medianReviewHours, 'h')}
+                </div>
+                <div className="text-sm text-slate-300">Median Review Time</div>
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -868,12 +914,21 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
                     <span className="text-red-400">{safeStats.criticalCases}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-300">Accuracy Rate</span>
-                    <span className="text-green-400">{safeStats.accuracyRate}%</span>
+                    <span className="text-slate-300">Reviews measured (30d)</span>
+                    <span className="text-blue-400">{safeStats.reviewsMeasured}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-300">Workload Hours</span>
-                    <span className="text-blue-400">{safeStats.workloadHours}h</span>
+                  {/*
+                    An "Accuracy Rate: 96%" row stood here, from a literal.
+                    Accuracy on this deployment is a comparison against confirmed
+                    outcomes and is reported where those live, with its
+                    denominator and interval attached.
+                  */}
+                  <div className="flex justify-between items-start gap-2 pt-2 border-t border-slate-600">
+                    <span className="text-slate-300">Model accuracy</span>
+                    <span className="text-slate-400 text-right text-xs max-w-[60%]">
+                      Measured from confirmed outcomes, not from this queue. See the
+                      model performance panel.
+                    </span>
                   </div>
                 </div>
               </div>

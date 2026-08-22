@@ -232,9 +232,21 @@ export default function FloatingChatbot({ user, onActionClick }: FloatingChatbot
       return;
     }
     
+    // Open the messages surface, where the real chat lives.
+    if (action.type === 'open_messages') {
+      window.location.href = '/chat';
+      return;
+    }
+
     // Handle real-time chat
     if (action.type === 'start_chat') {
-      startRealTimeChat(action.data?.doctorId || 'demo');
+      // Was `|| 'demo'`, which fed a sentinel id into the lookup so the button
+      // always landed in the demo-chat branch.
+      if (!action.data?.doctorId) {
+        window.location.href = '/chat';
+        return;
+      }
+      startRealTimeChat(String(action.data.doctorId));
       return;
     }
     
@@ -530,26 +542,49 @@ export default function FloatingChatbot({ user, onActionClick }: FloatingChatbot
       }
     } catch (error) {
       console.error('Video call error:', error);
-      
-      // Fallback: Create a demo video room
-      const demoRoomUrl = `https://meet.jit.si/MedAI-Consultation-${Date.now()}`;
-      
+
+      /**
+       * Says the feature is unavailable. It used to open a public video room.
+       *
+       * /api/video/request-consultation is not a route this server registers, so
+       * this catch ran on every single attempt. What it did was build a
+       * meet.jit.si URL — `MedAI-Consultation-${Date.now()}` — and tell the
+       * patient "Video consultation ready!", with a Join button.
+       *
+       * Two things were wrong with that, and both are serious.
+       *
+       * No clinician was ever told. Nothing notified anyone, nothing was written
+       * to the database, no appointment existed. A patient who reached this
+       * through the emergency path was told a consultation was ready and was put
+       * in an empty room to wait for a doctor who did not know they were there.
+       *
+       * And the room was public. meet.jit.si rooms are open to anyone holding
+       * the name, and the name was the word "MedAI-Consultation" plus a
+       * millisecond timestamp — a keyspace small enough to enumerate. A
+       * consultation held there is a medical conversation a stranger can join.
+       *
+       * Video consultation has no backend on this platform. The honest response
+       * is to say so, and to offer the thing that does work.
+       */
       const callMessage: ChatMessage = {
         id: Date.now().toString(),
-        content: `📹 Video consultation ready!\n\n• Demo consultation room created\n• Click 'Join Video Call' to start\n• Share this link with your doctor if needed`,
+        content:
+          `📹 Video consultation is not available on this platform yet.\n\n` +
+          `Nothing was booked and no clinician has been notified. ` +
+          `You can book an appointment instead, and a clinician will confirm it.\n\n` +
+          `If this is a medical emergency, contact your local emergency services now.`,
         sender: 'assistant',
         timestamp: new Date(),
         actions: [
-          { type: 'video_join', label: 'Join Video Call', data: { roomUrl: demoRoomUrl } },
-          { type: 'video_cancel', label: 'Cancel Call' }
+          { type: 'schedule_appointment', label: 'Book an appointment' }
         ]
       };
       setMessages(prev => [...prev, callMessage]);
-      
+
       toast({
-        title: "Demo Mode",
-        description: "Using demo video room. Click 'Join Video Call' to continue.",
-        variant: "default"
+        title: "Video consultation unavailable",
+        description: "No call was placed and no clinician was notified.",
+        variant: "destructive"
       });
     } finally {
       setIsVideoCallActive(false);
@@ -664,119 +699,208 @@ export default function FloatingChatbot({ user, onActionClick }: FloatingChatbot
   // found" state.
 
 
+  /**
+   * Books the slot, and says so only if it was actually booked.
+   *
+   * This posted to /api/appointments/book, which is not a route this server
+   * registers, so every attempt 404'd. Both the `else` branch and the `catch`
+   * then called showBookingConfirmation() with an object assembled in the
+   * browser — `{ id: Date.now(), date, time, doctor }` — and the chatbot told the
+   * patient their appointment was confirmed, with a reference number.
+   *
+   * Nothing was written. No row existed, no clinician was notified, no calendar
+   * entry was made. A patient who booked through the assistant was given a
+   * confirmation for an appointment that had never been created, and would find
+   * that out by arriving for it.
+   *
+   * The real endpoint is POST /api/patient/appointments, which takes the patient
+   * from the session, checks the slot against the clinician's calendar, and
+   * returns 409 if it is taken. A failure is now reported as a failure.
+   */
   const bookAppointment = async (slot: AppointmentSlot) => {
+    if (!selectedDoctor?.id) {
+      toast({
+        title: "No clinician selected",
+        description: "Choose a clinician before booking.",
+        variant: "destructive"
+      });
+      return;
+    }
+
     try {
-      const response = await fetch('/api/appointments/book', {
+      const response = await fetch('/api/patient/appointments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          patientId: user?.id,
-          doctorId: selectedDoctor?.id,
-          date: slot.date,
-          time: slot.time,
-          type: 'consultation'
+          doctorId: selectedDoctor.id,
+          appointmentDate: slot.date,
+          appointmentTime: slot.time,
+          type: 'Consultation',
+          reason: 'Booked through the assistant'
         })
       });
-      
-      if (response.ok) {
-        const booking = await response.json();
-        showBookingConfirmation(booking);
-      } else {
-        // Fallback confirmation
-        showBookingConfirmation({
-          id: Date.now(),
-          date: slot.date,
-          time: slot.time,
-          doctor: selectedDoctor
+
+      if (!response.ok) {
+        // 409 means the slot went while the patient was choosing it, which is a
+        // different message from a general failure and is worth saying plainly.
+        const detail = await response.json().catch(() => ({}));
+        const failure: ChatMessage = {
+          id: Date.now().toString(),
+          content:
+            response.status === 409
+              ? `That time has just been taken. Nothing was booked — please pick another slot.`
+              : `The appointment could not be booked${detail?.message ? `: ${detail.message}` : '.'}\n\n` +
+                `Nothing was scheduled and no clinician has been notified. Please try again.`,
+          sender: 'assistant',
+          timestamp: new Date()
+        };
+        setMessages(prev => [...prev, failure]);
+        toast({
+          title: "Appointment not booked",
+          description: response.status === 409 ? "That slot is no longer free." : "Nothing was scheduled.",
+          variant: "destructive"
         });
+        return;
       }
+
+      const booking = await response.json();
+      showBookingConfirmation(booking.appointment ?? booking);
+      setShowScheduler(false);
     } catch (error) {
-      showBookingConfirmation({
-        id: Date.now(),
-        date: slot.date,
-        time: slot.time,
-        doctor: selectedDoctor
+      console.error('Appointment booking error:', error);
+      const failure: ChatMessage = {
+        id: Date.now().toString(),
+        content:
+          `The appointment could not be booked — the server could not be reached.\n\n` +
+          `Nothing was scheduled. Please check your connection and try again.`,
+        sender: 'assistant',
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, failure]);
+      toast({
+        title: "Appointment not booked",
+        description: "Nothing was scheduled.",
+        variant: "destructive"
       });
     }
-    
-    setShowScheduler(false);
   };
 
+  /**
+   * Confirms a booking that the server actually made.
+   *
+   * Reads the appointment row's own column names. It previously read
+   * `booking.date` and `booking.time`, which is the shape of the object the
+   * fabricated fallback built in the browser, not the shape the API returns —
+   * so on the one path where a real booking could have arrived, the confirmation
+   * would have shown "Invalid Date".
+   */
   const showBookingConfirmation = (booking: any) => {
+    const rawDate = booking.appointmentDate ?? booking.date;
+    const when = rawDate ? new Date(rawDate).toLocaleDateString() : 'date to be confirmed';
+    const time = booking.appointmentTime ?? booking.time ?? 'time to be confirmed';
+    const clinician = booking.doctorName ?? selectedDoctor?.name ?? 'your clinician';
+
     const confirmationMessage: ChatMessage = {
       id: Date.now().toString(),
-      content: `✅ Appointment booked successfully!\n\n📅 Date: ${new Date(booking.date).toLocaleDateString()}\n🕐 Time: ${booking.time}\n👨‍⚕️ Doctor: ${booking.doctor?.name || selectedDoctor?.name}\n🏥 Type: Medical Consultation\n\nYou'll receive a confirmation email shortly. You can also start a real-time chat with your doctor.`,
+      content:
+        `✅ Appointment booked.\n\n📅 Date: ${when}\n🕐 Time: ${time}\n` +
+        `👨‍⚕️ Clinician: ${clinician}\n🏥 Type: Consultation\n\n` +
+        // The line removed here promised "You'll receive a confirmation email
+        // shortly". Email delivery is off unless SENDGRID_API_KEY and
+        // NOTIFICATION_FROM_EMAIL are configured, and /api/ready reports whether
+        // they are — so this promised a message that in most deployments never
+        // arrives. The appointment list is the reliable record either way.
+        `It is on your appointments list. If a reminder channel is configured for ` +
+        `this deployment, you may also receive a notification.`,
       sender: 'assistant',
       timestamp: new Date(),
       actions: [
-        { type: 'start_chat', label: 'Chat with Doctor', data: { doctorId: booking.doctor?.id } },
         { type: 'view_appointments', label: 'View All Appointments' },
         { type: 'reschedule', label: 'Reschedule', data: { appointmentId: booking.id } }
       ]
     };
-    
+
     setMessages(prev => [...prev, confirmationMessage]);
-    
+
     toast({
-      title: "Appointment Booked!",
-      description: `${new Date(booking.date).toLocaleDateString()} at ${booking.time}`,
+      title: "Appointment booked",
+      description: `${when} at ${time}`,
     });
   };
 
   // Real-time Chat Functions
+  /**
+   * Opens a conversation with a clinician.
+   *
+   * This posted to /api/chat/start-session, which is not a route this server
+   * registers, so it 404'd on every attempt and fell through to
+   * initializeDemoChat() — a message reading "Demo chat mode activated ... In
+   * production, this would connect you directly with your assigned doctor".
+   * That text was itself shown *in* production, to real patients, as the only
+   * outcome this button ever produced.
+   *
+   * There is no session to start: chat here is a message thread between two
+   * users, backed by /api/chat/participants, /api/chat/messages and
+   * /api/chat/send. Opening it means checking the clinician is someone this
+   * patient may message, then pointing them at the chat surface.
+   */
   const startRealTimeChat = async (doctorId: string) => {
     try {
-      const response = await fetch('/api/chat/start-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ patientId: user?.id, doctorId })
-      });
-      
-      if (response.ok) {
-        const session = await response.json();
-        initializeChatSession(session);
-      } else {
-        // Fallback demo chat
-        initializeDemoChat();
+      const response = await fetch('/api/chat/participants', { credentials: 'include' });
+      if (!response.ok) {
+        throw new Error(`Chat is unavailable right now (${response.status}).`);
       }
+
+      const participants = await response.json();
+      const clinician = Array.isArray(participants)
+        ? participants.find((p: any) => String(p.id) === String(doctorId))
+        : null;
+
+      if (!clinician) {
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          content:
+            `That clinician is not available to message from your account.\n\n` +
+            `You can message clinicians involved in your care from the Messages tab.`,
+          sender: 'assistant',
+          timestamp: new Date()
+        }]);
+        return;
+      }
+
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        content:
+          `💬 You can message ${clinician.fullName ?? clinician.name ?? 'this clinician'} ` +
+          `from the Messages tab.\n\nMessages are stored encrypted and are visible only ` +
+          `to you and the clinician. Replies are not immediate — this is not an ` +
+          `emergency channel.`,
+        sender: 'assistant',
+        timestamp: new Date(),
+        actions: [{ type: 'open_messages', label: 'Open Messages' }]
+      }]);
     } catch (error) {
-      initializeDemoChat();
+      console.error('Chat availability check failed:', error);
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        content:
+          `Chat could not be opened — the server could not be reached.\n\n` +
+          `No message was sent and no clinician has been notified.`,
+        sender: 'assistant',
+        timestamp: new Date()
+      }]);
     }
   };
 
-  const initializeChatSession = (session: any) => {
-    const chatMessage: ChatMessage = {
-      id: Date.now().toString(),
-      content: `💬 Real-time chat started with ${session.doctorName}\n\nYou can now communicate directly with your healthcare provider. Messages are transmitted over TLS and access is authenticated.`,
-      sender: 'assistant',
-      timestamp: new Date(),
-      actions: [
-        { type: 'send_message', label: 'Send Message' },
-        { type: 'end_chat', label: 'End Chat' }
-      ]
-    };
-    
-    setMessages(prev => [...prev, chatMessage]);
-  };
-
-  const initializeDemoChat = () => {
-    const demoMessage: ChatMessage = {
-      id: Date.now().toString(),
-      content: `💬 Demo chat mode activated\n\nThis is a demonstration of real-time chat with healthcare providers. In production, this would connect you directly with your assigned doctor or radiologist.`,
-      sender: 'assistant',
-      timestamp: new Date(),
-      suggestions: [
-        "Ask about test results",
-        "Discuss symptoms",
-        "Medication questions",
-        "Follow-up care"
-      ]
-    };
-    
-    setMessages(prev => [...prev, demoMessage]);
-  };
+  /*
+   * initializeChatSession() and initializeDemoChat() stood here and are removed
+   * with their only caller.
+   *
+   * The second one produced the "Demo chat mode activated" message that this
+   * button actually showed in production; the first one was written for a
+   * /api/chat/start-session response that no route ever returned.
+   */
 
   // Text-to-Speech Function
   const speakMessage = (text: string) => {

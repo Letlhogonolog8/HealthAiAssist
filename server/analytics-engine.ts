@@ -112,6 +112,23 @@ export class AnalyticsEngine {
     return insights;
   }
 
+  /**
+   * The reads below are whole-table on purpose, and are the last ones left.
+   *
+   * They differ from the whole-table reads that were removed from the route
+   * handlers. Those loaded every scan and every user in order to answer a
+   * question about one row or one count — a patient's name, a status, a total —
+   * and an indexed query answers those exactly and cheaply. These compute
+   * statistics *over the corpus*: an age distribution, a rate by modality, a
+   * cohort comparison. A sample would silently turn a population figure into an
+   * estimate without saying so, which is the failure mode this file has already
+   * been cleaned of once.
+   *
+   * The honest position is therefore that these are correct and do not scale:
+   * they are admin-only, computed on demand rather than polled, and they will
+   * need to become SQL aggregates before this database is large. That is a real
+   * piece of remaining work, not an oversight.
+   */
   private async analyzePopulationHealth(): Promise<MedicalInsight | null> {
     try {
       const scans = await storage.getScans();

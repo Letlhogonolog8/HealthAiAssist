@@ -64,7 +64,12 @@ export const applyRateLimiting = (app: express.Application) => {
   app.use('/api/radiologist', medicalLimiter);
   app.use('/api/scans', medicalLimiter);
   app.use('/api/appointments', medicalLimiter);
+  // Both chat surfaces. `/api/chat` does not cover `/api/chatbot/...`: Express
+  // matches a mount path only at a segment boundary, so the prefix that looks
+  // like it covers both matched only the first, and the route that forwards
+  // messages to a metered third-party API was left on the general limiter.
   app.use('/api/chat', chatLimiter);
+  app.use('/api/chatbot', chatLimiter);
   app.use('/api', generalLimiter);
 
   console.log('🚦 Rate limiting applied (per-account where authenticated)');

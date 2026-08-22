@@ -124,18 +124,29 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
     refetchOnWindowFocus: false
   });
 
-  const { data: recentActivities, isLoading: activitiesLoading } = useQuery({
+  const {
+    data: recentActivities,
+    isLoading: activitiesLoading,
+    isError: activitiesError,
+  } = useQuery({
     queryKey: [`/api/${user.role}/activities/recent`],
     queryFn: async () => {
       const response = await fetch(`/api/${user.role}/activities/recent`, {
         credentials: 'include'
       });
       if (!response.ok) {
-        // Return mock activities if API fails
-        return [
-          { message: 'System backup completed successfully', timestamp: '2 hours ago', type: 'system' },
-          { message: 'New scan results available', timestamp: '4 hours ago', type: 'scan' }
-        ];
+        /**
+         * A failed request is an error, not an activity feed.
+         *
+         * Two fabricated entries were returned here whenever this call failed —
+         * "System backup completed successfully, 2 hours ago" and "New scan
+         * results available, 4 hours ago" — rendered in the same list as real
+         * events, on every role's dashboard, indistinguishable from history that
+         * actually happened. The second one is the worse of the two: it tells a
+         * patient a result is waiting for them when the server could not be
+         * reached at all.
+         */
+        throw new Error(`Recent activity could not be loaded (${response.status}).`);
       }
       return response.json();
     },
@@ -158,8 +169,10 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
       radiologist: [
         { label: "Pending Reviews", key: "pendingReviews", icon: FileText, color: "text-orange-400" },
         { label: "Completed Today", key: "completedToday", icon: Calendar, color: "text-green-400" },
-        { label: "AI Confidence", key: "aiConfidence", icon: Brain, color: "text-purple-400" },
-        { label: "Avg Review Time", key: "avgReviewTime", icon: Clock, color: "text-blue-400" }
+        // Renamed to match the endpoint and to stop reading as accuracy.
+        { label: "Mean AI Confidence", key: "meanAiConfidencePct", icon: Brain, color: "text-purple-400" },
+        // Measured from reviewed_at. Replaces `avgReviewTime`, a server literal.
+        { label: "Median Review Time", key: "medianReviewHours", icon: Clock, color: "text-blue-400" }
       ],
       doctor: [
         { label: "Active Patients", key: "activePatients", icon: Users, color: "text-blue-400" },
@@ -167,11 +180,25 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
         { label: "Pending Reports", key: "pendingReports", icon: FileText, color: "text-orange-400" },
         { label: "Critical Cases", key: "criticalCases", icon: Heart, color: "text-red-400" }
       ],
+      /**
+       * A patient's tiles.
+       *
+       * "Health Score" is gone. The server computed it as the share of the
+       * patient's scans whose `result` text did not contain the substring
+       * "abnormal", bucketed into Good / Fair / Needs Attention, and defaulted to
+       * "Good" for a patient with no scans at all. Results are written as
+       * "Lung Cancer detected - high risk", which contains no such substring — so
+       * a patient whose scan had just been flagged for malignancy was shown a
+       * green "Good" here. The endpoint now returns healthScore: null and this
+       * platform does not attempt to score anyone's health.
+       *
+       * "Health Insights" is gone too: the endpoint never returned a
+       * `healthInsights` field, so the tile always rendered a dash.
+       */
       patient: [
         { label: "Completed Scans", key: "completedScans", icon: Activity, color: "text-green-400" },
         { label: "Pending Results", key: "pendingResults", icon: Clock, color: "text-orange-400" },
-        { label: "Health Insights", key: "healthInsights", icon: Brain, color: "text-blue-400" },
-        { label: "Health Score", key: "healthScore", icon: Heart, color: "text-green-400" }
+        { label: "Flagged For Review", key: "flaggedForReview", icon: Heart, color: "text-orange-400" }
       ]
     };
 
@@ -224,12 +251,10 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
               value = '—';
             } else if (stat.key === 'systemUptime' && typeof raw === 'number') {
               value = `${raw}%`;
-            } else if (stat.key === 'avgReviewTime' && typeof raw === 'number') {
-              value = `${raw}m`;
-            } else if (stat.key === 'aiAccuracy' || stat.key === 'aiConfidence') {
+            } else if (stat.key === 'medianReviewHours' && typeof raw === 'number') {
+              value = `${raw}h`;
+            } else if (stat.key === 'aiAccuracy' || stat.key === 'meanAiConfidencePct') {
               value = `${raw}%`;
-            } else if (stat.key === 'healthInsights') {
-              value = raw || 'Available';
             }
             
             return (
@@ -302,6 +327,18 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                               </div>
                             );
                           })
+                        ) : activitiesError ? (
+                          /*
+                            Distinguished from an empty feed on purpose. "No recent
+                            activity" is a statement about the account; this is a
+                            statement about the request, and the two used to be
+                            rendered identically once the fabricated fallback was
+                            removed.
+                          */
+                          <div className="text-orange-300 text-sm">
+                            Recent activity could not be loaded. This is a connection
+                            problem, not an empty history.
+                          </div>
                         ) : (
                           <div className="text-slate-400 text-sm">No recent activity</div>
                         )}

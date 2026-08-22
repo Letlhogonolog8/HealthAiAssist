@@ -7,7 +7,12 @@ import path from "path";
 import fs from "fs";
 import multer from "multer";
 import { hashPassword, verifyPassword, loginLimiter } from "./auth-middleware";
-import { getPatientProfile, getAvailableDermatologists, getAvailableAppointmentSlots } from './services';
+import {
+  getPatientProfile,
+  getAvailableDermatologists,
+  getAvailableAppointmentSlots,
+  getClinicianSlotsForDate,
+} from './services';
 import { medicalChatbotService } from "./chatbot-service";
 import { 
   requireAuth, 
@@ -592,11 +597,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Add chatbot chat route
-  app.post("/api/chatbot/chat", async (req, res) => {
+  /**
+   * The assistant.
+   *
+   * `userId` came from the request body, on an endpoint that took no
+   * authentication. The consent gate inside generateResponse() trusts that id —
+   * it looks up whether *that patient* agreed to have their messages sent to
+   * OpenAI — so anyone on the internet could pass the id of a patient who had
+   * consented and get the external model, billed to this platform. Worse, the
+   * transfer is then recorded against that patient in `audit_events`, so the
+   * POPIA record of who sent what abroad would name someone who did not send it.
+   * A consent check keyed on an attacker-supplied identifier is not a consent
+   * check.
+   *
+   * The id now comes from the session and nothing else. Anonymous callers are no
+   * longer refused outright — the local fallback needs no consent and sends
+   * nothing abroad, so the assistant still answers general questions on the
+   * public pages — but only a signed-in patient who has agreed can reach OpenAI,
+   * and only ever as themselves.
+   *
+   * Rate limited alongside the other chat routes: this is an unauthenticated
+   * path to a metered third-party API, which is the shape of an expensive
+   * afternoon.
+   */
+  app.post("/api/chatbot/chat", async (req: AuthenticatedRequest, res) => {
     try {
-      const { messages, message, userId } = req.body;
-      
+      const { messages, message } = req.body ?? {};
+
       // Handle both message formats
       let chatMessages: any[] = [];
       if (messages && Array.isArray(messages)) {
@@ -607,9 +634,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Message or messages array is required" });
       }
 
+      // Bounded before it reaches a paid API. An unbounded array from an
+      // unauthenticated caller is billed per token.
+      if (chatMessages.length > 40) {
+        return res.status(400).json({ error: 'Too many messages in one request' });
+      }
+      if (chatMessages.some((entry) => typeof entry?.content !== 'string' || entry.content.length > 4000)) {
+        return res.status(400).json({ error: 'Each message must be text under 4000 characters' });
+      }
+
+      // From the session, never from the body.
+      const sessionUserId = (req.session as any)?.user?.id;
+      const sessionRole = (req.session as any)?.user?.role;
+
       const chatbotResponse = await medicalChatbotService.generateResponse(
         chatMessages,
-        userId
+        sessionUserId,
+        sessionRole
       );
 
       res.json(chatbotResponse);
@@ -1163,10 +1204,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/admin/activities/recent", requireAuth, requireAdmin, async (req, res) => {
     try {
-      const allScans = await storage.getScans();
-      const recentActivities = allScans.slice(-10).map(scan => ({
-        message: `Medical scan completed - ${scan.scanType}`,
-        timestamp: scan.createdAt ? new Date(scan.createdAt).toLocaleTimeString() : new Date().toLocaleTimeString(),
+      // Ten newest, ordered and limited by the database. This read every scan
+      // row on each poll of the admin dashboard and then took the last ten.
+      const recentScans = await storage.listScansWithPatient({ limit: 10 });
+      const recentActivities = recentScans.map(scan => ({
+        // Was "Medical scan completed" for every row regardless of state, so a
+        // scan still being processed was announced as completed.
+        message: `${scan.scanType ?? 'Medical'} scan ${scan.status === 'completed' ? 'completed' : 'received'}`,
+        // ISO, not toLocaleTimeString() on the server. The old value was
+        // formatted in the server process's timezone and locale and sent as an
+        // opaque string, so every viewer saw the server's clock rather than
+        // their own, and a scan from last week read as a time today.
+        timestamp: scan.createdAt,
         type: 'scan'
       }));
 
@@ -1190,29 +1239,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Radiologist dashboard API endpoints
   app.get("/api/radiologist/stats", requireAuth, requireMedicalAccess, async (req, res) => {
     try {
-      const allScans = await storage.getScans();
-      const pendingScans = allScans.filter(scan => scan.result === 'Processing');
-      const todayScans = allScans.filter(scan => {
-        const scanDate = new Date(scan.createdAt);
-        const today = new Date();
-        return scanDate.toDateString() === today.toDateString() && scan.result !== 'Processing';
+      // Counted in the database. This read every scan in the system on each
+      // dashboard poll and ran four .filter() passes plus a .reduce() over the
+      // copy in memory.
+      const workload = await storage.getRadiologistWorkload();
+
+      res.json({
+        pendingReviews: workload.pendingReviews,
+        completedToday: workload.completedToday,
+        totalScansReviewed: workload.totalScansReviewed,
+        criticalCases: workload.criticalCases,
+
+        // Deliberately NOT called `aiAccuracy`. This is the mean of the model's
+        // self-reported confidence, which says how sure it was, not how often it
+        // was right; a model can be confidently wrong. Null when no scan has
+        // recorded a confidence, so the tile can show a dash rather than 0%.
+        meanAiConfidencePct: workload.meanAiConfidencePct,
+
+        // Measured from reviewed_at, as a median, with the number of reviews it
+        // was computed from. The field it replaces was `avgReviewTime: 3.2` — a
+        // literal, unchanged since it was typed.
+        medianReviewHours: workload.medianReviewHours,
+        reviewsMeasured: workload.reviewsMeasured,
+
+        /**
+         * There is deliberately no accuracy figure in this response.
+         *
+         * `accuracyRate: 96` used to be returned here and the dashboard rendered
+         * it four times, including as a progress bar filled to 96 and the
+         * caption "96% accuracy". Nothing measured it. Accuracy is a comparison
+         * between what the model predicted and what the case turned out to be,
+         * so it cannot be computed from the scans table alone — it needs the
+         * confirmed outcomes in `scan_outcomes`. /api/models/performance answers
+         * it properly, with a denominator and a confidence interval, and says so
+         * when the sample is too small to be worth quoting.
+         */
+        accuracy: {
+          available: false,
+          reason: 'Accuracy requires confirmed outcomes, not scan counts.',
+          endpoint: '/api/models/performance',
+        },
       });
-
-      const stats = {
-        pendingReviews: pendingScans.length,
-        completedToday: todayScans.length,
-        aiConfidence: allScans.length > 0 ? Math.round(allScans.reduce((sum, scan) => {
-          const confidence = scan.aiConfidence ? parseFloat(scan.aiConfidence.replace('%', '')) : 0;
-          return sum + confidence;
-        }, 0) / allScans.length) : 0,
-        avgReviewTime: 3.2,
-        totalScansReviewed: allScans.filter(scan => scan.result !== 'Processing').length,
-        criticalCases: allScans.filter(scan => scan.result && (scan.result.includes('urgent') || scan.result.includes('critical'))).length,
-        accuracyRate: 96,
-        workloadHours: Math.round(todayScans.length * 0.2)
-      };
-
-      res.json(stats);
     } catch (error) {
       console.error("Error fetching radiologist stats:", error);
       res.status(500).json({ error: "Failed to fetch radiologist statistics" });
@@ -1325,80 +1392,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   // Doctor dashboard API endpoints
+  /**
+   * This clinician's own counters.
+   *
+   * Three of the nine fields this returned were not measurements.
+   * `appointmentsCompleted` was `Math.floor(Math.random() * 5) + 3`, so the tile
+   * showed a different number on every fifteen-second poll. `avgConsultationTime`
+   * was the string '18m' and `patientSatisfaction` was the number 94, both
+   * rendered as large figures on the dashboard. This platform has no
+   * consultation timer and no satisfaction survey, so there is nothing behind
+   * either, and they are removed rather than given a plausible-looking formula.
+   *
+   * The remaining counters were real arithmetic over the wrong set: they loaded
+   * every user and every scan in the database and counted all of them, so a
+   * doctor with four patients saw the whole register under "Active Patients" and
+   * every flagged scan on the platform under "Critical Cases". They are now
+   * counted in the database and scoped to the clinician asking.
+   */
   app.get("/api/doctor/stats", requireAuth, requireMedicalAccess, async (req, res) => {
     try {
-      const allUsers = await storage.getAllUsers();
-      const allScans = await storage.getScans();
-      const patients = allUsers.filter(user => user.role === 'patient');
-      const doctorId = (req.session as any)?.user?.id;
-      
-      // Get doctor's appointments for today with error handling
-      let todayAppointments: any[] = [];
-      try {
-        const doctorAppointments = doctorId ? await storage.getDoctorAppointments(doctorId) : [];
-        todayAppointments = doctorAppointments.filter(apt => {
-          if (!apt.appointmentDate) return false;
-          try {
-            const aptDate = new Date(apt.appointmentDate);
-            const today = new Date();
-            return aptDate.toDateString() === today.toDateString();
-          } catch {
-            return false;
-          }
-        });
-      } catch (error) {
-        console.error('Error fetching doctor appointments:', error);
-      }
-
-      const stats = {
-        activePatients: patients.length || 0,
-        todaysAppointments: todayAppointments.length || 0,
-        pendingReports: allScans.filter(scan => 
-          scan.result && scan.result !== 'Processing' && !scan.notes
-        ).length || 0,
-        criticalCases: allScans.filter(scan => 
-          scan.result && (
-            scan.result.includes('urgent') || 
-            scan.result.includes('critical') || 
-            scan.result.toLowerCase().includes('abnormal')
-          )
-        ).length || 0,
-        totalPatients: patients.length || 0,
-        appointmentsCompleted: Math.floor(Math.random() * 5) + 3,
-        avgConsultationTime: '18m',
-        patientSatisfaction: 94
-      };
-
-      res.json(stats);
+      const doctorId = (req.session as any).user.id;
+      res.json(await storage.getClinicianWorkload(doctorId));
     } catch (error) {
       console.error("Error fetching doctor stats:", error);
       res.status(500).json({ error: "Failed to fetch doctor stats" });
     }
   });
 
+  /**
+   * The clinician's own patient panel.
+   *
+   * This was the most misleading response in the application, on the screen
+   * where being misled matters most. Six of its eleven fields were string
+   * literals written identically for every patient:
+   *
+   *   status: 'stable'          → rendered as a green STABLE badge
+   *   riskLevel: 'low'          → rendered as a LOW RISK badge, and counted into
+   *                               the "high / medium / low risk" summary tiles
+   *   condition: 'Regular checkup'
+   *   lastVisit: new Date()     → every patient appeared to have been seen today
+   *   recentScans: 0
+   *   age: patient.age || 30    → an unrecorded age became 30
+   *
+   * A doctor loading this page was told that every patient was stable and low
+   * risk — including one whose most recent scan had just been flagged for
+   * malignancy — and the risk tiles at the bottom read "0 high risk"
+   * unconditionally. That is a clinical screen asserting a reassuring fact about
+   * a patient that nothing checked.
+   *
+   * `status` and `condition` are gone entirely: this platform records neither,
+   * and there is no honest value to put there. What it does record is returned —
+   * appointment history with this clinician, scan counts, and the highest risk
+   * band any of the patient's scans carries, which the UI labels as a scan
+   * finding rather than as a description of the patient.
+   *
+   * It also returned every patient in the database to any doctor or radiologist,
+   * which is a bulk disclosure of the patient register rather than a care
+   * relationship. It is now scoped to patients this clinician has an appointment
+   * or a scan with.
+   */
   app.get("/api/doctor/patients", auditLog('READ_PATIENT_LIST'), requireAuth, requireMedicalAccess, async (req, res) => {
     try {
-      // Use same approach as stats endpoint
-      const allUsers = await storage.getAllUsers();
-      const patients = allUsers.filter(user => user.role === 'patient');
-
-
-
-      const patientData = patients.map(patient => ({
-        id: patient.id,
-        name: patient.fullName || patient.username,
-        email: patient.email,
-        phone: patient.phone || 'Not provided',
-        age: patient.age || 30,
-        gender: patient.gender || 'Not specified',
-        lastVisit: new Date().toISOString(),
-        condition: 'Regular checkup',
-        status: 'stable',
-        recentScans: 0,
-        riskLevel: 'low'
-      }));
-
-      res.json(patientData);
+      const doctorId = (req.session as any).user.id;
+      const patients = await storage.listDoctorPatients(doctorId);
+      res.json(patients);
     } catch (error) {
       console.error("Error in patients endpoint:", error);
       res.status(500).json({ error: "Failed to fetch patients" });
@@ -1426,27 +1483,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // New endpoint for upcoming appointments
   app.get("/api/doctor/appointments/upcoming", requireAuth, requireMedicalAccess, async (req, res) => {
     try {
-      const doctorId = (req.session as any)?.user?.id;
-      
-      const appointments = await storage.getDoctorAppointments(doctorId);
-      const allUsers = await storage.getAllUsers();
-      
-      // Format appointments with patient information
-      const formattedAppointments = appointments.map(appointment => {
-        const patient = allUsers.find(user => user.id === appointment.patientId);
-        return {
-          id: appointment.id,
-          patientName: patient ? patient.fullName : `Patient ${appointment.patientId}`,
-          patientEmail: patient ? patient.email : '',
-          date: appointment.appointmentDate ? new Date(appointment.appointmentDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-          time: appointment.appointmentTime || '09:00 AM',
-          reason: appointment.reason || appointment.type || 'Consultation',
-          status: appointment.status || 'pending',
-          notes: appointment.notes || '',
-          priority: appointment.priority || 'medium'
-        };
-      });
-      
+      const doctorId = (req.session as any).user.id;
+
+      // The patient's name comes from an indexed join, not from reading every
+      // user in the database and running .find() once per appointment.
+      const appointments = await storage.listDoctorAppointmentsWithPatient(doctorId);
+
+      const formattedAppointments = appointments.map(appointment => ({
+        id: appointment.id,
+        patientName: appointment.patientName,
+        patientEmail: appointment.patientEmail,
+        // Null rather than today's date and '09:00 AM'. Both columns are NOT
+        // NULL in the schema, so a missing value means the row is malformed, and
+        // substituting a plausible time for a malformed appointment puts a slot
+        // on a clinician's calendar that nobody booked.
+        date: appointment.appointmentDate
+          ? new Date(appointment.appointmentDate).toISOString().split('T')[0]
+          : null,
+        time: appointment.appointmentTime ?? null,
+        reason: appointment.reason || appointment.type || null,
+        status: appointment.status || 'pending',
+        notes: appointment.notes || '',
+        priority: appointment.priority || 'medium'
+      }));
+
       res.json(formattedAppointments);
     } catch (error) {
       console.error("Error fetching upcoming appointments:", error);
@@ -1454,31 +1514,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  /**
+   * Scans waiting on a report.
+   *
+   * Two fields here were invented. `radiologist: 'Dr. Smith'` named a person who
+   * does not work here on every row — the scan's actual radiologist_id was
+   * available and unused — and `aiConfidence: scan.aiConfidence || '85%'`
+   * supplied a confidence figure for scans that had never recorded one, which is
+   * the same defect that was removed from the radiologist queue and missed here.
+   *
+   * `priority` also came from string-matching the prose in `result` for "urgent"
+   * and "abnormal", which makes queue ordering depend on how a finding happened
+   * to be worded. It now reads risk_level and priority, which are columns.
+   */
   app.get("/api/doctor/reports/pending", auditLog('READ_PENDING_REPORTS'), requireAuth, requireMedicalAccess, async (req, res) => {
     try {
-      const allScans = await storage.getScans();
-      const allUsers = await storage.getAllUsers();
-      const pendingReports = allScans.filter(scan => 
-        scan.result && 
-        scan.result !== 'Processing' && 
-        scan.status !== 'completed'
+      // One indexed query with the patient joined on, bounded, instead of every
+      // scan and every user read into the process on each eight-second poll.
+      const scans = await storage.listScansWithPatient({ limit: 200 });
+      const pending = scans.filter(
+        scan => scan.result && scan.result !== 'Processing' && scan.status !== 'completed'
       );
 
-      const reports = pendingReports.map(scan => {
-        const patient = allUsers.find(user => user.id === scan.patientId);
-        const isAbnormal = scan.result && scan.result.toLowerCase().includes('abnormal');
-        const isCritical = scan.result && (scan.result.toLowerCase().includes('urgent') || scan.result.toLowerCase().includes('critical'));
-        
+      const radiologistIds = Array.from(
+        new Set(pending.map(scan => scan.radiologistId).filter((id): id is number => !!id))
+      );
+      const radiologists = new Map<number, string>();
+      for (const id of radiologistIds) {
+        const clinician = await storage.getUser(id);
+        if (clinician) radiologists.set(id, clinician.fullName || clinician.username);
+      }
+
+      const reports = pending.map(scan => {
+        const risk = (scan.riskLevel ?? '').toLowerCase();
         return {
           id: scan.id,
-          patientName: patient ? patient.fullName : `Patient ${scan.patientId}`,
-          scanType: scan.scanType || 'Medical Scan',
-          submittedAt: scan.createdAt || new Date().toISOString(),
-          priority: isCritical ? 'urgent' : isAbnormal ? 'high' : 'medium',
-          radiologist: 'Dr. Smith',
+          patientName: scan.patientName,
+          scanType: scan.scanType || null,
+          submittedAt: scan.createdAt,
+          priority:
+            risk === 'critical' ? 'urgent' : risk === 'high' ? 'high' : scan.priority ?? 'medium',
+          // The clinician who actually holds this scan, or null. Never a name.
+          radiologist: scan.radiologistId ? radiologists.get(scan.radiologistId) ?? null : null,
           findings: scan.result,
+          riskLevel: scan.riskLevel ?? null,
           status: scan.status || 'pending',
-          aiConfidence: scan.aiConfidence || '85%',
+          // Null when the scan recorded no confidence, so the UI can say so.
+          aiConfidence: scan.aiConfidence || null,
+          modelVersion: scan.modelVersion ?? null,
           requiresReview: true
         };
       });
@@ -1493,23 +1576,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Doctor notifications endpoint
   app.get("/api/doctor/notifications", requireAuth, requireMedicalAccess, async (req, res) => {
     try {
-      const doctorId = (req.session as any)?.user?.id;
-      const allScans = await storage.getScans();
-      const allUsers = await storage.getAllUsers();
-      
-      // Generate notifications based on recent activities
-      const recentScans = allScans.slice(-5);
-      const notifications = recentScans.map(scan => {
-        const patient = allUsers.find(user => user.id === scan.patientId);
-        return {
-          id: scan.id,
-          message: `New scan result available for ${patient ? patient.fullName : 'Patient'}`,
-          timestamp: scan.createdAt || new Date().toISOString(),
-          type: 'scan_result',
-          priority: scan.result && scan.result.toLowerCase().includes('abnormal') ? 'high' : 'normal'
-        };
-      });
-      
+      // Five newest scans, ordered and limited by the database. This read every
+      // scan and every user in the system and then took the last five of them.
+      const recentScans = await storage.listScansWithPatient({ limit: 5 });
+
+      const notifications = recentScans.map(scan => ({
+        id: scan.id,
+        message: `New scan result available for ${scan.patientName ?? 'a patient'}`,
+        timestamp: scan.createdAt,
+        type: 'scan_result',
+        // Read from the risk_level column rather than by searching the prose in
+        // `result` for the word "abnormal" — a finding worded "malignancy
+        // detected" does not contain it and was being marked normal.
+        priority: ['high', 'critical'].includes((scan.riskLevel ?? '').toLowerCase())
+          ? 'high'
+          : 'normal'
+      }));
+
       res.json(notifications);
     } catch (error) {
       console.error("Error fetching doctor notifications:", error);
@@ -1797,11 +1880,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (candidate && ['doctor', 'radiologist'].includes(candidate.role)) {
           medicalProfessional = candidate;
         }
-      } else {
-        const allUsers = await storage.getAllUsers();
-        medicalProfessional = allUsers.find(user =>
-          ['doctor', 'radiologist'].includes(user.role) && user.fullName === doctorName
-        );
+      } else if (doctorName) {
+        // Filtered and projected in the database. This read every user row —
+        // password hashes and live reset tokens included — to match one name.
+        const directory = await storage.listDirectory(['doctor', 'radiologist']);
+        const match = directory.find(user => user.fullName === doctorName);
+        if (match) medicalProfessional = await storage.getUser(match.id);
       }
 
       if (!medicalProfessional) {
@@ -2146,127 +2230,129 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Real-time location-based dermatologist finder
-  app.post("/api/dermatologists/nearby", async (req, res) => {
+  /**
+   * Clinicians who can take a dermatology referral.
+   *
+   * This endpoint was called "nearby" and did not know where anyone was. It took
+   * no authentication, and for every real clinician it returned:
+   *
+   *   rating: 4.5 + Math.random() * 0.5      an invented rating, attached to a
+   *                                          named real person
+   *   distance: (0.5 + Math.random() * 2)    an invented distance in miles; the
+   *                                          submitted coordinates were never used
+   *   coordinates: latitude  + jitter        the clinician\'s "position", derived
+   *                                          from the patient\'s own location
+   *   experience: "5+ years experience"      a literal
+   *   location / address / hospitalAffiliation  literals
+   *   nextAvailable: "Today 2:30 PM"         a literal; nothing checked a calendar
+   *   email, phone                           real staff contact details, on an
+   *                                          unauthenticated endpoint
+   *
+   * When the query matched nobody it invented a clinician outright — id 999,
+   * "Dr. Available Dermatologist" — and for urgent cases it returned two
+   * fictional hospitals whose phone numbers were +1 (555) 100-2000 and
+   * +1 (555) 911-0000. The dialog rendered those under "Emergency Options" with
+   * a Call button wired to `tel:`, so a patient who had just been told their
+   * scan looked urgent was offered a one-tap call to a number in a range
+   * reserved for fiction.
+   *
+   * What this platform actually knows is which clinicians work here and what
+   * their recorded specialisation is. That is what it returns. It holds no
+   * clinician addresses, so proximity is reported as unavailable rather than
+   * generated, and emergency guidance points to local emergency services without
+   * inventing a number to dial.
+   *
+   * Now authenticated: it receives the patient\'s precise coordinates and returns
+   * a staff directory, and neither belongs on an open endpoint.
+   */
+  app.post("/api/dermatologists/nearby", requireAuth, async (req, res) => {
     try {
-      const { latitude, longitude, urgency = 'routine', scanResult } = req.body;
-      
-      if (!latitude || !longitude) {
-        return res.status(400).json({ error: "Location coordinates required" });
-      }
+      const { urgency = 'routine' } = req.body ?? {};
 
-      // Get actual dermatologists from database
-      const allUsers = await storage.getAllUsers();
-      let dermatologists = allUsers
-        .filter(user => user.role === 'doctor' && 
-          (user.specialization?.toLowerCase().includes('dermatology') || 
-           user.specialization?.toLowerCase().includes('skin')))
-        .map((doctor, index) => ({
-          id: doctor.id,
-          name: doctor.fullName,
-          specialty: doctor.specialization || "Dermatology",
-          experience: "5+ years experience",
-          rating: 4.5 + Math.random() * 0.5,
-          location: "Medical Center",
-          address: "Healthcare District",
-          distance: `${(0.5 + Math.random() * 2).toFixed(1)} miles`,
-          phone: doctor.phone || "Contact via platform",
-          email: doctor.email,
-          isUrgentCare: urgency === 'urgent' && index === 0,
-          nextAvailable: urgency === 'urgent' ? 'Today 2:30 PM' : 'Next Monday',
-          availableSlots: urgency === 'urgent' ? 
-            ['2:30 PM', '3:15 PM', '4:00 PM'] : 
-            ['9:00 AM', '10:30 AM', '2:00 PM', '3:30 PM'],
-          hospitalAffiliation: "Medical Center",
-          coordinates: { lat: latitude + (Math.random() - 0.5) * 0.01, lng: longitude + (Math.random() - 0.5) * 0.01 }
-        }));
+      const dermatologists = await getAvailableDermatologists(urgency);
 
-      // If no dermatologists in database, provide fallback
-      if (dermatologists.length === 0) {
-        dermatologists = [{
-          id: 999,
-          name: "Dr. Available Dermatologist",
-          specialty: "General Dermatology",
-          experience: "Available for consultation",
-          rating: 4.5,
-          location: "Nearby Medical Center",
-          address: "Contact for location details",
-          distance: "Contact for details",
-          phone: "Contact via platform",
-          email: "contact@platform.com",
-          isUrgentCare: urgency === 'urgent',
-          nextAvailable: urgency === 'urgent' ? 'Available today' : 'Available this week',
-          availableSlots: ['Contact for availability'],
-          hospitalAffiliation: "Partner Network",
-          coordinates: { lat: latitude, lng: longitude }
-        }];
-      }
-
-      // Sort by urgency and distance
-      const sortedDermatologists = dermatologists.sort((a, b) => {
-        if (urgency === 'urgent' && a.isUrgentCare !== b.isUrgentCare) {
-          return b.isUrgentCare ? 1 : -1;
-        }
-        return parseFloat(a.distance) - parseFloat(b.distance);
-      });
-
-      // Add nearby hospitals for emergency cases
-      const nearbyHospitals = [
-        {
-          name: "Main Medical Center",
-          type: "Full Service Hospital",
-          distance: "0.8 miles",
-          emergencyDermatology: true,
-          phone: "+1 (555) 100-2000",
-          address: "123 Healthcare Drive, Medical District"
-        },
-        {
-          name: "Regional Emergency Hospital",
-          type: "Emergency & Trauma Center",
-          distance: "1.5 miles",
-          emergencyDermatology: urgency === 'urgent',
-          phone: "+1 (555) 911-0000",
-          address: "999 Emergency Way, Hospital District"
-        }
-      ];
+      // The next date each clinician actually has a free slot, looked up rather
+      // than asserted. Bounded to the next two working weeks so an empty diary
+      // does not turn into an unbounded scan.
+      const withAvailability = await Promise.all(
+        dermatologists.map(async (doctor) => {
+          let nextAvailable: { date: string; time: string } | null = null;
+          for (let offset = 0; offset < 14 && !nextAvailable; offset++) {
+            const day = new Date();
+            day.setDate(day.getDate() + offset);
+            const dateString = day.toISOString().split('T')[0];
+            const slots = await getClinicianSlotsForDate(doctor.id, dateString);
+            if (slots.length) nextAvailable = { date: dateString, time: slots[0] };
+          }
+          return { ...doctor, nextAvailable };
+        })
+      );
 
       res.json({
         success: true,
-        location: { latitude, longitude },
-        urgency,
-        dermatologists: sortedDermatologists,
-        nearbyHospitals: urgency === 'urgent' ? nearbyHospitals : [],
-        recommendations: {
-          urgentCare: urgency === 'urgent' ? 
-            "Based on your scan results, we recommend seeking immediate dermatological evaluation." :
-            "Schedule a routine consultation for thorough evaluation.",
-          timeframe: urgency === 'urgent' ? "Within 24-48 hours" : "Within 1-3 months"
-        }
+        dermatologists: withAvailability,
+        /**
+         * Why there are no distances here.
+         *
+         * Ranking clinicians by proximity needs a recorded practice address for
+         * each of them and a geocoder. This platform stores neither, so the
+         * honest answer is that it cannot sort by distance — not a plausible
+         * number of miles.
+         */
+        proximity: {
+          available: false,
+          reason:
+            'No practice addresses are recorded for clinicians on this platform, ' +
+            'so results cannot be ranked by distance.',
+        },
+        emergencyGuidance:
+          urgency === 'urgent'
+            ? {
+                message:
+                  'If this is a medical emergency, contact your local emergency ' +
+                  'services or go to the nearest emergency department now. Do not ' +
+                  'wait for an appointment through this platform.',
+                // Deliberately no phone number. The correct emergency number
+                // depends on the country the patient is in, and this system does
+                // not know it. A wrong number here is worse than none.
+                note: 'This platform cannot place emergency calls or dispatch care.',
+              }
+            : null,
+        recommendation:
+          urgency === 'urgent'
+            ? 'A clinician should review this result promptly.'
+            : 'Book a consultation for a clinical assessment.',
       });
-
     } catch (error) {
-      console.error("Error finding nearby dermatologists:", error);
-      res.status(500).json({ error: "Failed to find nearby specialists" });
+      console.error("Error listing dermatology clinicians:", error);
+      res.status(500).json({ error: "Failed to list dermatology clinicians" });
     }
   });
 
   // Get available appointment slots for dermatologist
-  app.get("/api/appointments/dermatologist-slots/:doctorId/:date", async (req, res) => {
+  /**
+   * The same question as the query-string form above, addressed by path.
+   *
+   * It used to answer from a fixed list of sixteen times minus three literals
+   * commented "Example booked slots" — so 9:00 AM, 2:00 PM and 3:30 PM were
+   * reported as taken for every clinician on every date in the system, and every
+   * other slot as free regardless of what was actually booked.
+   */
+  app.get("/api/appointments/dermatologist-slots/:doctorId/:date", requireAuth, async (req, res) => {
     try {
-      const { doctorId, date } = req.params;
-      
-      // Generate available time slots based on dermatologist and date
-      const baseSlots = [
-        '8:00 AM', '8:30 AM', '9:00 AM', '9:30 AM', '10:00 AM', '10:30 AM',
-        '11:00 AM', '11:30 AM', '1:00 PM', '1:30 PM', '2:00 PM', '2:30 PM',
-        '3:00 PM', '3:30 PM', '4:00 PM', '4:30 PM'
-      ];
+      const doctorId = Number.parseInt(req.params.doctorId, 10);
+      const { date } = req.params;
 
-      // Filter out booked slots (simulate existing appointments)
-      const bookedSlots = ['9:00 AM', '2:00 PM', '3:30 PM']; // Example booked slots
-      const availableSlots = baseSlots.filter(slot => !bookedSlots.includes(slot));
+      if (!Number.isInteger(doctorId) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ error: 'Invalid clinician id or date' });
+      }
 
-      res.json(availableSlots);
+      const clinician = await storage.getUser(doctorId);
+      if (!clinician || !['doctor', 'radiologist'].includes(clinician.role)) {
+        return res.status(404).json({ error: 'Unknown clinician' });
+      }
+
+      res.json(await getClinicianSlotsForDate(doctorId, date));
     } catch (error) {
       console.error("Error fetching appointment slots:", error);
       res.status(500).json({ error: "Failed to fetch available slots" });
@@ -2774,34 +2860,88 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
 
   // Patient dashboard stats API endpoint
+  /**
+   * The four tiles on a patient's own dashboard.
+   *
+   * Two of the four were fabricated, and the more dangerous one was labelled
+   * "Health Score".
+   *
+   * It was computed as the proportion of the patient's scans whose `result`
+   * string did not contain the substring "abnormal", bucketed into Good / Fair /
+   * Needs Attention, and defaulting to 85 — "Good" — for a patient with no scans
+   * at all. The analysis pipeline writes results in the form
+   * "Lung Cancer detected - high risk", which contains no such substring, so a
+   * patient whose scan had just been flagged for malignancy scored 100% and was
+   * shown a green "Good". That is the worst possible failure mode for this
+   * screen: a reassuring summary generated by a string search, contradicting the
+   * finding it was derived from.
+   *
+   * There is no health score here now. Scoring a person's health is a clinical
+   * act, this platform holds nothing like the information it would need, and a
+   * screening triage tool has no business attempting it. What the tiles show
+   * instead is what the database knows: how many scans are done, how many are
+   * still being read, whether anything has been flagged for review, and when the
+   * next appointment actually is.
+   *
+   * `nextAppointment` was the literal string "7 days", printed regardless of
+   * whether the patient had an appointment. It is now the real one, or null.
+   */
   app.get("/api/patient/stats", requireAuth, async (req, res) => {
     try {
       // requireAuth guarantees the session; the previous `|| 2` would have
       // served the admin account's statistics to a patient.
       const patientId = (req.session as any).user.id;
-      const patientScans = await storage.getScans(patientId);
-      
-      const completedScans = patientScans.filter(scan => scan.result !== 'Processing').length;
-      const pendingResults = patientScans.filter(scan => scan.result === 'Processing').length;
-      
-      // Calculate next appointment
-      const nextAppointmentDays = 7;
-      
-      // Calculate health score based on scan results
-      const normalScans = patientScans.filter(scan => 
-        scan.result && !scan.result.toLowerCase().includes('abnormal')
-      ).length;
-      const healthScore = patientScans.length > 0 ? 
-        Math.round((normalScans / patientScans.length) * 100) : 85;
-      
-      const stats = {
-        completedScans: completedScans,
-        pendingResults: pendingResults,
-        nextAppointment: `${nextAppointmentDays} days`,
-        healthScore: healthScore > 80 ? 'Good' : healthScore > 60 ? 'Fair' : 'Needs Attention'
-      };
 
-      res.json(stats);
+      const [patientScans, patientAppointments] = await Promise.all([
+        storage.getScans(patientId),
+        storage.getAppointments(patientId),
+      ]);
+
+      const completedScans = patientScans.filter(scan => scan.status === 'completed').length;
+      const pendingResults = patientScans.filter(scan => scan.status !== 'completed').length;
+
+      // Read from the risk_level column, not by searching the prose in `result`.
+      const flaggedForReview = patientScans.filter(scan =>
+        ['high', 'critical'].includes((scan.riskLevel ?? '').toLowerCase())
+      ).length;
+
+      const now = Date.now();
+      const upcoming = patientAppointments
+        .filter(appointment =>
+          appointment.appointmentDate &&
+          appointment.status !== 'cancelled' &&
+          new Date(appointment.appointmentDate).getTime() >= now
+        )
+        .sort(
+          (a, b) =>
+            new Date(a.appointmentDate).getTime() - new Date(b.appointmentDate).getTime()
+        )[0];
+
+      res.json({
+        completedScans,
+        pendingResults,
+        /**
+         * How many of this patient's scans a clinician has flagged for review.
+         *
+         * Deliberately a count and not a verdict. It says what the queue holds;
+         * it does not tell the patient what it means, which is the clinician's
+         * job and is why every result in this system requires sign-off.
+         */
+        flaggedForReview,
+        nextAppointment: upcoming
+          ? {
+              date: new Date(upcoming.appointmentDate).toISOString(),
+              time: upcoming.appointmentTime ?? null,
+              type: upcoming.type ?? null,
+              status: upcoming.status ?? 'scheduled',
+            }
+          : null,
+        // No health score. See the note above this handler.
+        healthScore: null,
+        healthScoreNote:
+          'This platform does not compute a health score. Screening results are ' +
+          'interpreted by a clinician, and each scan carries its own finding.',
+      });
     } catch (error) {
       console.error("Error fetching patient stats:", error);
       res.status(500).json({ error: "Failed to fetch patient stats" });
@@ -2911,14 +3051,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/appointments/dermatologist-slots", (req, res) => {
-    const timeSlots = [
-      "9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM", "11:00 AM", "11:30 AM",
-      "2:00 PM", "2:30 PM", "3:00 PM", "3:30 PM", "4:00 PM", "4:30 PM"
-    ];
+  /**
+   * Free slots for a clinician on a date, for the dermatology dialog.
+   *
+   * This returned `timeSlots.filter(() => Math.random() > 0.3)` — a fresh random
+   * subset of twelve fixed times on every request, with no clinician, no date
+   * and no query of any kind. A patient reloading the page saw different
+   * availability each time and could book a slot the clinician was busy for,
+   * because nothing downstream re-checked it either.
+   *
+   * It now takes ?doctorId and ?date and answers from the appointments table and
+   * the clinician's calendar.
+   */
+  app.get("/api/appointments/dermatologist-slots", requireAuth, async (req, res) => {
+    try {
+      const doctorId = Number.parseInt(req.query.doctorId as string, 10);
+      const date = (req.query.date as string) || '';
 
-    const availableSlots = timeSlots.filter((_, index) => Math.random() > 0.3);
-    res.json(availableSlots);
+      if (!Number.isInteger(doctorId) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({
+          error: 'doctorId and date (YYYY-MM-DD) are required',
+        });
+      }
+
+      const clinician = await storage.getUser(doctorId);
+      if (!clinician || !['doctor', 'radiologist'].includes(clinician.role)) {
+        return res.status(404).json({ error: 'Unknown clinician' });
+      }
+
+      res.json(await getClinicianSlotsForDate(doctorId, date));
+    } catch (error) {
+      console.error("Error fetching dermatologist slots:", error);
+      res.status(500).json({ error: "Failed to fetch available slots" });
+    }
   });
 
   // A second POST /api/appointments/dermatologist was registered here. Express

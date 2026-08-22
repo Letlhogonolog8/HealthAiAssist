@@ -23,18 +23,6 @@ type User = {
   healthScore?: any;
 };
 
-type Dermatologist = User & {
-  specialization?: string;
-  isUrgentCare?: boolean;
-  experience?: string;
-  rating?: number;
-  location?: string;
-  nextAvailable?: string;
-  availableSlots?: any[];
-  hospitalAffiliation?: string;
-  coordinates?: any;
-};
-
 type Scan = {
   id: number;
   scanType: string;
@@ -139,83 +127,172 @@ export async function getPatientProfile(patientId: number) {
   };
 }
 
-export async function getAvailableDermatologists(urgency: string) {
-  // Fetch dermatologists dynamically from storage or database
-  const allUsers = await storage.getAllUsers();
-  const dermatologists: Dermatologist[] = allUsers.filter(user => user.role === 'dermatologist') as Dermatologist[];
+/**
+ * The clinic's working-hours grid.
+ *
+ * One list, used by every availability path. It was previously written out three
+ * times — twice as different literal arrays in route handlers and once here —
+ * so the slots a patient could see and the slots the booking endpoint would
+ * accept were not the same set.
+ */
+export const CLINIC_TIME_SLOTS = [
+  '9:00 AM', '9:30 AM', '10:00 AM', '10:30 AM', '11:00 AM', '11:30 AM',
+  '2:00 PM', '2:30 PM', '3:00 PM', '3:30 PM', '4:00 PM', '4:30 PM',
+];
 
-  // Sort and filter based on urgency
-  let filteredDermatologists = dermatologists;
-  if (urgency === 'urgent') {
-    filteredDermatologists = dermatologists.filter(d => d.isUrgentCare).concat(
-      dermatologists.filter(d => !d.isUrgentCare)
-    );
-  }
-
-  return filteredDermatologists.map(d => ({
-    id: d.id,
-    name: d.fullName,
-    specialty: d.specialization || 'Dermatology',
-    experience: d.experience ?? '',
-    rating: d.rating ?? 0,
-    location: d.location ?? '',
-    phone: d.phone ?? '',
-    email: d.email ?? '',
-    nextAvailable: d.nextAvailable ?? '',
-    isUrgentCare: Boolean(d.isUrgentCare),
-    availableSlots: d.availableSlots ?? [],
-    hospitalAffiliation: d.hospitalAffiliation ?? '',
-    coordinates: d.coordinates ?? {}
-  }));
+/** Clinicians who can take a dermatology referral, from their recorded specialisation. */
+export function isDermatology(specialization: string | null | undefined): boolean {
+  const value = (specialization ?? '').toLowerCase();
+  return value.includes('dermatolog') || value.includes('skin');
 }
 
+/**
+ * Clinicians available for a dermatology consultation.
+ *
+ * This filtered on `user.role === 'dermatologist'`. No such role exists — the
+ * roles are patient, doctor, radiologist and admin, and that string appears
+ * nowhere else in the codebase — so the filter matched nothing and the endpoint
+ * returned an empty array on every call, unconditionally. The scheduling dialog
+ * that consumes it has therefore been showing "no dermatologists available"
+ * since the function was written.
+ *
+ * Every field it then mapped compounded the problem: `experience`, `rating`,
+ * `location`, `nextAvailable`, `availableSlots`, `hospitalAffiliation` and
+ * `coordinates` are not columns on `users`, so each one read `undefined` and
+ * fell through to its `??` default. Had the role filter ever matched, the result
+ * would have been a list of real clinicians with a rating of 0 and an empty
+ * address.
+ *
+ * Dermatology is now identified by the `specialization` column, which is a real
+ * one, and the response carries only fields the database can answer.
+ */
+export async function getAvailableDermatologists(_urgency: string) {
+  // Filtered and projected in the database, and without email or phone: this is
+  // reachable by a patient choosing a clinician, and a directory listing does
+  // not need staff contact details.
+  const doctors = await storage.listDirectory(['doctor']);
+
+  return doctors
+    .filter((doctor) => isDermatology(doctor.specialization))
+    .map((doctor) => ({
+      id: doctor.id,
+      name: doctor.fullName,
+      specialty: doctor.specialization || 'Dermatology',
+      role: doctor.role,
+    }));
+}
+
+/**
+ * Free slots for one clinician on one date.
+ *
+ * "Free" means: inside the clinic's working hours, not already booked in the
+ * appointments table, not in the past, and — where Google Calendar is
+ * configured — not blocked on the clinician's calendar either.
+ *
+ * The two endpoints this replaces did none of that. One returned a fixed list of
+ * sixteen slots minus three hardcoded "example booked slots"; the other returned
+ * `timeSlots.filter(() => Math.random() > 0.3)`, so a patient reloading the page
+ * saw a different set of free times each render and could book one the clinician
+ * was already busy for.
+ */
+export async function getClinicianSlotsForDate(
+  doctorId: number,
+  dateString: string
+): Promise<string[]> {
+  const day = new Date(`${dateString}T00:00:00`);
+  if (Number.isNaN(day.getTime())) return [];
+
+  // No slots in the past, and none at the weekend.
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (day < today) return [];
+  if (day.getDay() === 0 || day.getDay() === 6) return [];
+
+  const booked = new Set(
+    (await storage.getDoctorAppointments(doctorId))
+      .filter((appointment: any) => {
+        if (!appointment.appointmentDate) return false;
+        if (appointment.status === 'cancelled') return false;
+        return new Date(appointment.appointmentDate).toISOString().split('T')[0] === dateString;
+      })
+      .map((appointment: any) => appointment.appointmentTime)
+  );
+
+  let slots = CLINIC_TIME_SLOTS.filter((time) => !booked.has(time));
+
+  // Calendar conflicts, when a calendar is connected. One batched call for the
+  // day rather than one request per slot.
+  try {
+    const { googleCalendarService } = await import('./google-calendar-service');
+    const checks = await googleCalendarService.checkMultipleTimeSlots(
+      slots.map((time) => ({ date: dateString, time }))
+    );
+    slots = slots.filter((_, index) => checks[index]?.isAvailable !== false);
+  } catch (error) {
+    // An unreachable calendar must not invent availability in either direction.
+    // The appointments table is the authoritative record of what this system
+    // booked; the calendar is an additional constraint, so losing it degrades to
+    // the database answer rather than to an empty list.
+    console.warn('Calendar availability check unavailable; using booked appointments only');
+  }
+
+  return slots;
+}
+
+/**
+ * Free slots across every clinician, for a whole month.
+ *
+ * Both table reads are gone. This loaded every user in the database — password
+ * hashes included — and every appointment ever created, on an endpoint that
+ * takes no authentication, then filtered both in JavaScript inside a triple loop
+ * over days, clinicians and slots.
+ */
 export async function getAvailableAppointmentSlots(year: number, month: number) {
   const availableSlots: { [date: string]: any[] } = {};
   const daysInMonth = new Date(year, month, 0).getDate();
 
-  const allUsers = await storage.getAllUsers();
-  const availableProfessionals = allUsers.filter(user => ['doctor', 'radiologist'].includes(user.role));
-  
-  // Get all appointments for the month
-  const allAppointments = await storage.getAppointments();
+  const professionals = await storage.listDirectory(['doctor', 'radiologist']);
+  if (professionals.length === 0) return availableSlots;
 
-  const timeSlots = ['9:00 AM', '9:30 AM', '10:00 AM', '10:30 AM', '11:00 AM', '11:30 AM', '2:00 PM', '2:30 PM', '3:00 PM', '3:30 PM', '4:00 PM', '4:30 PM'];
+  // One query for the month's bookings, keyed by clinician and date, instead of
+  // every appointment in the system re-filtered once per day.
+  const monthStart = new Date(year, month - 1, 1);
+  const monthEnd = new Date(year, month, 1);
+  const booked = await storage.getBookedSlots(monthStart, monthEnd);
+
+  const bookedByKey = new Map<string, Set<string>>();
+  for (const slot of booked) {
+    const key = `${slot.doctorId}:${slot.date}`;
+    if (!bookedByKey.has(key)) bookedByKey.set(key, new Set());
+    bookedByKey.get(key)!.add(slot.time);
+  }
+
+  const now = new Date();
 
   for (let day = 1; day <= daysInMonth; day++) {
     const date = new Date(year, month - 1, day);
-    const dateString = date.toISOString().split('T')[0];
+    const dateString = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
-    // Skip weekends and past dates
-    if (date.getDay() === 0 || date.getDay() === 6 || date < new Date()) continue;
-
-    if (availableProfessionals.length === 0) continue;
-
-    // Get booked appointments for this date
-    const dayAppointments = allAppointments.filter(apt => {
-      const aptDate = new Date(apt.appointmentDate).toISOString().split('T')[0];
-      return aptDate === dateString;
-    });
+    // Skip weekends and past dates.
+    if (date.getDay() === 0 || date.getDay() === 6 || date < now) continue;
 
     const availableSlotsForDay: any[] = [];
-    
-    for (const professional of availableProfessionals) {
-      // Get booked times for this professional on this date
-      const bookedTimes = dayAppointments
-        .filter(apt => apt.doctorId === professional.id)
-        .map(apt => apt.appointmentTime);
 
-      // Add available time slots for this professional
-      for (const time of timeSlots) {
-        if (!bookedTimes.includes(time)) {
-          availableSlotsForDay.push({
-            time,
-            available: true,
-            doctor: professional.fullName,
-            doctorId: professional.id,
-            role: professional.role,
-            specialty: professional.specialization || (professional.role === 'radiologist' ? 'Medical Imaging' : 'General Practice')
-          });
-        }
+    for (const professional of professionals) {
+      const taken = bookedByKey.get(`${professional.id}:${dateString}`) ?? new Set<string>();
+
+      for (const time of CLINIC_TIME_SLOTS) {
+        if (taken.has(time)) continue;
+        availableSlotsForDay.push({
+          time,
+          available: true,
+          doctor: professional.fullName,
+          doctorId: professional.id,
+          role: professional.role,
+          specialty:
+            professional.specialization ||
+            (professional.role === 'radiologist' ? 'Medical Imaging' : 'General Practice'),
+        });
       }
     }
 

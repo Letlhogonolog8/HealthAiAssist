@@ -31,13 +31,17 @@ export default function SimpleAppointmentBooking({ user }: { user: any }) {
   const queryClient = useQueryClient();
 
   // Fetch appointments with real-time updates
-  const { data: appointments = [], isLoading } = useQuery({
+  const { data: appointments = [], isLoading, isError: appointmentsError } = useQuery({
     queryKey: ['/api/patient/appointments'],
     queryFn: async () => {
       const response = await fetch('/api/patient/appointments', {
         credentials: 'include'
       });
-      if (!response.ok) return [];
+      // A failed request is an error, not an empty diary. `return []` here told
+      // a patient they had no appointments whenever their session had expired.
+      if (!response.ok) {
+        throw new Error(`Your appointments could not be loaded (${response.status}).`);
+      }
       return response.json();
     },
     refetchInterval: 5000, // Refetch every 5 seconds
@@ -51,7 +55,9 @@ export default function SimpleAppointmentBooking({ user }: { user: any }) {
       const response = await fetch('/api/doctors/available', {
         credentials: 'include'
       });
-      if (!response.ok) return [];
+      if (!response.ok) {
+        throw new Error(`The clinician list could not be loaded (${response.status}).`);
+      }
       return response.json();
     },
     refetchInterval: 10000, // Refetch every 10 seconds
@@ -484,7 +490,11 @@ export default function SimpleAppointmentBooking({ user }: { user: any }) {
                         </div>
                         <div>
                           <h4 className="font-medium text-slate-900 dark:text-white">{appointment.type || 'Consultation'}</h4>
-                          <p className="text-sm text-slate-600 dark:text-slate-400">{appointment.doctorName || 'Dr. Available'}</p>
+                          {/* Was `|| 'Dr. Available'`, which put a clinician who
+                              does not exist on a patient's confirmed appointment. */}
+                          <p className="text-sm text-slate-600 dark:text-slate-400">
+                            {appointment.doctorName || 'Clinician to be confirmed'}
+                          </p>
                         </div>
                       </div>
                       
@@ -512,6 +522,16 @@ export default function SimpleAppointmentBooking({ user }: { user: any }) {
                   </div>
                 </div>
               ))
+            ) : appointmentsError ? (
+              /* Distinguished from a genuinely empty diary. Before the query
+                 stopped swallowing its errors, both looked like this block. */
+              <div className="text-center py-12">
+                <Calendar className="w-12 h-12 text-orange-400 mx-auto mb-4" />
+                <p className="text-orange-500">Your appointments could not be loaded</p>
+                <p className="text-sm text-slate-400 dark:text-slate-500 mt-1">
+                  This does not mean you have none. Reload, or sign in again.
+                </p>
+              </div>
             ) : (
               <div className="text-center py-12">
                 <Calendar className="w-12 h-12 text-slate-400 mx-auto mb-4" />

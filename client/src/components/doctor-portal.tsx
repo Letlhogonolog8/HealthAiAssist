@@ -56,19 +56,28 @@ interface Appointment {
   priority: 'low' | 'medium' | 'high';
 }
 
+/**
+ * Matches what /api/doctor/patients returns.
+ *
+ * `condition`, `status` and `riskLevel` are gone. The server set them to the
+ * literals 'Regular checkup', 'stable' and 'low' for every patient it returned,
+ * and this file rendered the last two as badges — so a doctor was shown a green
+ * STABLE / LOW RISK pair on every patient regardless of their scans.
+ */
 interface Patient {
   id: number;
   name: string;
   email: string;
-  phone?: string;
-  age: number;
-  gender: string;
-  lastVisit: string;
-  condition: string;
-  status: 'stable' | 'follow-up' | 'critical';
-  riskLevel: 'low' | 'medium' | 'high';
-  recentScans: number;
-  nextAppointment?: string;
+  phone: string | null;
+  age: number | null;
+  gender: string | null;
+  lastVisit: string | null;
+  nextAppointment: string | null;
+  scanCount: number;
+  pendingScans: number;
+  /** Highest risk band across this patient's scans. A scan finding, not a status. */
+  highestScanRisk: string | null;
+  highestScanRiskAt: string | null;
 }
 
 interface Report {
@@ -80,17 +89,28 @@ interface Report {
   status: 'pending' | 'reviewed' | 'completed';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   findings?: string;
-  radiologist?: string;
-  aiConfidence?: string;
+  /** The clinician holding this scan, or null. Was the literal 'Dr. Smith'. */
+  radiologist?: string | null;
+  /** Null when the scan recorded no confidence. Was defaulted to '85%'. */
+  aiConfidence?: string | null;
+  riskLevel?: string | null;
+  modelVersion?: string | null;
 }
 
+/**
+ * Matches what /api/doctor/stats returns, scoped to this clinician.
+ *
+ * `avgConsultationTime` and `patientSatisfaction` are gone: there is no
+ * consultation timer and no satisfaction survey behind either, and they were
+ * served as the literals '18m' and 94.
+ */
 interface DoctorStats {
   activePatients: number;
   todaysAppointments: number;
+  upcomingAppointments: number;
+  appointmentsCompleted: number;
   pendingReports: number;
   criticalCases: number;
-  avgConsultationTime: string;
-  patientSatisfaction: number;
 }
 
 export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { user: User; setActiveTab?: (tab: string) => void; onSectionChange?: (section: string, data?: any) => void }) {
@@ -166,7 +186,18 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
       const response = await fetch('/api/doctor/appointments/upcoming', {
         credentials: 'include'
       });
-      if (!response.ok) return [];
+      /**
+       * A failed request is an error, not an empty schedule.
+       *
+       * `return []` here made a 401, a 403 and a 500 all render as "no
+       * appointments today" — a clinician cannot distinguish a clear diary from
+       * a server they cannot reach, and the second one means they are about to
+       * miss whatever is actually booked. The same pattern sat on the patient
+       * list and the pending-report queue below.
+       */
+      if (!response.ok) {
+        throw new Error(`Appointments could not be loaded (${response.status}).`);
+      }
       return response.json();
     },
     refetchInterval: 5000,
@@ -180,7 +211,9 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
       const response = await fetch('/api/doctor/patients', {
         credentials: 'include'
       });
-      if (!response.ok) return [];
+      if (!response.ok) {
+        throw new Error(`Your patient panel could not be loaded (${response.status}).`);
+      }
       return response.json();
     },
     refetchInterval: 15000,
@@ -188,13 +221,15 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
   });
 
   // Fetch pending reports
-  const { data: reports = [] } = useQuery<Report[]>({
+  const { data: reports = [], error: reportsError } = useQuery<Report[]>({
     queryKey: ['/api/doctor/reports/pending'],
     queryFn: async () => {
       const response = await fetch('/api/doctor/reports/pending', {
         credentials: 'include'
       });
-      if (!response.ok) return [];
+      if (!response.ok) {
+        throw new Error(`Pending reports could not be loaded (${response.status}).`);
+      }
       return response.json();
     },
     refetchInterval: 8000,
@@ -260,15 +295,31 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
     },
   });
 
-  // Send chat message mutation
+  /**
+   * Sends a message to a patient.
+   *
+   * This posted to /api/doctor/chat/send, which is not a route this server
+   * registers, so every send 404'd and threw. There was no onError handler, so
+   * react-query swallowed the rejection: the doctor saw no success toast and no
+   * failure toast, the composer kept its text, and the message went nowhere —
+   * a silent, unreported loss of a clinical message.
+   *
+   * The real endpoint is POST /api/chat/send, which persists the message
+   * (encrypted at rest), enforces the role matrix, and pushes it over the
+   * WebSocket. Credentials are included, because it requires a session.
+   */
   const sendChatMutation = useMutation({
     mutationFn: async ({ patientId, message }: { patientId: number; message: string }) => {
-      const response = await fetch('/api/doctor/chat/send', {
+      const response = await fetch('/api/chat/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ patientId, message }),
+        credentials: 'include',
+        body: JSON.stringify({ receiverId: patientId, message }),
       });
-      if (!response.ok) throw new Error('Failed to send message');
+      if (!response.ok) {
+        const detail = await response.json().catch(() => ({}));
+        throw new Error(detail?.error ?? `Message could not be sent (${response.status}).`);
+      }
       return response.json();
     },
     onSuccess: () => {
@@ -277,7 +328,15 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
         description: "Your message has been sent to the patient.",
       });
       setChatMessage("");
-      // Real-time notification would be sent here when WebSocket is enabled
+      queryClient.invalidateQueries({ queryKey: ['/api/chat/messages'] });
+    },
+    onError: (error: Error) => {
+      // A clinical message that did not send has to say so.
+      toast({
+        title: "Message not sent",
+        description: error.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -423,14 +482,9 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
     }
   };
 
-  const getPatientStatusColor = (status: string) => {
-    switch (status) {
-      case 'critical': return 'bg-red-100 text-red-800 border-red-300';
-      case 'follow-up': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
-      case 'stable': return 'bg-green-100 text-green-800 border-green-300';
-      default: return 'bg-gray-100 text-gray-800 border-gray-300';
-    }
-  };
+  // getPatientStatusColor() stood here and is removed with its last caller. It
+  // coloured a patient 'stable' green, 'follow-up' yellow and 'critical' red —
+  // from a field the server set to the literal 'stable' for everyone.
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
@@ -598,12 +652,20 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
                 </CardContent>
               </Card>
 
+              {/*
+                The "Avg Consultation" and "Patient Satisfaction" tiles that stood
+                here are replaced. They rendered stats.avgConsultationTime and
+                stats.patientSatisfaction, which the server returned as the
+                literals '18m' and 94 — this platform has no consultation timer
+                and runs no satisfaction survey, so neither figure had a source.
+                Both tiles now show counts of rows this clinician owns.
+              */}
               <Card className="bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md transition-shadow">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Avg Consultation</p>
-                      <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{stats?.avgConsultationTime || '0m'}</p>
+                      <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Upcoming Appointments</p>
+                      <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{stats?.upcomingAppointments ?? '—'}</p>
                     </div>
                     <div className="w-12 h-12 bg-purple-100 dark:bg-purple-900/20 rounded-lg flex items-center justify-center">
                       <Clock className="w-6 h-6 text-purple-600 dark:text-purple-400" />
@@ -616,8 +678,8 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Patient Satisfaction</p>
-                      <p className="text-2xl font-bold text-cyan-600 dark:text-cyan-400">{stats?.patientSatisfaction || 0}%</p>
+                      <p className="text-sm font-medium text-slate-600 dark:text-slate-400">Appointments Completed</p>
+                      <p className="text-2xl font-bold text-cyan-600 dark:text-cyan-400">{stats?.appointmentsCompleted ?? '—'}</p>
                     </div>
                     <div className="w-12 h-12 bg-cyan-100 dark:bg-cyan-900/20 rounded-lg flex items-center justify-center">
                       <Star className="w-6 h-6 text-cyan-600 dark:text-cyan-400" />
@@ -629,15 +691,36 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
           )}
         </div>
         
-        {/* Error indicator for stats */}
-        {statsError && (
+        {/*
+          Says which lists failed, and says plainly that a failed list is not an
+          empty one.
+
+          The banner this replaces read "Dashboard is running in offline mode.
+          Some data may not be current", appeared only for the stats query, and
+          sat below panels that were simultaneously rendering "no appointments"
+          and "no patients" because each of those queries swallowed its own error
+          and returned []. A clinician had no way to tell an empty diary from an
+          unreachable server.
+        */}
+        {(statsError || appointmentsError || patientsError || reportsError) && (
           <div className="mb-6">
-            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
-              <div className="flex items-center">
-                <AlertTriangle className="w-4 h-4 text-yellow-500 mr-2" />
-                <p className="text-sm text-yellow-700 dark:text-yellow-300">
-                  Dashboard is running in offline mode. Some data may not be current.
-                </p>
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+              <div className="flex items-start">
+                <AlertTriangle className="w-4 h-4 text-red-500 mr-2 mt-0.5 flex-shrink-0" />
+                <div className="text-sm text-red-700 dark:text-red-300">
+                  <p className="font-medium">Some of this dashboard could not be loaded.</p>
+                  <ul className="list-disc ml-4 mt-1 space-y-0.5">
+                    {statsError && <li>Your counters</li>}
+                    {appointmentsError && <li>Your appointments</li>}
+                    {patientsError && <li>Your patient panel</li>}
+                    {reportsError && <li>Pending reports</li>}
+                  </ul>
+                  <p className="mt-2">
+                    Where a section is listed above, an empty panel means the data
+                    could not be read — not that there is nothing there. Reload, or
+                    sign in again, before relying on this screen.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -850,16 +933,36 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
                     <div className="flex justify-between items-start mb-2">
                       <div>
                         <p className="font-medium text-white">{patient.name}</p>
-                        <p className="text-sm text-slate-400">{patient.age} years, {patient.gender}</p>
+                        <p className="text-sm text-slate-400">
+                          {patient.age === null ? 'Age not recorded' : `${patient.age} years`}
+                          {', '}
+                          {patient.gender ?? 'gender not recorded'}
+                        </p>
                       </div>
-                      <Badge className={getRiskColor(patient.riskLevel)}>
-                        {patient.riskLevel?.toUpperCase()}
-                      </Badge>
+                      {/*
+                        A scan finding, labelled as one. This badge showed
+                        patient.riskLevel, which the server set to 'low' for every
+                        patient, so it read LOW on all of them.
+                      */}
+                      {patient.highestScanRisk ? (
+                        <Badge className={getRiskColor(patient.highestScanRisk)}>
+                          {patient.highestScanRisk.toUpperCase()} SCAN
+                        </Badge>
+                      ) : (
+                        <Badge className="bg-slate-600 text-slate-200">NO SCAN FINDING</Badge>
+                      )}
                     </div>
                     <div className="text-xs text-slate-400 space-y-1">
-                      <p>Last Visit: {new Date(patient.lastVisit).toLocaleDateString()}</p>
-                      <p>Condition: {patient.condition}</p>
-                      <p>Recent Scans: {patient.recentScans}</p>
+                      <p>
+                        Last appointment with you:{' '}
+                        {patient.lastVisit
+                          ? new Date(patient.lastVisit).toLocaleDateString()
+                          : 'none recorded'}
+                      </p>
+                      <p>
+                        Scans on file: {patient.scanCount}
+                        {patient.pendingScans > 0 && ` (${patient.pendingScans} awaiting a read)`}
+                      </p>
                     </div>
                     <div className="flex gap-2 mt-3">
                       <Button size="sm" variant="outline" className="text-xs">

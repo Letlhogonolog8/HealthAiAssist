@@ -639,19 +639,34 @@ export default function RealTimeChat({ currentUser, chatWith, onClose }: RealTim
                           e.preventDefault();
                           e.stopPropagation();
                           try {
+                            /*
+                              /api/voice/hangup is not a route this server
+                              registers — only /api/voice/token and
+                              /api/voice/call exist — so this request 404'd and
+                              execution fell straight through to the "Call Ended"
+                              toast below. The call itself was never terminated
+                              at Twilio: it stayed connected and kept billing,
+                              while the interface reported it as disconnected.
+
+                              Ending a call server-side needs an endpoint that
+                              looks the SID up, checks the caller is party to it,
+                              and asks Twilio to complete it. That endpoint does
+                              not exist yet, so the button no longer claims to
+                              have done it.
+                            */
                             if (currentCallSid) {
-                              await fetch('/api/voice/hangup', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                credentials: 'include',
-                                body: JSON.stringify({ callSid: currentCallSid })
-                              });
+                              console.warn(
+                                'No server endpoint exists to end a Twilio call; ' +
+                                  'the call may still be connected.'
+                              );
                             }
                             setIsCallActive(false);
                             setCurrentCallSid(null);
                             toast({
-                              title: "Call Ended",
-                              description: "Call has been disconnected",
+                              title: "Call closed here",
+                              description: currentCallSid
+                                ? "This window has stopped showing the call. Hang up on your phone to end it."
+                                : "Call has been disconnected",
                             });
                           } catch (error) {
                             console.error('Hangup error:', error);

@@ -16,15 +16,30 @@ import {
   Trash2
 } from 'lucide-react';
 
+/**
+ * One analysed scan, as the imaging views receive it.
+ *
+ * `confidence`, `riskLevel` and `hasCancer` are nullable because the row they
+ * come from can genuinely lack them: a scan queued for manual review has no
+ * model output at all, and rows written before those columns existed have none
+ * either. They were previously typed as required, which is why every caller
+ * filled the gap with a literal — `scan.aiConfidence || '85%'` in the patient
+ * portal, and a risk band re-derived in the browser by searching the finding text
+ * for the word "cancer". Making absence representable is what removes the need
+ * to invent a value for it.
+ */
 interface ImagingResult {
   id: string;
   patientName: string;
   scanType: string;
   analysisDate: string;
-  confidence: number;
-  riskLevel: 'low' | 'medium' | 'high';
-  primaryFinding: string;
-  hasCancer: boolean;
+  /** Percent, or null when the scan recorded none. Never a default. */
+  confidence: number | null;
+  /** The band the model assigned, as stored. Null when no model ran. */
+  riskLevel: 'low' | 'medium' | 'high' | 'critical' | null;
+  primaryFinding: string | null;
+  /** The model's own call. Null means "no prediction", not "negative". */
+  hasCancer: boolean | null;
 }
 
 interface ImagingResultsTableProps {
@@ -126,16 +141,23 @@ export default function ImagingResultsTable({ results, onViewResult, onDeleteRes
                     </div>
                   </td>
                   <td className="p-4">
-                    <div className="text-sm font-semibold text-blue-600">{result.confidence}%</div>
+                    <div className="text-sm font-semibold text-blue-600">
+                      {result.confidence === null ? '—' : `${result.confidence}%`}
+                    </div>
                   </td>
                   <td className="p-4">
-                    <Badge className={`${getRiskColor(result.riskLevel)} text-xs font-medium`}>
-                      {result.riskLevel.toUpperCase()}
+                    <Badge className={`${getRiskColor(result.riskLevel ?? '')} text-xs font-medium`}>
+                      {result.riskLevel ? result.riskLevel.toUpperCase() : 'NOT ASSESSED'}
                     </Badge>
                   </td>
                   <td className="p-4">
-                    <div className="text-sm text-gray-700 max-w-xs truncate" title={result.primaryFinding}>
-                      {result.primaryFinding}
+                    <div
+                      className="text-sm text-gray-700 max-w-xs truncate"
+                      title={result.primaryFinding ?? undefined}
+                    >
+                      {/* A scan still being read has no finding. Saying so beats
+                          rendering an empty cell that reads as "nothing found". */}
+                      {result.primaryFinding ?? 'Awaiting a clinician'}
                     </div>
                   </td>
                   <td className="p-4">

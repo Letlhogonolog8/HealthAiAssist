@@ -234,41 +234,48 @@ export default function PatientPortalFinal({ user }: { user: any }) {
     return { name: scanType, modality: 'Medical Imaging', icon: '🏥' };
   };
 
+  /**
+   * The patient's own scan cards.
+   *
+   * Two things were invented here and one was recomputed wrongly.
+   *
+   * `confidence` read `scan.aiConfidence || '85%'`, so a scan that had never
+   * recorded a confidence — one queued for manual review, or written before the
+   * column existed — was shown to the patient as 85% confident. The same literal
+   * was parsed into the risk calculation below it, so the fabricated figure also
+   * decided which band the card was painted.
+   *
+   * `riskLevel` was then derived in the browser by searching the result text for
+   * "abnormal", "suspicious", "malignant" or "cancer" and comparing that
+   * confidence against 80. The server records `risk_level` on the row — the band
+   * the model actually assigned, which is what the clinician sees — so the
+   * patient's card and the clinician's queue could disagree about the same scan
+   * purely because of how the finding was worded.
+   *
+   * Everything below now comes from the row.
+   */
   const processedScans = useMemo(() => {
-    if (scanResults && Array.isArray(scanResults) && scanResults.length > 0) {
-      return scanResults.map(scan => {
-        const scanDisplay = getScanTypeDisplay(scan.scanType || 'Medical Scan');
-        const result = scan.result || 'Analysis completed';
-        const confidence = parseInt((scan.aiConfidence || '85%').replace('%', ''));
-        
-        // Determine risk level based on result content and confidence
-        let riskLevel = 'low';
-        if (result.toLowerCase().includes('abnormal') || 
-            result.toLowerCase().includes('suspicious') ||
-            result.toLowerCase().includes('malignant') ||
-            result.toLowerCase().includes('cancer')) {
-          riskLevel = confidence > 80 ? 'high' : 'medium';
-        } else if (result.toLowerCase().includes('atypical') ||
-                   result.toLowerCase().includes('uncertain') ||
-                   confidence < 70) {
-          riskLevel = 'medium';
-        }
-        
-        return {
-          id: scan.id,
-          type: scanDisplay.name,
-          modality: scanDisplay.modality,
-          icon: scanDisplay.icon,
-          result: result,
-          confidence: scan.aiConfidence || '85%',
-          date: scan.createdAt || new Date().toISOString(),
-          status: scan.result === 'Processing' ? 'pending' : 'completed',
-          riskLevel: riskLevel
-        };
-      });
-    }
-    // No mock scans when none are returned
-    return [];
+    if (!Array.isArray(scanResults)) return [];
+
+    return scanResults.map(scan => {
+      const scanDisplay = getScanTypeDisplay(scan.scanType || 'Medical Scan');
+      return {
+        id: scan.id,
+        type: scanDisplay.name,
+        modality: scanDisplay.modality,
+        icon: scanDisplay.icon,
+        // Null rather than "Analysis completed" — a scan still being read has no
+        // result, and saying it completed is the opposite of true.
+        result: scan.result ?? null,
+        // Null when the scan recorded no confidence, so the card can say so.
+        confidence: scan.aiConfidence || null,
+        date: scan.createdAt ?? null,
+        status: scan.status ?? 'pending',
+        // The band the model assigned, as stored. Not re-derived from prose.
+        riskLevel: scan.riskLevel ?? null,
+        modelVersion: scan.modelVersion ?? null,
+      };
+    });
   }, [scanResults]);
 
   const downloadScan = useCallback(async (scan: any) => {
@@ -477,23 +484,46 @@ export default function PatientPortalFinal({ user }: { user: any }) {
                     <Card className="bg-slate-700 border-slate-600">
                       <CardContent className="p-4">
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-slate-300 text-sm font-medium">AI Performance</span>
+                          <span className="text-slate-300 text-sm font-medium">Your Scans</span>
                           <Brain className="w-4 h-4 text-slate-400" />
                         </div>
+                        {/*
+                          This card was headed "AI Performance" and carried three
+                          figures, none of which described this platform:
+
+                            Avg Confidence   averaged scan.confidence, which fell
+                                             back to the literal '85%' per scan,
+                                             and to a literal 91% when the patient
+                                             had no scans at all
+                            Processing Speed the string "2.3s avg"
+                            Model Accuracy   the string "94.2%"
+
+                          The last one is a clinical performance claim shown to a
+                          patient. Measured accuracy for these models needs
+                          confirmed outcomes and is published, with its
+                          denominators and confidence intervals, on the model
+                          cards at /api/models/cards. It is not something a
+                          patient dashboard should assert in passing, so the card
+                          now counts the patient's own scans instead.
+                        */}
                         <div className="space-y-2">
                           <div className="flex justify-between">
-                            <span className="text-xs text-slate-400">Avg Confidence</span>
+                            <span className="text-xs text-slate-400">Scans on file</span>
                             <span className="text-sm text-blue-400 font-medium">
-                              {processedScans.length > 0 ? Math.round(processedScans.reduce((acc, scan) => acc + parseInt(scan.confidence.replace('%', '')), 0) / processedScans.length) : 91}%
+                              {processedScans.length}
                             </span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-xs text-slate-400">Processing Speed</span>
-                            <span className="text-sm text-green-400 font-medium">2.3s avg</span>
+                            <span className="text-xs text-slate-400">Awaiting a clinician</span>
+                            <span className="text-sm text-orange-400 font-medium">
+                              {processedScans.filter((s: any) => s.status !== 'completed').length}
+                            </span>
                           </div>
-                          <div className="flex justify-between">
-                            <span className="text-xs text-slate-400">Model Accuracy</span>
-                            <span className="text-sm text-purple-400 font-medium">94.2%</span>
+                          <div className="flex justify-between items-start gap-2">
+                            <span className="text-xs text-slate-400">Model performance</span>
+                            <span className="text-xs text-slate-400 text-right max-w-[55%]">
+                              Published on the model cards, with its measurement set.
+                            </span>
                           </div>
                         </div>
                       </CardContent>
@@ -529,35 +559,38 @@ export default function PatientPortalFinal({ user }: { user: any }) {
                 </div>
               ) : processedScans.length > 0 ? (
                 <ImagingResultsManager
-                  results={processedScans.map((scan: any) => {
-                    const confidence = parseInt(scan.confidence.replace('%', ''));
-                    const result = scan.result.toLowerCase();
-                    
-                    // Recalculate risk level to ensure consistency
-                    let riskLevel: 'low' | 'medium' | 'high' = 'low';
-                    if (result.includes('abnormal') || 
-                        result.includes('suspicious') ||
-                        result.includes('malignant') ||
-                        result.includes('cancer')) {
-                      riskLevel = confidence > 80 ? 'high' : 'medium';
-                    } else if (result.includes('atypical') ||
-                               result.includes('uncertain') ||
-                               confidence < 70) {
-                      riskLevel = 'medium';
-                    }
-                    
-                    return {
-                      id: scan.id.toString(),
-                      patientName: user?.fullName || 'Patient',
-                      scanType: scan.type,
-                      analysisDate: scan.date,
-                      confidence: confidence,
-                      riskLevel: riskLevel,
-                      primaryFinding: scan.result,
-                      hasCancer: riskLevel === 'high',
-                      imageUrl: scan.imageUrl
-                    };
-                  })}
+                  results={processedScans.map((scan: any) => ({
+                    id: scan.id.toString(),
+                    patientName: user?.fullName || 'Patient',
+                    scanType: scan.type,
+                    analysisDate: scan.date,
+                    /*
+                      Straight from the row.
+
+                      This block re-derived `riskLevel` in the browser by
+                      searching the result text for "abnormal", "suspicious",
+                      "malignant" or "cancer" and comparing a confidence — which
+                      itself defaulted to a literal 85% — against 80. The comment
+                      above it read "Recalculate risk level to ensure
+                      consistency", and it did the opposite: the server stores the
+                      band the model assigned, so recomputing it here is how the
+                      patient's card and the clinician's queue came to disagree
+                      about the same scan.
+
+                      `hasCancer: riskLevel === 'high'` was the sharpest edge of
+                      it — a cancer determination made in a browser, from a
+                      substring match, on a number the server had not supplied.
+                      The row records `predictedPositive` for exactly this, and a
+                      scan with no prediction is not a negative.
+                    */
+                    confidence: scan.confidence
+                      ? parseInt(String(scan.confidence).replace('%', ''), 10)
+                      : null,
+                    riskLevel: scan.riskLevel,
+                    primaryFinding: scan.result,
+                    hasCancer: scan.predictedPositive ?? null,
+                    imageUrl: scan.imageUrl
+                  }))}
                   onViewResult={(result) => {
                     const scan = processedScans.find(s => s.id.toString() === result.id);
                     if (scan) viewScanDetails(scan);

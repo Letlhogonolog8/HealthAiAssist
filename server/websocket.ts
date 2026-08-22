@@ -333,20 +333,37 @@ export class EnhancedWebSocketManager {
       senderRole: identity.role,
     };
 
-    if (data.targetUserId) {
-      // Direct message to specific user
-      const targetWs = this.userSockets.get(data.targetUserId);
-      if (targetWs && targetWs.readyState === WebSocket.OPEN) {
-        this.sendMessage(targetWs, {
-          type: 'new_chat_message',
-          data: data
-        });
-      }
-    } else {
-      // Broadcast to all users
-      this.broadcast({
+    /**
+     * A chat message goes to its addressee, or nowhere.
+     *
+     * The `else` branch here used to broadcast it to every open socket on the
+     * server. A clinician-to-patient message whose `targetUserId` was missing
+     * was therefore delivered to every signed-in user of the platform, in
+     * cleartext, whatever their role — and the field is genuinely optional in
+     * practice: the chat components pass `selectedParticipant?.id`, which is
+     * undefined until a conversation is selected. These messages are encrypted
+     * at rest precisely because they carry clinical content, and fanning them
+     * out to everyone connected undoes that in one line.
+     *
+     * There is no legitimate broadcast chat in this application, so the fallback
+     * is refused rather than narrowed.
+     */
+    const targetUserId = Number(data.targetUserId);
+    if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
+      console.warn(
+        `Refused an unaddressed chat message from user ${identity.id}; ` +
+          'chat is not broadcast.'
+      );
+      const senderWs = this.userSockets.get(identity.id);
+      if (senderWs) this.sendError(senderWs, 'A chat message must name its recipient');
+      return;
+    }
+
+    const targetWs = this.userSockets.get(targetUserId);
+    if (targetWs && targetWs.readyState === WebSocket.OPEN) {
+      this.sendMessage(targetWs, {
         type: 'new_chat_message',
-        data: data
+        data: { ...data, targetUserId },
       });
     }
   }
@@ -447,27 +464,19 @@ export class EnhancedWebSocketManager {
   }
 
   /**
-   * Announces that a scan changed state.
+   * broadcastScanUpdate() and broadcastActivity() stood here and are removed.
    *
-   * Public because the callers are routes, not sockets. Both this and the
-   * activity broadcast used to be private methods driven straight off inbound
-   * client frames, which meant a connected client could fabricate a scan result
-   * and every open dashboard would show it.
+   * Both spread a whole row into a message and sent it to every open socket —
+   * `{ ...scan }` includes the patient id, the result string, the findings and
+   * the confidence — with no role check, so a patient's own connection received
+   * every other patient's scan results as they were written. Nothing called
+   * either of them; they were left over from the version where inbound client
+   * frames drove the fan-out.
+   *
+   * Routes that need to announce a scan use sendToRole('radiologist', ...) or
+   * sendToUser(patientId, ...), both of which address someone specific and carry
+   * an identifier rather than the record.
    */
-  public broadcastScanUpdate(scan: any) {
-    this.broadcast({
-      type: 'scan_completed',
-      data: { ...scan, timestamp: new Date() }
-    });
-  }
-
-  public broadcastActivity(activity: any) {
-    this.broadcast({
-      type: 'patient_activity',
-      data: { ...activity, timestamp: new Date() }
-    });
-  }
-
   private broadcast(message: any) {
     const messageStr = JSON.stringify(message);
     let successCount = 0;
@@ -505,7 +514,9 @@ export class EnhancedWebSocketManager {
   }
 
   private sendMessage(ws: WebSocket, message: any) {
-    if (ws.readyState === WebSocket.OPEN) {
+    // Guarded: callers resolve a socket from a map, and a user who disconnected
+    // between the lookup and the send yields undefined here.
+    if (ws && ws.readyState === WebSocket.OPEN) {
       try {
         ws.send(JSON.stringify(message));
         return true;

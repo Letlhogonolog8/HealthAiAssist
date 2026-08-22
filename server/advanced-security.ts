@@ -1,5 +1,6 @@
 import express from 'express';
 import crypto from 'crypto';
+import { randomInt } from 'crypto';
 import speakeasy from 'speakeasy';
 import QRCode from 'qrcode';
 import bcrypt from 'bcrypt';
@@ -626,14 +627,33 @@ export class PasswordSecurity {
     return commonPatterns.some(pattern => pattern.test(password));
   }
 
+  /**
+   * A password from the OS entropy source, not from Math.random().
+   *
+   * Math.random() is a fast non-cryptographic PRNG. Its internal state is small
+   * and it is seeded per-process, so an attacker who observes a handful of
+   * outputs from the same process can recover the state and predict every
+   * password it generates afterwards — including ones already issued. That is a
+   * complete break of a credential generator, and the method was named
+   * `generateSecurePassword`, which is precisely the name that stops anyone
+   * looking closer.
+   *
+   * randomInt() draws from the OS CSPRNG and rejects out-of-range draws rather
+   * than taking a modulus, so no character is more likely than another. (A plain
+   * `% charset.length` biases the first few characters of the set, which is a
+   * smaller problem than the one above but still a real one.)
+   *
+   * Nothing calls this today. It is fixed rather than deleted because it is a
+   * static on a class named for security, and it will be reached for.
+   */
   static generateSecurePassword(length: number = 16): string {
     const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()';
     let password = '';
-    
+
     for (let i = 0; i < length; i++) {
-      password += charset.charAt(Math.floor(Math.random() * charset.length));
+      password += charset.charAt(randomInt(charset.length));
     }
-    
+
     return password;
   }
 

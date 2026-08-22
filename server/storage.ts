@@ -61,6 +61,81 @@ export interface ScanStats {
   byType: Array<{ scanType: string; count: number }>;
 }
 
+/**
+ * A patient a given clinician actually has a relationship with.
+ *
+ * Every field is read from a column or counted from rows. The shape this
+ * replaces was assembled in the route handler and was almost entirely invented:
+ * `condition: 'Regular checkup'`, `status: 'stable'` and `riskLevel: 'low'` were
+ * string literals written for every patient in the system, and the doctor's
+ * dashboard rendered them as a green STABLE badge and a LOW RISK badge. A
+ * clinician reading that screen was told that every one of their patients was
+ * stable and low risk, including the ones whose most recent scan had been
+ * flagged for malignancy.
+ *
+ * There is no `condition` and no `status` here because this platform records
+ * neither. A field the database cannot answer is absent rather than filled in.
+ */
+export interface DoctorPatient {
+  id: number;
+  name: string;
+  email: string;
+  phone: string | null;
+  age: number | null;
+  gender: string | null;
+  /** Most recent appointment with this clinician that has already passed. */
+  lastVisit: Date | null;
+  /** Next scheduled appointment with this clinician. */
+  nextAppointment: Date | null;
+  /** Total scans on file for this patient. */
+  scanCount: number;
+  /** Scans still awaiting a human read. */
+  pendingScans: number;
+  /**
+   * Highest `risk_level` across this patient's scans, or null if none carries
+   * one. This is the model's band on an image, not a clinical assessment of the
+   * patient, and the UI must label it as such.
+   */
+  highestScanRisk: string | null;
+  /** When that highest-risk scan was taken. Null when there is no such scan. */
+  highestScanRiskAt: Date | null;
+}
+
+/** Counters for one clinician's own workload. Every one is a COUNT. */
+export interface ClinicianWorkload {
+  /** Distinct patients linked to this clinician by an appointment or a scan. */
+  activePatients: number;
+  todaysAppointments: number;
+  upcomingAppointments: number;
+  /** Appointments marked completed. */
+  appointmentsCompleted: number;
+  /** Scans assigned to this clinician that no one has signed off. */
+  pendingReports: number;
+  /** This clinician's scans whose recorded risk_level is high or critical. */
+  criticalCases: number;
+}
+
+/** Counters for the reading queue. Scoped to the whole queue, which is shared. */
+export interface RadiologistWorkload {
+  pendingReviews: number;
+  completedToday: number;
+  totalScansReviewed: number;
+  criticalCases: number;
+  /**
+   * Mean of the model's self-reported confidence across scans that have one.
+   * Null when nothing has recorded a confidence. NOT an accuracy figure — see
+   * the note on the endpoint that serves it.
+   */
+  meanAiConfidencePct: number | null;
+  /**
+   * Median hours between a scan arriving and being marked reviewed, over the
+   * last 30 days. Null until enough scans carry a reviewed_at timestamp.
+   */
+  medianReviewHours: number | null;
+  /** Reviews the median is computed from, so a caller can judge it. */
+  reviewsMeasured: number;
+}
+
 export interface IStorage {
   // User management
   getUser(id: number): Promise<User | undefined>;
@@ -103,14 +178,42 @@ export interface IStorage {
   getPatientAppointments(patientId: number): Promise<any[]>;
   
   // Doctor Portal
-  getDoctorStats(): Promise<any>;
   getDoctorAppointments(doctorId: number): Promise<any[]>;
-  getDoctorPatients(doctorId: number): Promise<any[]>;
-  getPendingReports(doctorId: number): Promise<any[]>;
-  getDoctorNotifications(doctorId: number): Promise<any[]>;
-  
+  /**
+   * One clinician's appointments with the patient's name already attached.
+   *
+   * The listing this backs fetched every appointment for the clinician, then
+   * every user in the database, then ran `allUsers.find(...)` once per
+   * appointment — two full table reads and a linear scan per row, on an endpoint
+   * the doctor's dashboard polls every five seconds.
+   */
+  listDoctorAppointmentsWithPatient(doctorId: number, limit?: number): Promise<
+    Array<Appointment & { patientName: string | null; patientEmail: string | null }>
+  >;
+  /**
+   * Which (clinician, date, time) triples are already taken in a window.
+   *
+   * The month-availability endpoint used to answer this by reading every
+   * appointment ever created and re-filtering the whole array once per day of
+   * the month. This returns only the rows in range, and only the three columns
+   * the answer needs.
+   */
+  getBookedSlots(from: Date, to: Date): Promise<
+    Array<{ doctorId: number; date: string; time: string }>
+  >;
+  /**
+   * The clinician's own patient panel.
+   *
+   * Scoped to patients this clinician is linked to. The endpoint it backs used
+   * to return every patient row in the database to any doctor or radiologist
+   * who loaded their dashboard, which is a bulk disclosure of the patient
+   * register rather than a care relationship.
+   */
+  listDoctorPatients(doctorId: number, limit?: number): Promise<DoctorPatient[]>;
+  getClinicianWorkload(doctorId: number): Promise<ClinicianWorkload>;
+
   // Radiologist Interface
-  getRadiologistStats(): Promise<any>;
+  getRadiologistWorkload(): Promise<RadiologistWorkload>;
   getRadiologistActivities(radiologistId: number): Promise<any[]>;
   completeReview(scanId: number, notes: string, approved: boolean): Promise<any>;
   
@@ -550,10 +653,6 @@ export class DatabaseStorage implements IStorage {
     return this.getAppointments(patientId);
   }
 
-  async getDoctorStats(): Promise<any> {
-    return {};
-  }
-
   async getDoctorAppointments(doctorId: number): Promise<any[]> {
     try {
       const doctorAppointments = await (db as any).select().from(appointments).where(eq(appointments.doctorId, doctorId));
@@ -564,20 +663,237 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async getDoctorPatients(doctorId: number): Promise<any[]> {
-    return [];
+  async getBookedSlots(from: Date, to: Date) {
+    const rows = await (db as any)
+      .select({
+        doctorId: appointments.doctorId,
+        // Formatted in the database so the date key matches the one the caller
+        // builds locally. Doing this in JavaScript with toISOString() shifts the
+        // date across the UTC boundary for any clinic east or west of it, which
+        // silently marked the wrong day as booked.
+        date: sql<string>`to_char(${appointments.appointmentDate}, 'YYYY-MM-DD')`,
+        time: appointments.appointmentTime,
+      })
+      .from(appointments)
+      .where(
+        and(
+          gte(appointments.appointmentDate, from),
+          sql`${appointments.appointmentDate} < ${to}`,
+          sql`${appointments.status} is distinct from 'cancelled'`
+        )
+      );
+    return rows;
   }
 
-  async getPendingReports(doctorId: number): Promise<any[]> {
-    return [];
+  async listDoctorAppointmentsWithPatient(doctorId: number, limit = 200) {
+    const rows = await (db as any)
+      .select({
+        id: appointments.id,
+        patientId: appointments.patientId,
+        doctorId: appointments.doctorId,
+        appointmentDate: appointments.appointmentDate,
+        appointmentTime: appointments.appointmentTime,
+        type: appointments.type,
+        status: appointments.status,
+        notes: appointments.notes,
+        priority: appointments.priority,
+        reason: appointments.reason,
+        duration: appointments.duration,
+        createdAt: appointments.createdAt,
+        patientName: users.fullName,
+        patientEmail: users.email,
+      })
+      .from(appointments)
+      .leftJoin(users, eq(users.id, appointments.patientId))
+      .where(eq(appointments.doctorId, doctorId))
+      .orderBy(appointments.appointmentDate)
+      .limit(limit);
+    // Nothing in this projection is encrypted, so no decryption is needed.
+    return rows;
   }
 
-  async getDoctorNotifications(doctorId: number): Promise<any[]> {
-    return [];
+  /**
+   * The patients one clinician is actually responsible for.
+   *
+   * "Linked to" means there is an appointment with this clinician or a scan
+   * assigned to them. That is the only relationship this schema records; there
+   * is no care-team table, and returning every patient in the database — which
+   * is what the handler did — is not a substitute for having one.
+   *
+   * The per-patient figures are lateral aggregates rather than plain joins, so
+   * the appointment counts and the scan counts do not multiply each other. One
+   * query with two LEFT JOINs is the classic way to report a patient with three
+   * scans as having three times as many appointments as they have.
+   */
+  async listDoctorPatients(doctorId: number, limit = 200): Promise<DoctorPatient[]> {
+    const { pool } = await import('./db');
+    const { rows } = await pool.query(
+      `WITH panel AS (
+         SELECT patient_id FROM appointments WHERE doctor_id = $1
+         UNION
+         SELECT patient_id FROM medical_scans WHERE doctor_id = $1
+       )
+       SELECT u.id,
+              u.full_name,
+              u.email,
+              u.phone,
+              u.age,
+              u.gender,
+              a.last_visit,
+              a.next_appointment,
+              coalesce(s.scan_count, 0)    AS scan_count,
+              coalesce(s.pending_scans, 0) AS pending_scans,
+              s.highest_risk,
+              s.highest_risk_at
+         FROM panel p
+         JOIN users u ON u.id = p.patient_id
+         LEFT JOIN LATERAL (
+           SELECT max(appointment_date) FILTER (WHERE appointment_date < now()) AS last_visit,
+                  min(appointment_date) FILTER (WHERE appointment_date >= now()
+                                                  AND status <> 'cancelled')    AS next_appointment
+             FROM appointments
+            WHERE patient_id = u.id AND doctor_id = $1
+         ) a ON true
+         LEFT JOIN LATERAL (
+           SELECT count(*)::int                                      AS scan_count,
+                  count(*) FILTER (WHERE status <> 'completed')::int AS pending_scans,
+                  -- Ranked by clinical severity, not alphabetically. Sorting the
+                  -- text would put 'low' above 'high'.
+                  (SELECT risk_level FROM medical_scans m2
+                    WHERE m2.patient_id = u.id AND m2.risk_level IS NOT NULL
+                    ORDER BY CASE lower(m2.risk_level)
+                               WHEN 'critical' THEN 4 WHEN 'high' THEN 3
+                               WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END DESC,
+                             m2.created_at DESC
+                    LIMIT 1)                                         AS highest_risk,
+                  (SELECT created_at FROM medical_scans m3
+                    WHERE m3.patient_id = u.id AND m3.risk_level IS NOT NULL
+                    ORDER BY CASE lower(m3.risk_level)
+                               WHEN 'critical' THEN 4 WHEN 'high' THEN 3
+                               WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END DESC,
+                             m3.created_at DESC
+                    LIMIT 1)                                         AS highest_risk_at
+             FROM medical_scans
+            WHERE patient_id = u.id
+         ) s ON true
+        WHERE u.role = 'patient'
+        ORDER BY u.full_name
+        LIMIT $2`,
+      [doctorId, limit]
+    );
+
+    // `phone` is encrypted at rest and this listing displays it.
+    return decryptRows(
+      'users',
+      rows.map((row: any) => ({
+        id: row.id,
+        name: row.full_name,
+        email: row.email,
+        phone: row.phone,
+        age: row.age,
+        gender: row.gender,
+        lastVisit: row.last_visit,
+        nextAppointment: row.next_appointment,
+        scanCount: row.scan_count,
+        pendingScans: row.pending_scans,
+        highestScanRisk: row.highest_risk,
+        highestScanRiskAt: row.highest_risk_at,
+      }))
+    ) as unknown as DoctorPatient[];
   }
 
-  async getRadiologistStats(): Promise<any> {
-    return {};
+  /**
+   * One clinician's counters, counted in the database and scoped to them.
+   *
+   * Every figure here was previously computed by loading every user row and
+   * every scan row into memory and calling .filter().length, so `activePatients`
+   * was the whole patient register and `criticalCases` was every flagged scan on
+   * the platform rather than this clinician's. Three further fields —
+   * `appointmentsCompleted`, `avgConsultationTime` and `patientSatisfaction` —
+   * were `Math.floor(Math.random() * 5) + 3`, the string '18m', and the number
+   * 94. There is no consultation timer and no satisfaction survey in this
+   * system, so the last two are gone rather than replaced.
+   */
+  async getClinicianWorkload(doctorId: number): Promise<ClinicianWorkload> {
+    const { pool } = await import('./db');
+    const { rows } = await pool.query(
+      `SELECT
+         (SELECT count(*)::int FROM (
+            SELECT patient_id FROM appointments  WHERE doctor_id = $1
+            UNION
+            SELECT patient_id FROM medical_scans WHERE doctor_id = $1
+          ) panel)                                                         AS active_patients,
+         (SELECT count(*)::int FROM appointments
+           WHERE doctor_id = $1 AND appointment_date::date = current_date)  AS todays_appointments,
+         (SELECT count(*)::int FROM appointments
+           WHERE doctor_id = $1 AND appointment_date >= now()
+             AND status <> 'cancelled')                                    AS upcoming_appointments,
+         (SELECT count(*)::int FROM appointments
+           WHERE doctor_id = $1 AND status = 'completed')                  AS appointments_completed,
+         (SELECT count(*)::int FROM medical_scans
+           WHERE doctor_id = $1 AND status <> 'completed')                 AS pending_reports,
+         (SELECT count(*)::int FROM medical_scans
+           WHERE doctor_id = $1
+             AND lower(coalesce(risk_level, '')) IN ('high', 'critical'))  AS critical_cases`,
+      [doctorId]
+    );
+    const row: any = rows[0] ?? {};
+    return {
+      activePatients: row.active_patients ?? 0,
+      todaysAppointments: row.todays_appointments ?? 0,
+      upcomingAppointments: row.upcoming_appointments ?? 0,
+      appointmentsCompleted: row.appointments_completed ?? 0,
+      pendingReports: row.pending_reports ?? 0,
+      criticalCases: row.critical_cases ?? 0,
+    };
+  }
+
+  /**
+   * The reading queue's counters.
+   *
+   * `accuracyRate: 96` and `avgReviewTime: 3.2` used to be returned from the
+   * handler as literals, and the radiologist dashboard rendered the first as
+   * "96% accuracy" beside a progress bar filled to 96. Neither was measured from
+   * anything. Accuracy is not something this query can answer at all — it needs
+   * confirmed outcomes, which is what getOutcomeMatrix() and
+   * /api/models/performance exist for — so it is not returned here under any
+   * name. Review time is measurable, and is measured below from reviewed_at,
+   * reported as a median with the number of reviews behind it.
+   */
+  async getRadiologistWorkload(): Promise<RadiologistWorkload> {
+    const { pool } = await import('./db');
+    const { rows } = await pool.query(
+      `SELECT
+         count(*) FILTER (WHERE status <> 'completed')::int              AS pending_reviews,
+         count(*) FILTER (WHERE status = 'completed'
+                            AND reviewed_at >= current_date)::int        AS completed_today,
+         count(*) FILTER (WHERE status = 'completed')::int               AS total_reviewed,
+         count(*) FILTER (WHERE lower(coalesce(risk_level, ''))
+                                IN ('high', 'critical'))::int            AS critical_cases,
+         avg(nullif(replace(ai_confidence, '%', ''), '')::numeric)       AS mean_confidence,
+         percentile_cont(0.5) WITHIN GROUP (
+           ORDER BY extract(epoch FROM (reviewed_at - created_at)) / 3600.0
+         ) FILTER (WHERE reviewed_at IS NOT NULL
+                     AND reviewed_at >= now() - interval '30 days'
+                     AND reviewed_at >= created_at)                      AS median_review_hours,
+         count(*) FILTER (WHERE reviewed_at IS NOT NULL
+                            AND reviewed_at >= now() - interval '30 days'
+                            AND reviewed_at >= created_at)::int          AS reviews_measured
+       FROM medical_scans`
+    );
+    const row: any = rows[0] ?? {};
+    const num = (v: any) => (v === null || v === undefined ? null : Number(v));
+    const mean = num(row.mean_confidence);
+    const medianHours = num(row.median_review_hours);
+    return {
+      pendingReviews: row.pending_reviews ?? 0,
+      completedToday: row.completed_today ?? 0,
+      totalScansReviewed: row.total_reviewed ?? 0,
+      criticalCases: row.critical_cases ?? 0,
+      meanAiConfidencePct: mean === null ? null : Math.round(mean),
+      medianReviewHours: medianHours === null ? null : Number(medianHours.toFixed(2)),
+      reviewsMeasured: row.reviews_measured ?? 0,
+    };
   }
 
   async getRadiologistActivities(radiologistId: number): Promise<any[]> {
@@ -1310,12 +1626,22 @@ class FallbackStorage implements IStorage {
   async deleteAppointment(id: number): Promise<boolean> { return false; }
   async getPatientActivities(patientId: number): Promise<any[]> { return []; }
   async getPatientAppointments(patientId: number): Promise<any[]> { return []; }
-  async getDoctorStats(): Promise<any> { return {}; }
   async getDoctorAppointments(doctorId: number): Promise<any[]> { return []; }
-  async getDoctorPatients(doctorId: number): Promise<any[]> { return []; }
-  async getPendingReports(doctorId: number): Promise<any[]> { return []; }
-  async getDoctorNotifications(doctorId: number): Promise<any[]> { return []; }
-  async getRadiologistStats(): Promise<any> { return {}; }
+  async listDoctorAppointmentsWithPatient(doctorId: number, limit?: number): Promise<any[]> { return []; }
+  async getBookedSlots(from: Date, to: Date): Promise<any[]> { return []; }
+  async listDoctorPatients(doctorId: number, limit?: number): Promise<DoctorPatient[]> { return []; }
+  async getClinicianWorkload(doctorId: number): Promise<ClinicianWorkload> {
+    return {
+      activePatients: 0, todaysAppointments: 0, upcomingAppointments: 0,
+      appointmentsCompleted: 0, pendingReports: 0, criticalCases: 0,
+    };
+  }
+  async getRadiologistWorkload(): Promise<RadiologistWorkload> {
+    return {
+      pendingReviews: 0, completedToday: 0, totalScansReviewed: 0, criticalCases: 0,
+      meanAiConfidencePct: null, medianReviewHours: null, reviewsMeasured: 0,
+    };
+  }
   async getRadiologistActivities(radiologistId: number): Promise<any[]> { return []; }
   async completeReview(scanId: number, notes: string, approved: boolean): Promise<any> { return null; }
   async getAdminStats(): Promise<any> { return {}; }

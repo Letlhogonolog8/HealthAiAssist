@@ -180,23 +180,45 @@ export function DoctorAppointmentSection({ user }: { user: any }) {
                   <Button
                     variant="outline"
                     size="sm"
+                    /**
+                     * Emails the patient. It used to offer to call them, on
+                     * +1234567890.
+                     *
+                     * That literal was used for all three actions — the Call
+                     * button, the SMS link, and the "Click OK to call" branch of
+                     * the confirm dialog — for every patient, regardless of who
+                     * they were. A doctor pressing Call was dialling a number
+                     * belonging to nobody while believing they were reaching the
+                     * patient in front of them; for an appointment that needed
+                     * confirming or a result that needed discussing, that is a
+                     * missed contact the doctor has no reason to suspect.
+                     *
+                     * The email fallback was the same shape: `patientEmail ||
+                     * 'patient@example.com'`, so a patient with no address on
+                     * file got a message composed to example.com.
+                     *
+                     * This platform does not surface patient phone numbers to
+                     * this screen, so the call and SMS options are gone rather
+                     * than pointed somewhere plausible. Email is offered only
+                     * when there is a real address to use.
+                     */
+                    disabled={!appointment.patientEmail}
+                    title={
+                      appointment.patientEmail
+                        ? `Email ${appointment.patientName}`
+                        : 'No email address is on file for this patient'
+                    }
                     onClick={() => {
-                      const phoneNumber = appointment.patientEmail ? `tel:+1234567890` : 'tel:+1234567890';
-                      const emailAddress = appointment.patientEmail || 'patient@example.com';
-                      
-                      const contactOptions = [
-                        { label: 'Call Patient', action: () => window.open(phoneNumber) },
-                        { label: 'Send Email', action: () => window.open(`mailto:${emailAddress}?subject=Regarding your appointment on ${appointment.date}`) },
-                        { label: 'Send SMS', action: () => window.open(`sms:+1234567890?body=Hello ${appointment.patientName}, this is regarding your appointment on ${appointment.date}`) }
-                      ];
-                      
-                      // Show contact options
-                      const choice = window.confirm(`Contact ${appointment.patientName}?\n\nClick OK to call, Cancel to send email`);
-                      if (choice) {
-                        window.open(phoneNumber);
-                      } else {
-                        window.open(`mailto:${emailAddress}?subject=Regarding your appointment on ${appointment.date}&body=Dear ${appointment.patientName},%0D%0A%0D%0AThis is regarding your upcoming appointment scheduled for ${appointment.date} at ${appointment.time}.%0D%0A%0D%0ABest regards,%0D%0ADr. ${user?.fullName || 'Doctor'}`);
-                      }
+                      if (!appointment.patientEmail) return;
+                      const subject = `Regarding your appointment on ${appointment.date}`;
+                      const body =
+                        `Dear ${appointment.patientName},%0D%0A%0D%0A` +
+                        `This is regarding your upcoming appointment scheduled for ` +
+                        `${appointment.date} at ${appointment.time}.%0D%0A%0D%0A` +
+                        `Best regards,%0D%0A${user?.fullName || 'Your clinician'}`;
+                      window.open(
+                        `mailto:${appointment.patientEmail}?subject=${encodeURIComponent(subject)}&body=${body}`
+                      );
                     }}
                   >
                     <MessageSquare className="h-4 w-4 mr-2" />

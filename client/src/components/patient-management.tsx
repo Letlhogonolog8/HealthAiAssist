@@ -18,14 +18,27 @@ interface Patient {
   id: number;
   name: string;
   email: string;
-  phone?: string;
-  age: number;
-  gender: string;
-  lastVisit: string;
-  condition: string;
-  status: string;
-  riskLevel: string;
-  recentScans: number;
+  phone?: string | null;
+  age: number | null;
+  gender: string | null;
+  lastVisit: string | null;
+  nextAppointment: string | null;
+  scanCount: number;
+  pendingScans: number;
+  /**
+   * Highest risk band across this patient's scans, from /api/doctor/patients.
+   *
+   * Replaces `condition`, `status` and `riskLevel`, which this component
+   * rendered as a status badge, a coloured risk dot and a "Current Condition"
+   * field on the detail panel. The server wrote all three as fixed strings —
+   * 'Regular checkup', 'stable' and 'low' — for every patient, so the badge read
+   * STABLE and the dot was green regardless of what any scan had found.
+   *
+   * This is a finding about an image, not a status for the person, and the
+   * labels below say so.
+   */
+  highestScanRisk: string | null;
+  highestScanRiskAt: string | null;
 }
 
 export default function PatientManagement() {
@@ -140,25 +153,35 @@ export default function PatientManagement() {
     }
   });
 
-  const getStatusColor = (status: string) => {
-    switch (status?.toLowerCase()) {
+  const getStatusColor = (risk: string | null) => {
+    switch ((risk ?? '').toLowerCase()) {
       case 'critical': return 'bg-red-100 text-red-800';
       case 'high': return 'bg-orange-100 text-orange-800';
       case 'medium': return 'bg-yellow-100 text-yellow-800';
       case 'low': return 'bg-green-100 text-green-800';
-      case 'stable': return 'bg-blue-100 text-blue-800';
+      // No 'stable' case: nothing produces that value any more, and a blue
+      // "STABLE" pill was the most reassuring thing on this screen.
       default: return 'bg-gray-100 text-gray-800';
     }
   };
 
-  const getRiskColor = (risk: string) => {
-    switch (risk?.toLowerCase()) {
+  const getRiskColor = (risk: string | null) => {
+    switch ((risk ?? '').toLowerCase()) {
+      case 'critical': return 'bg-red-600';
       case 'high': return 'bg-red-500';
       case 'medium': return 'bg-yellow-500';
       case 'low': return 'bg-green-500';
+      // Grey, not green. An unassessed scan is not a low-risk one.
       default: return 'bg-gray-500';
     }
   };
+
+  /** Renders a value the database does not hold, without inventing one. */
+  const orUnrecorded = (value: string | number | null | undefined) =>
+    value === null || value === undefined || value === '' ? 'Not recorded' : String(value);
+
+  const formatDate = (value: string | null) =>
+    value ? new Date(value).toLocaleDateString() : 'None recorded';
 
   const filteredPatients = patients.filter((patient: Patient) =>
     patient.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -314,21 +337,33 @@ export default function PatientManagement() {
                                 {patient.phone}
                               </span>
                             )}
-                            <span>{patient.age} years, {patient.gender}</span>
+                            <span>
+                              {patient.age === null ? 'Age not recorded' : `${patient.age} years`}
+                              {', '}
+                              {patient.gender ?? 'gender not recorded'}
+                            </span>
                           </div>
                           <div className="flex items-center space-x-2 mt-1">
-                            <span className="text-xs text-slate-500">Last visit: {new Date(patient.lastVisit).toLocaleDateString()}</span>
+                            <span className="text-xs text-slate-500">Last visit: {formatDate(patient.lastVisit)}</span>
                             <span className="text-xs text-slate-500">•</span>
-                            <span className="text-xs text-slate-500">{patient.recentScans} recent scans</span>
+                            <span className="text-xs text-slate-500">{patient.scanCount} scans on file</span>
                           </div>
                         </div>
                       </div>
                       <div className="flex items-center space-x-3">
                         <div className="text-right">
-                          <Badge className={getStatusColor(patient.status)}>{patient.status}</Badge>
+                          <Badge className={getStatusColor(patient.highestScanRisk)}>
+                            {patient.highestScanRisk
+                              ? `${patient.highestScanRisk} scan finding`
+                              : 'no scan finding'}
+                          </Badge>
                           <div className="flex items-center mt-1">
-                            <div className={`w-2 h-2 rounded-full ${getRiskColor(patient.riskLevel)} mr-1`}></div>
-                            <span className="text-xs text-slate-400">{patient.riskLevel} risk</span>
+                            <div className={`w-2 h-2 rounded-full ${getRiskColor(patient.highestScanRisk)} mr-1`}></div>
+                            <span className="text-xs text-slate-400">
+                              {patient.pendingScans > 0
+                                ? `${patient.pendingScans} awaiting a read`
+                                : 'nothing queued'}
+                            </span>
                           </div>
                         </div>
                         <div className="flex items-center space-x-1">
@@ -409,30 +444,49 @@ export default function PatientManagement() {
                   </div>
                   <div>
                     <Label className="text-slate-400">Last Visit</Label>
-                    <p className="text-white">{new Date(selectedPatient.lastVisit).toLocaleDateString()}</p>
+                    <p className="text-white">{formatDate(selectedPatient.lastVisit)}</p>
                   </div>
                   <div>
-                    <Label className="text-slate-400">Recent Scans</Label>
-                    <p className="text-white">{selectedPatient.recentScans}</p>
+                    <Label className="text-slate-400">Scans On File</Label>
+                    <p className="text-white">
+                      {selectedPatient.scanCount}
+                      {selectedPatient.pendingScans > 0 &&
+                        ` (${selectedPatient.pendingScans} awaiting a read)`}
+                    </p>
                   </div>
                 </div>
-                <div>
-                  <Label className="text-slate-400">Current Condition</Label>
-                  <p className="text-white">{selectedPatient.condition}</p>
-                </div>
+                {/*
+                  A "Current Condition" field stood here, showing
+                  selectedPatient.condition — the string 'Regular checkup', written
+                  by the server for every patient alike. This platform does not
+                  record a diagnosis or a clinical status, so the field is gone
+                  rather than filled with a placeholder that reads as a fact.
+                */}
                 <div className="flex items-center space-x-4">
                   <div>
-                    <Label className="text-slate-400">Status</Label>
-                    <Badge className={getStatusColor(selectedPatient.status)}>{selectedPatient.status}</Badge>
+                    <Label className="text-slate-400">Highest Scan Finding</Label>
+                    <Badge className={getStatusColor(selectedPatient.highestScanRisk)}>
+                      {orUnrecorded(selectedPatient.highestScanRisk)}
+                    </Badge>
+                    {selectedPatient.highestScanRiskAt && (
+                      <p className="text-xs text-slate-500 mt-1">
+                        from a scan on {formatDate(selectedPatient.highestScanRiskAt)}
+                      </p>
+                    )}
                   </div>
                   <div>
-                    <Label className="text-slate-400">Risk Level</Label>
+                    <Label className="text-slate-400">Next Appointment</Label>
                     <div className="flex items-center">
-                      <div className={`w-3 h-3 rounded-full ${getRiskColor(selectedPatient.riskLevel)} mr-2`}></div>
-                      <span className="text-white">{selectedPatient.riskLevel}</span>
+                      <div className={`w-3 h-3 rounded-full ${getRiskColor(selectedPatient.highestScanRisk)} mr-2`}></div>
+                      <span className="text-white">{formatDate(selectedPatient.nextAppointment)}</span>
                     </div>
                   </div>
                 </div>
+                <p className="text-xs text-slate-500">
+                  A scan finding is the risk band a model assigned to one image. It is
+                  not an assessment of the patient, and every result requires a
+                  clinician's sign-off.
+                </p>
               </TabsContent>
               
               <TabsContent value="history" className="space-y-4">
@@ -562,14 +616,25 @@ export default function PatientManagement() {
                   <Label className="text-white">Age</Label>
                   <Input
                     type="number"
-                    value={editingPatient.age}
-                    onChange={(e) => setEditingPatient({ ...editingPatient, age: parseInt(e.target.value) })}
+                    // Empty, not 0, when no age is recorded: a blank field invites
+                    // the real value, where a 0 invites being left alone.
+                    value={editingPatient.age ?? ''}
+                    onChange={(e) => {
+                      const parsed = Number.parseInt(e.target.value, 10);
+                      setEditingPatient({
+                        ...editingPatient,
+                        age: Number.isInteger(parsed) ? parsed : null,
+                      });
+                    }}
                     className="bg-slate-700 border-slate-600 text-white"
                   />
                 </div>
                 <div>
                   <Label className="text-white">Gender</Label>
-                  <Select value={editingPatient.gender} onValueChange={(value) => setEditingPatient({ ...editingPatient, gender: value })}>
+                  <Select
+                    value={editingPatient.gender ?? undefined}
+                    onValueChange={(value) => setEditingPatient({ ...editingPatient, gender: value })}
+                  >
                     <SelectTrigger className="bg-slate-700 border-slate-600 text-white">
                       <SelectValue />
                     </SelectTrigger>

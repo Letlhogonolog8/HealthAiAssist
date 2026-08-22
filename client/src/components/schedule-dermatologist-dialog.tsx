@@ -37,22 +37,37 @@ interface ScanResult {
   };
 }
 
+/**
+ * What /api/dermatologists/nearby actually returns now.
+ *
+ * Nine of the previous fourteen fields did not exist in the database and were
+ * generated per request by the server: `rating` was 4.5 + Math.random() * 0.5,
+ * `distance` was a random number of miles that ignored the coordinates this
+ * component sent, `coordinates` was the patient's own position with jitter added,
+ * and `experience`, `location`, `address`, `hospitalAffiliation`, `nextAvailable`
+ * and `isUrgentCare` were fixed strings. `phone` and `email` were real staff
+ * contact details, served without authentication.
+ *
+ * `nextAvailable` survives because it is now looked up from the appointments
+ * table rather than asserted, and it is null when the clinician has no free slot
+ * in the next fortnight.
+ */
 interface Dermatologist {
   id: number;
   name: string;
   specialty: string;
-  experience: string;
-  rating: number;
-  location: string;
-  address?: string;
-  distance?: string;
-  phone: string;
-  email: string;
-  availableSlots: string[];
-  nextAvailable: string;
-  isUrgentCare: boolean;
-  hospitalAffiliation?: string;
-  coordinates?: { lat: number; lng: number };
+  role: string;
+  nextAvailable: { date: string; time: string } | null;
+}
+
+interface ProximityStatus {
+  available: boolean;
+  reason: string;
+}
+
+interface EmergencyGuidance {
+  message: string;
+  note: string;
 }
 
 interface ScheduleDermatologistDialogProps {
@@ -73,63 +88,60 @@ export default function ScheduleDermatologistDialog({ scanResult, urgency }: Sch
 
   const { toast } = useToast();
 
-  // Real-time location state
-  const [userLocation, setUserLocation] = useState<{latitude: number, longitude: number} | null>(null);
-  const [locationError, setLocationError] = useState<string | null>(null);
-
-  // Get user's location when dialog opens
-  const getCurrentLocation = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setUserLocation({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude
-          });
-          setLocationError(null);
-        },
-        (error) => {
-          console.error('Location error:', error);
-          setLocationError('Unable to get your location. Showing general recommendations.');
-          // Use default location (example: San Francisco)
-          setUserLocation({ latitude: 37.7749, longitude: -122.4194 });
-        }
-      );
-    } else {
-      setLocationError('Location services not supported. Showing general recommendations.');
-      setUserLocation({ latitude: 37.7749, longitude: -122.4194 });
-    }
-  };
-
-  // Fetch real-time nearby dermatologists based on location
-  const { data: dermatologyData, isLoading: loadingDocs, refetch: refetchDermatologists } = useQuery({
-    queryKey: ['/api/dermatologists/nearby', userLocation],
+  /**
+   * Location is no longer collected.
+   *
+   * This component asked for the patient's precise coordinates on open, and when
+   * the browser denied the request it fell back to hardcoded San Francisco
+   * (37.7749, -122.4194) so the call would go through anyway. The coordinates
+   * were POSTed to an endpoint that used them for one thing: jittering them back
+   * out as invented clinician positions. Asking someone for their exact location
+   * to power a feature that cannot use it is not defensible, so the prompt, the
+   * state and the San Francisco fallback are all gone.
+   */
+  // Clinicians who can take a dermatology referral.
+  const { data: dermatologyData, isLoading: loadingDocs } = useQuery({
+    queryKey: ['/api/dermatologists/nearby', urgency],
     queryFn: async () => {
-      if (!userLocation) return null;
-      
       const response = await fetch('/api/dermatologists/nearby', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          latitude: userLocation.latitude,
-          longitude: userLocation.longitude,
-          urgency,
-          scanResult
-        })
+        body: JSON.stringify({ urgency })
       });
-      
-      if (!response.ok) throw new Error('Failed to fetch nearby dermatologists');
+
+      if (!response.ok) throw new Error('Failed to fetch dermatology clinicians');
       return response.json();
     },
-    enabled: isOpen && !!userLocation
+    enabled: isOpen
   });
 
-  const dermatologists = dermatologyData?.dermatologists || [];
-  const nearbyHospitals = dermatologyData?.nearbyHospitals || [];
+  const dermatologists: Dermatologist[] = dermatologyData?.dermatologists || [];
+  const proximity: ProximityStatus | undefined = dermatologyData?.proximity;
+  const emergencyGuidance: EmergencyGuidance | null = dermatologyData?.emergencyGuidance ?? null;
 
-  // Fetch available time slots for selected date and doctor
-  const { data: availableSlots = [] } = useQuery<string[]>({
+  /**
+   * The clinician's real free slots for the chosen date.
+   *
+   * This used the default query function against
+   * '/api/appointments/dermatologist-slots' with no parameters at all, and that
+   * endpoint answered `timeSlots.filter(() => Math.random() > 0.3)` — a different
+   * random subset on every render, for no particular clinician on no particular
+   * date. A patient could pick a time that was never free, and nothing
+   * downstream rechecked it.
+   */
+  const { data: availableSlots = [], isLoading: loadingSlots } = useQuery<string[]>({
     queryKey: ['/api/appointments/dermatologist-slots', selectedDermatologist, selectedDate],
+    queryFn: async () => {
+      if (!selectedDermatologist || !selectedDate) return [];
+      const dateParam = format(selectedDate, 'yyyy-MM-dd');
+      const response = await fetch(
+        `/api/appointments/dermatologist-slots?doctorId=${selectedDermatologist}&date=${dateParam}`,
+        { credentials: 'include' }
+      );
+      if (!response.ok) throw new Error('Failed to load available times');
+      return response.json();
+    },
     enabled: !!(selectedDermatologist && selectedDate),
   });
 
@@ -175,12 +187,8 @@ export default function ScheduleDermatologistDialog({ scanResult, urgency }: Sch
     setShareAnalysis(true);
   };
 
-  // Get location when dialog opens
-  React.useEffect(() => {
-    if (isOpen && !userLocation) {
-      getCurrentLocation();
-    }
-  }, [isOpen]);
+  // The effect that stood here called getCurrentLocation() on open. See the note
+  // above: this dialog no longer asks for the patient's position.
 
   const getUrgencyDetails = () => {
     switch (urgency) {
@@ -240,13 +248,17 @@ export default function ScheduleDermatologistDialog({ scanResult, urgency }: Sch
       <div className="space-y-2 flex-shrink-0">
         <h3 className="text-lg font-semibold">Select a Dermatologist</h3>
         <p className="text-sm text-gray-600">
-          {userLocation ? 
-            `Found ${dermatologists.length} specialists near your location:` :
-            'Based on your scan results, we recommend scheduling with these specialists:'
-          }
+          {dermatologists.length > 0
+            ? `${dermatologists.length} clinician${dermatologists.length === 1 ? '' : 's'} on this platform can take a dermatology referral:`
+            : 'No clinician on this platform currently lists a dermatology specialisation.'}
         </p>
-        {locationError && (
-          <p className="text-xs text-amber-600">{locationError}</p>
+        {/*
+          Replaces a line that read "Found N specialists near your location".
+          Nothing was near anything: the server never used the coordinates this
+          dialog sent, and had no clinician addresses to compare them against.
+        */}
+        {proximity && !proximity.available && (
+          <p className="text-xs text-amber-600">{proximity.reason}</p>
         )}
       </div>
 
@@ -262,31 +274,27 @@ export default function ScheduleDermatologistDialog({ scanResult, urgency }: Sch
         </div>
       </Alert>
 
-      {/* Show nearby hospitals for urgent cases */}
-      {urgency === 'urgent' && nearbyHospitals.length > 0 && (
+      {/*
+        This block rendered `nearbyHospitals`, two entirely fictional hospitals
+        the server returned for urgent cases — "Main Medical Center" and
+        "Regional Emergency Hospital" — with distances and, on a Call button
+        wired straight to `tel:`, the numbers +1 (555) 100-2000 and
+        +1 (555) 911-0000. A patient who had just been told their scan looked
+        urgent was offered a one-tap call to a number reserved for fiction.
+
+        This platform knows of no hospitals and cannot dispatch care. It says so,
+        and points at real emergency services without inventing a number: the
+        correct one depends on the country the patient is in, and a wrong
+        emergency number is worse than none.
+      */}
+      {urgency === 'urgent' && emergencyGuidance && (
         <Card className="flex-shrink-0 border-red-200 bg-red-50">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-red-800">Emergency Options</CardTitle>
+            <CardTitle className="text-sm text-red-800">If this is an emergency</CardTitle>
           </CardHeader>
-          <CardContent className="pt-0">
-            <div className="space-y-2">
-              {nearbyHospitals.map((hospital: any, index: number) => (
-                <div key={index} className="flex items-center justify-between text-sm">
-                  <div>
-                    <p className="font-medium text-red-800">{hospital.name}</p>
-                    <p className="text-red-600">{hospital.distance} • {hospital.type}</p>
-                  </div>
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    className="text-red-600 border-red-300"
-                    onClick={() => window.open(`tel:${hospital.phone}`)}
-                  >
-                    Call
-                  </Button>
-                </div>
-              ))}
-            </div>
+          <CardContent className="pt-0 space-y-1">
+            <p className="text-sm text-red-800">{emergencyGuidance.message}</p>
+            <p className="text-xs text-red-600">{emergencyGuidance.note}</p>
           </CardContent>
         </Card>
       )}
@@ -299,7 +307,7 @@ export default function ScheduleDermatologistDialog({ scanResult, urgency }: Sch
             </div>
           ) : (
             dermatologists?.map((doctor: Dermatologist) => (
-              <Card 
+              <Card
                 key={doctor.id}
                 className={`cursor-pointer transition-all hover:shadow-md ${
                   selectedDermatologist === doctor.id ? 'ring-2 ring-blue-500 bg-blue-50' : ''
@@ -311,39 +319,28 @@ export default function ScheduleDermatologistDialog({ scanResult, urgency }: Sch
                     <div className="space-y-2 flex-1">
                       <div className="flex items-center gap-2">
                         <h4 className="font-semibold">{doctor.name}</h4>
-                        {doctor.isUrgentCare && (
-                          <Badge className="bg-red-100 text-red-800">Urgent Care</Badge>
-                        )}
                         <Badge variant="outline">{doctor.specialty}</Badge>
                       </div>
-                      
+
+                      {/*
+                        The rows that stood here rendered doctor.experience,
+                        doctor.rating ("Rating: 4.87/5.0"), doctor.location,
+                        doctor.distance ("1.4 miles"), doctor.address, doctor.phone
+                        and doctor.email. The server generated the first four per
+                        request — the rating and distance from Math.random() — and
+                        the last two were real staff contact details on an
+                        unauthenticated endpoint. None of them is stored anywhere,
+                        so none of them is shown.
+                      */}
                       <div className="text-sm text-gray-600 space-y-1">
                         <div className="flex items-center gap-2">
-                          <User className="h-4 w-4" />
-                          {doctor.experience} • Rating: {doctor.rating}/5.0
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <MapPin className="h-4 w-4" />
-                          {doctor.location}
-                          {doctor.distance && <Badge variant="outline" className="ml-2 text-xs">{doctor.distance}</Badge>}
-                        </div>
-                        <div className="flex items-center gap-2">
                           <CalendarIcon className="h-4 w-4" />
-                          Next available: {doctor.nextAvailable}
-                        </div>
-                        {doctor.address && (
-                          <p className="text-xs text-gray-500">{doctor.address}</p>
-                        )}
-                      </div>
-                      
-                      <div className="flex items-center gap-4 text-sm">
-                        <div className="flex items-center gap-1">
-                          <Phone className="h-3 w-3" />
-                          {doctor.phone}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Mail className="h-3 w-3" />
-                          {doctor.email}
+                          {doctor.nextAvailable
+                            ? `Next available: ${format(
+                                new Date(`${doctor.nextAvailable.date}T00:00:00`),
+                                'EEE d MMM'
+                              )} at ${doctor.nextAvailable.time}`
+                            : 'No free slot in the next two weeks'}
                         </div>
                       </div>
                     </div>
@@ -394,19 +391,34 @@ export default function ScheduleDermatologistDialog({ scanResult, urgency }: Sch
         <div className="space-y-3">
           <Label>Available Times</Label>
           {selectedDate ? (
-            <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
-              {availableSlots?.map((slot: string) => (
-                <Button
-                  key={slot}
-                  variant={selectedTime === slot ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setSelectedTime(slot)}
-                  className="justify-start"
-                >
-                  {slot}
-                </Button>
-              ))}
-            </div>
+            loadingSlots ? (
+              <p className="text-sm text-gray-500 p-4 border rounded-md">
+                Checking this clinician's diary…
+              </p>
+            ) : availableSlots.length > 0 ? (
+              <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
+                {availableSlots.map((slot: string) => (
+                  <Button
+                    key={slot}
+                    variant={selectedTime === slot ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setSelectedTime(slot)}
+                    className="justify-start"
+                  >
+                    {slot}
+                  </Button>
+                ))}
+              </div>
+            ) : (
+              /*
+                A real empty diary, distinguished from a loading one. The previous
+                version rendered an empty grid silently, which looked identical to
+                a day with no slots and to a failed request.
+              */
+              <p className="text-sm text-gray-500 p-4 border rounded-md">
+                No free times on this date. Try another day.
+              </p>
+            )
           ) : (
             <p className="text-sm text-gray-500 p-4 border rounded-md">
               Please select a date to view available times

@@ -37,17 +37,20 @@ interface ScanResult {
   };
 }
 
+/**
+ * Matches what /api/dermatologists/available returns.
+ *
+ * The seven fields removed here — isUrgentCare, experience, rating, location,
+ * nextAvailable, phone, email — were not columns on `users`. The server mapped
+ * each through `d.field ?? default`, so every one resolved to '' or 0 for every
+ * clinician. The endpoint also filtered on a role named 'dermatologist' that
+ * does not exist in this system, so it returned an empty array regardless.
+ */
 interface Dermatologist {
   id: number;
   name: string;
   specialty: string;
-  isUrgentCare: boolean;
-  experience: string;
-  rating: number;
-  location: string;
-  nextAvailable: string;
-  phone: string;
-  email: string;
+  role: string;
 }
 
 interface DermatologistSchedulingButtonProps {
@@ -71,23 +74,39 @@ export default function DermatologistSchedulingButton({ scanResult, urgency }: D
   const { data: dermatologists = [], isLoading: dermatologistsLoading } = useQuery<Dermatologist[]>({
     queryKey: ['/api/dermatologists/available'],
     queryFn: async () => {
-      const response = await fetch('/api/dermatologists/available');
+      const response = await fetch('/api/dermatologists/available', {
+        credentials: 'include'
+      });
       if (!response.ok) throw new Error('Failed to fetch dermatologists');
       return response.json();
     }
   });
 
-  // Fetch available time slots for selected date
+  /**
+   * Free times for the chosen clinician on the chosen date.
+   *
+   * This called /api/dermatologists/time-slots, which has never existed — no such
+   * route is registered — so every request 404'd, the query threw, and the time
+   * picker was permanently empty. It also passed no clinician, so even a
+   * working endpoint could not have answered correctly.
+   *
+   * The date is formatted from the local calendar date rather than through
+   * toISOString(), which converts to UTC first and therefore returns the previous
+   * day for any user west of Greenwich after their local evening.
+   */
   const { data: timeSlots = [], isLoading: timeSlotsLoading } = useQuery<string[]>({
-    queryKey: ['/api/dermatologists/time-slots', selectedDate],
+    queryKey: ['/api/appointments/dermatologist-slots', selectedDermatologist, selectedDate],
     queryFn: async () => {
-      if (!selectedDate) return [];
-      const dateStr = selectedDate.toISOString().split('T')[0];
-      const response = await fetch(`/api/dermatologists/time-slots?date=${dateStr}`);
+      if (!selectedDate || !selectedDermatologist) return [];
+      const dateStr = format(selectedDate, 'yyyy-MM-dd');
+      const response = await fetch(
+        `/api/appointments/dermatologist-slots?doctorId=${selectedDermatologist}&date=${dateStr}`,
+        { credentials: 'include' }
+      );
       if (!response.ok) throw new Error('Failed to fetch time slots');
       return response.json();
     },
-    enabled: !!selectedDate
+    enabled: !!(selectedDate && selectedDermatologist)
   });
 
   // Schedule appointment mutation
@@ -239,7 +258,7 @@ export default function DermatologistSchedulingButton({ scanResult, urgency }: D
 
                 <div className="space-y-3 max-h-96 overflow-y-auto">
                   {dermatologists.map((doctor) => (
-                    <Card 
+                    <Card
                       key={doctor.id}
                       className={`cursor-pointer transition-all hover:shadow-md ${
                         selectedDermatologist === doctor.id ? 'ring-2 ring-blue-500 bg-blue-50' : ''
@@ -251,37 +270,17 @@ export default function DermatologistSchedulingButton({ scanResult, urgency }: D
                           <div className="space-y-2 flex-1">
                             <div className="flex items-center gap-2">
                               <h4 className="font-semibold">{doctor.name}</h4>
-                              {doctor.isUrgentCare && (
-                                <Badge className="bg-red-100 text-red-800">Urgent Care</Badge>
-                              )}
                               <Badge variant="outline">{doctor.specialty}</Badge>
                             </div>
-                            
-                            <div className="text-sm text-gray-600 space-y-1">
-                              <div className="flex items-center gap-2">
-                                <User className="h-4 w-4" />
-                                {doctor.experience} • Rating: {doctor.rating}/5.0
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <MapPin className="h-4 w-4" />
-                                {doctor.location}
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <CalendarIcon className="h-4 w-4" />
-                                {doctor.nextAvailable}
-                              </div>
-                            </div>
-                            
-                            <div className="flex items-center gap-4 text-sm">
-                              <div className="flex items-center gap-1">
-                                <Phone className="h-3 w-3" />
-                                {doctor.phone}
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <Mail className="h-3 w-3" />
-                                {doctor.email}
-                              </div>
-                            </div>
+                            {/*
+                              The rows removed here showed doctor.experience,
+                              doctor.rating, doctor.location, doctor.nextAvailable,
+                              doctor.phone and doctor.email. None of those is a
+                              column on `users`, so the server read undefined for
+                              each and substituted '' or 0 — every clinician
+                              displayed "Rating: 0/5.0" with a blank address.
+                              Nothing behind them ever existed to show.
+                            */}
                           </div>
                         </div>
                       </CardContent>

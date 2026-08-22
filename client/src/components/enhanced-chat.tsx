@@ -210,6 +210,20 @@ export default function EnhancedChat({
       return;
     }
     
+    /**
+     * A message must name its recipient before it is sent.
+     *
+     * `selectedParticipant?.id` is undefined until a conversation is picked, and
+     * the server used to broadcast an unaddressed chat message to every open
+     * socket on the platform — a clinical message delivered to every signed-in
+     * user, whatever their role. The server now refuses those, and this stops
+     * one being composed and silently dropped.
+     */
+    if (!selectedParticipant?.id) {
+      console.warn('No conversation is selected; not sending.');
+      return;
+    }
+
     const messageData = {
       type: 'chat_message',
       data: {
@@ -219,7 +233,7 @@ export default function EnhancedChat({
           name: user?.fullName || user?.username,
           role: user?.role
         },
-        targetUserId: selectedParticipant?.id,
+        targetUserId: selectedParticipant.id,
         timestamp: new Date().toISOString()
       }
     };
@@ -247,19 +261,22 @@ export default function EnhancedChat({
     sendTypingIndicator(false);
     
     // Call external handler if provided
-    onSendMessage?.(newMessage.trim(), selectedParticipant?.id);
+    onSendMessage?.(newMessage.trim(), selectedParticipant.id);
   };
   
   // Handle typing indicator
   const sendTypingIndicator = (isTyping: boolean) => {
     if (!wsRef.current || connectionState !== 'connected') return;
     
+    // Same reasoning as sendMessage: an unaddressed indicator has nowhere to go.
+    if (!selectedParticipant?.id) return;
+
     wsRef.current.send(JSON.stringify({
       type: 'typing_indicator',
       data: {
         userId: user?.id,
         isTyping,
-        targetUserId: selectedParticipant?.id
+        targetUserId: selectedParticipant.id
       }
     }));
   };

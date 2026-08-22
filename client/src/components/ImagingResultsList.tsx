@@ -16,15 +16,30 @@ import {
   MoreHorizontal
 } from 'lucide-react';
 
+/**
+ * One analysed scan, as the imaging views receive it.
+ *
+ * `confidence`, `riskLevel` and `hasCancer` are nullable because the row they
+ * come from can genuinely lack them: a scan queued for manual review has no
+ * model output at all, and rows written before those columns existed have none
+ * either. They were previously typed as required, which is why every caller
+ * filled the gap with a literal — `scan.aiConfidence || '85%'` in the patient
+ * portal, and a risk band re-derived in the browser by searching the finding text
+ * for the word "cancer". Making absence representable is what removes the need
+ * to invent a value for it.
+ */
 interface ImagingResult {
   id: string;
   patientName: string;
   scanType: string;
   analysisDate: string;
-  confidence: number;
-  riskLevel: 'low' | 'medium' | 'high';
-  primaryFinding: string;
-  hasCancer: boolean;
+  /** Percent, or null when the scan recorded none. Never a default. */
+  confidence: number | null;
+  /** The band the model assigned, as stored. Null when no model ran. */
+  riskLevel: 'low' | 'medium' | 'high' | 'critical' | null;
+  primaryFinding: string | null;
+  /** The model's own call. Null means "no prediction", not "negative". */
+  hasCancer: boolean | null;
   imageUrl?: string;
 }
 
@@ -55,7 +70,7 @@ export default function ImagingResultsList({ results, onViewResult, onDeleteResu
     let filtered = results.filter(result => {
       const matchesSearch = result.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                            result.scanType.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           result.primaryFinding.toLowerCase().includes(searchTerm.toLowerCase());
+                           (result.primaryFinding ?? '').toLowerCase().includes(searchTerm.toLowerCase());
       const matchesRisk = filterRisk === 'all' || result.riskLevel === filterRisk;
       const matchesScanType = filterScanType === 'all' || result.scanType.toLowerCase() === filterScanType.toLowerCase();
       
@@ -68,10 +83,12 @@ export default function ImagingResultsList({ results, onViewResult, onDeleteResu
         case 'date':
           return new Date(b.analysisDate).getTime() - new Date(a.analysisDate).getTime();
         case 'confidence':
-          return b.confidence - a.confidence;
+          // Unmeasured sorts last rather than as zero, so a scan with no
+          // recorded confidence is not ranked below one the model was unsure of.
+          return (b.confidence ?? -1) - (a.confidence ?? -1);
         case 'risk':
           const riskOrder = { high: 3, medium: 2, low: 1 };
-          return riskOrder[b.riskLevel] - riskOrder[a.riskLevel];
+          return (riskOrder[b.riskLevel ?? ''] ?? -1) - (riskOrder[a.riskLevel ?? ''] ?? -1);
         default:
           return 0;
       }
@@ -183,8 +200,8 @@ export default function ImagingResultsList({ results, onViewResult, onDeleteResu
                     <h3 className="font-bold text-gray-800 truncate">{result.patientName}</h3>
                     <p className="text-sm text-gray-600">{result.scanType.toUpperCase()}</p>
                   </div>
-                  <Badge className={`${getRiskColor(result.riskLevel)} text-xs`}>
-                    {result.riskLevel.toUpperCase()}
+                  <Badge className={`${getRiskColor(result.riskLevel ?? '')} text-xs`}>
+                    {result.riskLevel ? result.riskLevel.toUpperCase() : 'NOT ASSESSED'}
                   </Badge>
                 </div>
               </CardHeader>
@@ -192,7 +209,9 @@ export default function ImagingResultsList({ results, onViewResult, onDeleteResu
                 {/* Key Metrics */}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="text-center p-3 bg-blue-50 rounded-lg">
-                    <div className="text-2xl font-bold text-blue-600">{result.confidence}%</div>
+                    <div className="text-2xl font-bold text-blue-600">
+                      {result.confidence === null ? '—' : `${result.confidence}%`}
+                    </div>
                     <div className="text-xs text-gray-600">Confidence</div>
                   </div>
                   <div className="text-center p-3 bg-gray-50 rounded-lg">
