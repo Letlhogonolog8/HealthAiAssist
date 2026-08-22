@@ -8,13 +8,21 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useTheme } from '@/contexts/theme-context';
 
-export function ThemeToggle() {
+/**
+ * `className` overrides the trigger's styling.
+ *
+ * The default `variant="outline"` resolves against the light-mode tokens, so on
+ * the landing page — which is hardcoded dark regardless of the chosen theme —
+ * the control rendered as a white square in a near-black bar. The page that
+ * knows its own background is the one that should say how this looks on it.
+ */
+export function ThemeToggle({ className = "" }: { className?: string }) {
   const { theme, setTheme, actualTheme } = useTheme();
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="w-9 h-9 p-0">
+        <Button variant="outline" size="sm" className={`w-9 h-9 p-0 ${className}`}>
           {actualTheme === 'dark' ? (
             <Moon className="h-4 w-4" />
           ) : (

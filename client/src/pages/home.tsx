@@ -81,32 +81,38 @@ export default function Home({ onLoginSuccess }: HomeProps & { userId?: number }
 
   return (
     <div className="min-h-screen bg-slate-950">
-      <Navigation onLoginSuccess={onLoginSuccess} />
+      {/* Both the navigation's Sign-in button and the hero's Access-platform
+          button open the same dialog. Navigation used to mount its own, so this
+          page carried two LoginDialog instances with separate form state. */}
+      <Navigation
+        onLoginSuccess={onLoginSuccess}
+        onLoginClick={() => setShowLoginDialog(true)}
+      />
       <EnhancedHeroSection onLoginClick={() => setShowLoginDialog(true)} />
 
       <AIFeaturesSection />
       <CancerDetectionSection />
 
       {/* ---------------- Equity: the differentiator ---------------- */}
-      <section className="bg-slate-900 py-20 border-b border-slate-800">
+      <section className="bg-slate-900/40 py-20 lg:py-24 border-y border-slate-800">
         <div className="max-w-6xl mx-auto px-6">
-          <div className="grid gap-12 lg:grid-cols-2 lg:items-start">
+          <div className="grid gap-12 lg:grid-cols-2 lg:items-center lg:gap-16">
             <div>
-              <div className="inline-flex items-center gap-2 text-cyan-400 text-sm font-medium">
-                <Scale className="w-4 h-4" />
+              <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-400">
+                <Scale className="w-3.5 h-3.5" />
                 Who this works for
               </div>
-              <h2 className="mt-3 text-3xl font-bold text-white">
+              <h2 className="mt-3 text-3xl lg:text-[2.25rem] font-bold tracking-tight text-white">
                 Most genomic research describes a minority of the world
               </h2>
-              <p className="mt-4 text-slate-300 leading-relaxed">
+              <p className="mt-5 text-slate-400 leading-relaxed">
                 Around 80–90% of genome-wide association study participants are of
                 European ancestry. A risk score built there does not transfer intact
                 elsewhere — and the failure is quiet. The score keeps producing a
                 confident-looking number that means considerably less than it appears
                 to.
               </p>
-              <p className="mt-4 text-slate-300 leading-relaxed">
+              <p className="mt-4 text-slate-400 leading-relaxed">
                 This platform measures that gap and acts on it. Where a score does not
                 transfer, the percentile is withheld rather than shown with a footnote,
                 and the genomic component is excluded from the result instead of being
@@ -116,48 +122,70 @@ export default function Home({ onLoginSuccess }: HomeProps & { userId?: number }
                 <p className="mt-4 text-xs text-slate-500">{transferability.citation}</p>
               )}
               <Link href="/genomics">
-                <Button variant="outline" className="mt-6 border-slate-700 text-slate-200 hover:bg-slate-800">
+                <Button
+                  variant="outline"
+                  className="mt-7 border-slate-700 bg-slate-900/50 text-slate-200 hover:bg-slate-800 hover:text-white"
+                >
                   See the full transferability table
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               </Link>
             </div>
 
-            <Card className="bg-slate-800/60 border-slate-700">
-              <CardContent className="p-6">
-                <h3 className="text-sm font-semibold text-slate-200">
+            <Card className="bg-slate-900/70 border-slate-800 rounded-2xl">
+              <CardContent className="p-6 sm:p-7">
+                <h3 className="text-sm font-semibold text-white">
                   Accuracy retained, relative to the discovery population
                 </h3>
-                <div className="mt-5 space-y-4">
-                  {transferability?.groups.map((group) => (
-                    <div key={group.group}>
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-slate-200">{prettyGroup(group.group)}</span>
-                        <span className="text-slate-400 tabular-nums">
-                          ~{Math.round(group.approximateRelativeAccuracy * 100)}%
-                        </span>
+                <p className="mt-1 text-xs text-slate-500">
+                  A bar at 100% means the score transfers intact. Anything lower means
+                  it does not.
+                </p>
+
+                <div className="mt-6 space-y-3.5">
+                  {transferability?.groups.map((group) => {
+                    const value = group.approximateRelativeAccuracy;
+                    const tone =
+                      value >= 0.8
+                        ? "bg-emerald-500"
+                        : value >= 0.5
+                          ? "bg-amber-500"
+                          : "bg-rose-500";
+                    return (
+                      <div key={group.group}>
+                        <div className="flex items-baseline justify-between text-sm gap-3">
+                          <span
+                            className={
+                              group.percentileReported ? "text-slate-200" : "text-slate-400"
+                            }
+                          >
+                            {prettyGroup(group.group)}
+                          </span>
+                          <span className="text-slate-400 tabular-nums text-[13px]">
+                            ~{Math.round(value * 100)}%
+                            {!group.percentileReported && (
+                              <span className="ml-2 text-[11px] text-slate-600">withheld</span>
+                            )}
+                          </span>
+                        </div>
+                        <div className="mt-1.5 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${tone} transition-[width] duration-700`}
+                            style={{ width: `${value * 100}%` }}
+                          />
+                        </div>
                       </div>
-                      <div className="mt-1.5 h-2 rounded bg-slate-700 overflow-hidden">
-                        <div
-                          className={
-                            group.approximateRelativeAccuracy >= 0.8
-                              ? "h-full bg-green-500"
-                              : group.approximateRelativeAccuracy >= 0.5
-                                ? "h-full bg-amber-500"
-                                : "h-full bg-red-500"
-                          }
-                          style={{ width: `${group.approximateRelativeAccuracy * 100}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {withheld.length > 0 && (
-                  <p className="mt-5 text-xs text-slate-400">
+                  <p className="mt-6 pt-5 border-t border-slate-800 text-xs text-slate-500 leading-relaxed">
                     No percentile is reported for{" "}
-                    {withheld.map((g) => prettyGroup(g.group)).join(", ")} — the
-                    reference distribution does not describe those populations.
+                    <span className="text-slate-400">
+                      {withheld.map((g) => prettyGroup(g.group)).join(", ")}
+                    </span>{" "}
+                    — the reference distribution does not describe those populations.
                   </p>
                 )}
               </CardContent>
@@ -167,25 +195,34 @@ export default function Home({ onLoginSuccess }: HomeProps & { userId?: number }
       </section>
 
       {/* ---------------- Refusals ---------------- */}
-      <section className="bg-slate-950 py-20 border-b border-slate-800">
+      <section className="bg-slate-950 py-20 lg:py-24">
         <div className="max-w-6xl mx-auto px-6">
           <div className="max-w-2xl">
-            <div className="inline-flex items-center gap-2 text-cyan-400 text-sm font-medium">
-              <Ban className="w-4 h-4" />
+            <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-cyan-400">
+              <Ban className="w-3.5 h-3.5" />
               Deliberate limits
             </div>
-            <h2 className="mt-3 text-3xl font-bold text-white">What it will not do</h2>
-            <p className="mt-3 text-slate-300">
+            <h2 className="mt-3 text-3xl lg:text-[2.25rem] font-bold tracking-tight text-white">
+              What it will not do
+            </h2>
+            <p className="mt-4 text-slate-400 leading-relaxed">
               A screening tool is only as trustworthy as its willingness to say
               nothing. These are enforced in code and covered by tests.
             </p>
           </div>
 
-          <div className="mt-10 grid gap-6 md:grid-cols-2">
-            {REFUSALS.map((refusal) => (
-              <div key={refusal.title} className="rounded-xl border border-slate-800 bg-slate-900 p-6">
-                <h3 className="font-semibold text-white">{refusal.title}</h3>
-                <p className="mt-2 text-sm text-slate-400 leading-relaxed">{refusal.body}</p>
+          <div className="mt-10 grid gap-px md:grid-cols-2 bg-slate-800 border border-slate-800 rounded-2xl overflow-hidden">
+            {REFUSALS.map((refusal, index) => (
+              <div key={refusal.title} className="bg-slate-900/70 p-6 sm:p-7">
+                <span className="text-[11px] font-semibold tabular-nums text-cyan-400/70">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+                <h3 className="mt-2.5 font-semibold text-white leading-snug">
+                  {refusal.title}
+                </h3>
+                <p className="mt-2.5 text-sm text-slate-400 leading-relaxed">
+                  {refusal.body}
+                </p>
               </div>
             ))}
           </div>
@@ -193,13 +230,15 @@ export default function Home({ onLoginSuccess }: HomeProps & { userId?: number }
       </section>
 
       {/* ---------------- Genomics + governance ---------------- */}
-      <section className="bg-slate-900 py-20 border-b border-slate-800">
-        <div className="max-w-6xl mx-auto px-6 grid gap-8 md:grid-cols-2">
-          <Card className="bg-slate-800/60 border-slate-700">
-            <CardContent className="p-6">
-              <Dna className="w-6 h-6 text-cyan-400" />
-              <h3 className="mt-4 text-xl font-semibold text-white">Genomics</h3>
-              <p className="mt-2 text-sm text-slate-300 leading-relaxed">
+      <section className="bg-slate-900/40 py-20 lg:py-24 border-y border-slate-800">
+        <div className="max-w-6xl mx-auto px-6 grid gap-6 md:grid-cols-2">
+          <Card className="bg-slate-900/70 border-slate-800 rounded-2xl">
+            <CardContent className="p-7">
+              <span className="grid place-items-center w-10 h-10 rounded-lg bg-cyan-500/10 border border-cyan-500/25">
+                <Dna className="w-5 h-5 text-cyan-400" />
+              </span>
+              <h3 className="mt-5 text-lg font-semibold tracking-tight text-white">Genomics</h3>
+              <p className="mt-2.5 text-sm text-slate-400 leading-relaxed">
                 Consumer genotype exports and single-sample VCFs, scored against a
                 published PGS Catalog panel and screened against a ClinVar-derived
                 list of pathogenic variants in hereditary cancer genes. No effect
@@ -209,11 +248,15 @@ export default function Home({ onLoginSuccess }: HomeProps & { userId?: number }
             </CardContent>
           </Card>
 
-          <Card className="bg-slate-800/60 border-slate-700">
-            <CardContent className="p-6">
-              <Lock className="w-6 h-6 text-cyan-400" />
-              <h3 className="mt-4 text-xl font-semibold text-white">Consent and audit</h3>
-              <p className="mt-2 text-sm text-slate-300 leading-relaxed">
+          <Card className="bg-slate-900/70 border-slate-800 rounded-2xl">
+            <CardContent className="p-7">
+              <span className="grid place-items-center w-10 h-10 rounded-lg bg-cyan-500/10 border border-cyan-500/25">
+                <Lock className="w-5 h-5 text-cyan-400" />
+              </span>
+              <h3 className="mt-5 text-lg font-semibold tracking-tight text-white">
+                Consent and audit
+              </h3>
+              <p className="mt-2.5 text-sm text-slate-400 leading-relaxed">
                 Three revocable consent scopes, checked at every access rather than at
                 upload, so withdrawal applies to data already stored. Every access is
                 logged including refusals, and deleting your genome keeps the log —
@@ -225,12 +268,14 @@ export default function Home({ onLoginSuccess }: HomeProps & { userId?: number }
       </section>
 
       {/* ---------------- Status ---------------- */}
-      <section className="bg-slate-950 py-16">
+      <section className="bg-slate-950 py-16 lg:py-20">
         <div className="max-w-4xl mx-auto px-6">
-          <Alert className="border-amber-800/60 bg-amber-950/30">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertDescription className="text-amber-100 text-sm leading-relaxed">
-              <strong className="block mb-1">Current status</strong>
+          <Alert className="border-amber-700/40 bg-amber-950/20 rounded-2xl p-6">
+            <AlertTriangle className="h-4 w-4 !text-amber-400" />
+            <AlertDescription className="text-amber-100/80 text-sm leading-relaxed pl-2">
+              <strong className="block mb-1.5 text-amber-200 text-[13px] font-semibold uppercase tracking-[0.12em]">
+                Current status
+              </strong>
               A research prototype. It is not a registered medical device, holds no
               regulatory clearance in any jurisdiction, and has not been clinically or
               prospectively validated. It must not be used to make decisions about
