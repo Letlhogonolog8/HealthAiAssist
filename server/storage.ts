@@ -356,6 +356,15 @@ export interface IStorage {
   countUnreadNotifications(recipientId: number): Promise<number>;
   markNotificationRead(id: number, recipientId: number): Promise<boolean>;
   markAllNotificationsRead(recipientId: number): Promise<number>;
+  /**
+   * Removes one notification from its recipient's inbox.
+   *
+   * A hard delete, and safe as one: a notification is a pointer saying something
+   * happened, not the record of it happening. The scan, the outcome and the
+   * audit event all survive it. Scoped to the recipient, so this is a person
+   * clearing their own inbox rather than deleting evidence.
+   */
+  deleteNotification(id: number, recipientId: number): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1465,6 +1474,17 @@ export class DatabaseStorage implements IStorage {
       .returning({ id: notifications.id });
     return updated.length;
   }
+
+  async deleteNotification(id: number, recipientId: number): Promise<boolean> {
+    // The recipient is part of the DELETE's WHERE clause rather than a check
+    // before it, so a user cannot remove someone else's notification by guessing
+    // an id — the statement simply matches nothing.
+    const removed = await (db as any)
+      .delete(notifications)
+      .where(and(eq(notifications.id, id), eq(notifications.recipientId, recipientId)))
+      .returning({ id: notifications.id });
+    return removed.length > 0;
+  }
 }
 
 // Create storage instance with fallback mechanism
@@ -1657,6 +1677,7 @@ class FallbackStorage implements IStorage {
   async countUnreadNotifications(recipientId: number): Promise<number> { return 0; }
   async markNotificationRead(id: number, recipientId: number): Promise<boolean> { return false; }
   async markAllNotificationsRead(recipientId: number): Promise<number> { return 0; }
+  async deleteNotification(id: number, recipientId: number): Promise<boolean> { return false; }
 }
 
 // Dynamic storage selection based on database availability

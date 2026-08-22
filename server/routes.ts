@@ -1226,6 +1226,123 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  /**
+   * The notification centre.
+   *
+   * These four routes were never registered, which left the whole notification
+   * surface non-functional: `notifications` is a real table, storage has
+   * getNotifications / countUnreadNotifications / markNotificationRead /
+   * markAllNotificationsRead, the routes that matter already write rows to it
+   * (a confirmed outcome, a scan sent for review), and notification-center.tsx
+   * polls /api/notifications every thirty seconds — which answered 404, threw,
+   * and rendered an empty bell.
+   *
+   * The consequence is worth stating plainly: a patient whose result had been
+   * confirmed by a clinician had a row written announcing it, and no way to see
+   * that row. Off-platform delivery is best-effort and email is unconfigured in
+   * most deployments, so the in-app centre is the only channel that always
+   * exists — and it was not connected.
+   *
+   * Every route below is scoped to the session's own user. Notifications name
+   * clinical events, so reading someone else's is reading their record.
+   */
+  app.get("/api/notifications", requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const recipientId = req.session!.user!.id;
+      const limit = Math.min(
+        Math.max(1, Number.parseInt(req.query.limit as string, 10) || 50),
+        200
+      );
+
+      const rows = await storage.getNotifications(recipientId, limit);
+
+      // Filtered here rather than in the query because the client asks for one
+      // of three fixed views and the page is already bounded above.
+      const unreadOnly = req.query.unread === 'true';
+      const filtered = unreadOnly ? rows.filter((n) => !n.readAt) : rows;
+
+      res.json(
+        filtered.map((notification) => ({
+          id: notification.id,
+          type: notification.type,
+          title: notification.title,
+          message: notification.body,
+          link: notification.link,
+          read: Boolean(notification.readAt),
+          readAt: notification.readAt,
+          createdAt: notification.createdAt,
+        }))
+      );
+    } catch (error) {
+      console.error("Error fetching notifications:", error);
+      res.status(500).json({ error: "Failed to fetch notifications" });
+    }
+  });
+
+  app.get("/api/notifications/unread-count", requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      res.json({ unread: await storage.countUnreadNotifications(req.session!.user!.id) });
+    } catch (error) {
+      console.error("Error counting notifications:", error);
+      res.status(500).json({ error: "Failed to count notifications" });
+    }
+  });
+
+  app.patch("/api/notifications/:id/read", requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const id = Number.parseInt(req.params.id, 10);
+      if (!Number.isInteger(id)) {
+        return res.status(400).json({ error: 'Invalid notification id' });
+      }
+
+      // The recipient id is part of the UPDATE's WHERE clause, not a check
+      // performed before it, so one user cannot mark another user's notification
+      // read by guessing a small integer.
+      //
+      // Idempotent on purpose. storage.markNotificationRead also requires
+      // read_at IS NULL, so it returns false both for "no such notification" and
+      // for "already read" — indistinguishable from here. Answering 404 would
+      // therefore fail an ordinary double-click, and distinguishing them would
+      // confirm which notification ids exist to anyone enumerating. Marking a
+      // thing read that is already read is not an error.
+      await storage.markNotificationRead(id, req.session!.user!.id);
+      res.json({ id, read: true });
+    } catch (error) {
+      console.error("Error marking notification read:", error);
+      res.status(500).json({ error: "Failed to mark notification read" });
+    }
+  });
+
+  app.delete("/api/notifications/:id", requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const id = Number.parseInt(req.params.id, 10);
+      if (!Number.isInteger(id)) {
+        return res.status(400).json({ error: 'Invalid notification id' });
+      }
+
+      // 404 on a miss is safe here, unlike on the mark-read route: a delete that
+      // matched nothing is genuinely indistinguishable from a delete of
+      // someone else's row, so the response is the same either way.
+      const removed = await storage.deleteNotification(id, req.session!.user!.id);
+      if (!removed) return res.status(404).json({ error: 'Notification not found' });
+
+      res.json({ id, deleted: true });
+    } catch (error) {
+      console.error("Error deleting notification:", error);
+      res.status(500).json({ error: "Failed to delete notification" });
+    }
+  });
+
+  app.patch("/api/notifications/mark-all-read", requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const marked = await storage.markAllNotificationsRead(req.session!.user!.id);
+      res.json({ marked });
+    } catch (error) {
+      console.error("Error marking notifications read:", error);
+      res.status(500).json({ error: "Failed to mark notifications read" });
+    }
+  });
+
   // System/WebSocket stats for admin
   app.get("/api/system/ws-stats", requireAuth, requireAdmin, async (req, res) => {
     try {

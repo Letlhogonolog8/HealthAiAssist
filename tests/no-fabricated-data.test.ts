@@ -408,3 +408,129 @@ describe('the assistant', { timeout: TIMEOUT }, () => {
     assert.equal(tooLong.status, 400);
   });
 });
+
+describe('the notification centre', { timeout: TIMEOUT }, () => {
+  test('is reachable at all', async () => {
+    // /api/notifications was never registered, so the bell polled a 404 every
+    // thirty seconds and rendered empty — while rows announcing confirmed
+    // results were being written to the table behind it.
+    const res = await patient.session.get('/api/notifications');
+    assert.equal(res.status, 200, res.text.slice(0, 200));
+    assert.ok(Array.isArray(res.json));
+  });
+
+  test('needs a session', async () => {
+    const res = await new Session().get('/api/notifications');
+    assert.equal(res.status, 401);
+  });
+
+  test("shows only the reader's own notifications", async () => {
+    const pool = db();
+    let mine: number;
+    let theirs: number;
+    try {
+      const a = await pool.query(
+        `INSERT INTO notifications (recipient_id, type, title, body)
+         VALUES ($1, 'scan_result', 'Yours', '') RETURNING id`,
+        [patient.id]
+      );
+      mine = a.rows[0].id;
+      const b = await pool.query(
+        `INSERT INTO notifications (recipient_id, type, title, body)
+         VALUES ($1, 'scan_result', 'Theirs', '') RETURNING id`,
+        [otherPatient.id]
+      );
+      theirs = b.rows[0].id;
+    } finally {
+      await pool.end();
+    }
+
+    const res = await patient.session.get('/api/notifications');
+    const ids = res.json.map((n: any) => n.id);
+    assert.ok(ids.includes(mine), 'own notification must be listed');
+    assert.ok(!ids.includes(theirs), "another patient's notification must not be");
+  });
+
+  test("cannot mark another patient's notification read", async () => {
+    const pool = db();
+    let theirs: number;
+    try {
+      const { rows } = await pool.query(
+        `INSERT INTO notifications (recipient_id, type, title, body)
+         VALUES ($1, 'scan_result', 'Theirs', '') RETURNING id`,
+        [otherPatient.id]
+      );
+      theirs = rows[0].id;
+    } finally {
+      await pool.end();
+    }
+
+    // Answers 200 — the operation is idempotent and must not confirm which ids
+    // exist — but the row must be untouched.
+    await patient.session.patch(`/api/notifications/${theirs}/read`);
+
+    const check = db();
+    try {
+      const { rows } = await check.query('SELECT read_at FROM notifications WHERE id = $1', [theirs]);
+      assert.equal(rows[0].read_at, null, "another patient's notification must stay unread");
+    } finally {
+      await check.end();
+    }
+  });
+
+  test("cannot delete another patient's notification", async () => {
+    const pool = db();
+    let theirs: number;
+    try {
+      const { rows } = await pool.query(
+        `INSERT INTO notifications (recipient_id, type, title, body)
+         VALUES ($1, 'scan_result', 'Theirs', '') RETURNING id`,
+        [otherPatient.id]
+      );
+      theirs = rows[0].id;
+    } finally {
+      await pool.end();
+    }
+
+    const res = await patient.session.del(`/api/notifications/${theirs}`);
+    assert.equal(res.status, 404);
+
+    const check = db();
+    try {
+      const { rows } = await check.query('SELECT count(*)::int n FROM notifications WHERE id = $1', [theirs]);
+      assert.equal(rows[0].n, 1, "another patient's notification must survive");
+    } finally {
+      await check.end();
+    }
+  });
+
+  test("marks the reader's own notifications read", async () => {
+    const pool = db();
+    let mine: number;
+    try {
+      const { rows } = await pool.query(
+        `INSERT INTO notifications (recipient_id, type, title, body)
+         VALUES ($1, 'scan_result', 'Mine', '') RETURNING id`,
+        [patient.id]
+      );
+      mine = rows[0].id;
+    } finally {
+      await pool.end();
+    }
+
+    const res = await patient.session.patch(`/api/notifications/${mine}/read`);
+    assert.equal(res.status, 200);
+
+    const check = db();
+    try {
+      const { rows } = await check.query('SELECT read_at FROM notifications WHERE id = $1', [mine]);
+      assert.ok(rows[0].read_at, 'the notification must now be read');
+    } finally {
+      await check.end();
+    }
+
+    // Marking it again is not an error.
+    const again = await patient.session.patch(`/api/notifications/${mine}/read`);
+    assert.equal(again.status, 200);
+  });
+});
