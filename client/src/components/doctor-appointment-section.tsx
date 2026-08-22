@@ -121,7 +121,7 @@ export function DoctorAppointmentSection({ user }: { user: any }) {
                     <Activity className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                   </div>
                   <div>
-                    <h4 className="font-medium text-gray-900 dark:text-white">{appointment.patientName}</h4>
+                    <h4 className="font-medium text-slate-900 dark:text-white">{appointment.patientName}</h4>
                     <div className="flex items-center text-sm text-muted-foreground">
                       <Clock className="h-3 w-3 mr-1" />
                       {appointment.time} - {new Date(appointment.date).toLocaleDateString()}
@@ -172,7 +172,7 @@ export function DoctorAppointmentSection({ user }: { user: any }) {
                     size="sm"
                     onClick={() => deleteAppointment.mutate(appointment.id)}
                     disabled={deleteAppointment.isPending}
-                    className="text-gray-600 hover:text-red-600 border-gray-200 hover:border-red-300"
+                    className="text-muted-foreground hover:text-red-600 border-gray-200 hover:border-red-300"
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>

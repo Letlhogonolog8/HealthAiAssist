@@ -469,7 +469,7 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
       case 'high': return 'text-red-500';
       case 'medium': return 'text-yellow-500';
       case 'low': return 'text-green-500';
-      default: return 'text-gray-500';
+      default: return 'text-muted-foreground';
     }
   };
 
@@ -478,7 +478,7 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
       case 'high': return 'bg-red-100 text-red-800 border-red-300';
       case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
       case 'low': return 'bg-green-100 text-green-800 border-green-300';
-      default: return 'bg-gray-100 text-gray-800 border-gray-300';
+      default: return 'bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-600';
     }
   };
 
@@ -1003,7 +1003,7 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
             
             <div className="space-y-6 p-2">
               <div className="space-y-2">
-                <Label htmlFor="patient" className="font-semibold text-gray-800 flex items-center gap-2">
+                <Label htmlFor="patient" className="font-semibold text-foreground flex items-center gap-2">
                   <User className="w-4 h-4" />
                   Select Patient
                 </Label>
@@ -1026,7 +1026,7 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
               
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="date" className="font-semibold text-gray-800 flex items-center gap-2">
+                  <Label htmlFor="date" className="font-semibold text-foreground flex items-center gap-2">
                     <Calendar className="w-4 h-4" />
                     Appointment Date
                   </Label>
@@ -1046,7 +1046,7 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="time" className="font-semibold text-gray-800 flex items-center gap-2">
+                  <Label htmlFor="time" className="font-semibold text-foreground flex items-center gap-2">
                     <Clock className="w-4 h-4" />
                     Available Times
                   </Label>
@@ -1083,7 +1083,7 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
               </div>
               
               <div className="space-y-2">
-                <Label htmlFor="type" className="font-semibold text-gray-800 flex items-center gap-2">
+                <Label htmlFor="type" className="font-semibold text-foreground flex items-center gap-2">
                   <Stethoscope className="w-4 h-4" />
                   Appointment Type
                 </Label>
@@ -1102,7 +1102,7 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
               </div>
               
               <div className="space-y-2">
-                <Label htmlFor="reason" className="font-semibold text-gray-800 flex items-center gap-2">
+                <Label htmlFor="reason" className="font-semibold text-foreground flex items-center gap-2">
                   <FileText className="w-4 h-4" />
                   Reason for Visit
                 </Label>

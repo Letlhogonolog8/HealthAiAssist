@@ -247,7 +247,7 @@ export default function ScheduleDermatologistDialog({ scanResult, urgency }: Sch
     <div className="space-y-4 h-full flex flex-col">
       <div className="space-y-2 flex-shrink-0">
         <h3 className="text-lg font-semibold">Select a Dermatologist</h3>
-        <p className="text-sm text-gray-600">
+        <p className="text-sm text-muted-foreground">
           {dermatologists.length > 0
             ? `${dermatologists.length} clinician${dermatologists.length === 1 ? '' : 's'} on this platform can take a dermatology referral:`
             : 'No clinician on this platform currently lists a dermatology specialisation.'}
@@ -332,7 +332,7 @@ export default function ScheduleDermatologistDialog({ scanResult, urgency }: Sch
                         unauthenticated endpoint. None of them is stored anywhere,
                         so none of them is shown.
                       */}
-                      <div className="text-sm text-gray-600 space-y-1">
+                      <div className="text-sm text-muted-foreground space-y-1">
                         <div className="flex items-center gap-2">
                           <CalendarIcon className="h-4 w-4" />
                           {doctor.nextAvailable
@@ -392,7 +392,7 @@ export default function ScheduleDermatologistDialog({ scanResult, urgency }: Sch
           <Label>Available Times</Label>
           {selectedDate ? (
             loadingSlots ? (
-              <p className="text-sm text-gray-500 p-4 border rounded-md">
+              <p className="text-sm text-muted-foreground p-4 border rounded-md">
                 Checking this clinician's diary…
               </p>
             ) : availableSlots.length > 0 ? (
@@ -415,12 +415,12 @@ export default function ScheduleDermatologistDialog({ scanResult, urgency }: Sch
                 version rendered an empty grid silently, which looked identical to
                 a day with no slots and to a failed request.
               */
-              <p className="text-sm text-gray-500 p-4 border rounded-md">
+              <p className="text-sm text-muted-foreground p-4 border rounded-md">
                 No free times on this date. Try another day.
               </p>
             )
           ) : (
-            <p className="text-sm text-gray-500 p-4 border rounded-md">
+            <p className="text-sm text-muted-foreground p-4 border rounded-md">
               Please select a date to view available times
             </p>
           )}

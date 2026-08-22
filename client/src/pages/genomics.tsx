@@ -164,10 +164,10 @@ export default function GenomicsPage({ user }: { user?: any }) {
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
       <div className="flex items-center gap-3">
-        <Dna className="w-8 h-8 text-blue-600" />
+        <Dna className="w-8 h-8 text-blue-600 dark:text-blue-400" />
         <div>
           <h1 className="text-2xl font-bold">Genomics</h1>
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-muted-foreground">
             Polygenic risk, high-penetrance variant screening, and how well any of
             it actually applies to you.
           </p>
@@ -198,15 +198,15 @@ export default function GenomicsPage({ user }: { user?: any }) {
                   <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
                     <span className="font-semibold">{prettyGroup(group.group)}</span>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-600">
+                      <span className="text-sm text-muted-foreground">
                         ~{Math.round(group.approximateRelativeAccuracy * 100)}% of discovery-population accuracy
                       </span>
                       {group.percentileReported ? (
-                        <Badge variant="outline" className="text-blue-700 border-blue-300">
+                        <Badge variant="outline" className="text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-400/40">
                           Percentile shown
                         </Badge>
                       ) : (
-                        <Badge variant="outline" className="text-amber-800 border-amber-400">
+                        <Badge variant="outline" className="text-amber-700 dark:text-amber-300 border-amber-400 dark:border-amber-400/40">
                           Percentile withheld
                         </Badge>
                       )}
@@ -214,7 +214,10 @@ export default function GenomicsPage({ user }: { user?: any }) {
                   </div>
 
                   {/* Bar length is the retained accuracy. Short bars are the point. */}
-                  <div className="w-full h-2 bg-gray-200 rounded overflow-hidden mb-2">
+                  {/* Not bg-muted: in the dark theme --muted and --card are the same
+                      value (217 32% 20%), so the unfilled part of the bar was
+                      invisible against the card and every bar looked full-width. */}
+                  <div className="w-full h-2 bg-slate-200 dark:bg-slate-600 rounded overflow-hidden mb-2">
                     <div
                       className={group.approximateRelativeAccuracy >= 0.8 ? 'h-full bg-green-600'
                         : group.approximateRelativeAccuracy >= 0.5 ? 'h-full bg-amber-500'
@@ -223,7 +226,7 @@ export default function GenomicsPage({ user }: { user?: any }) {
                     />
                   </div>
 
-                  <p className="text-sm text-gray-700">{group.guidance}</p>
+                  <p className="text-sm text-foreground">{group.guidance}</p>
                 </div>
               ))}
 
@@ -231,7 +234,7 @@ export default function GenomicsPage({ user }: { user?: any }) {
                 <Info className="h-4 w-4" />
                 <AlertDescription className="text-sm">
                   <strong>Policy:</strong> {transferability?.policy}
-                  <div className="mt-1 text-gray-600">Source: {transferability?.citation}</div>
+                  <div className="mt-1 text-muted-foreground">Source: {transferability?.citation}</div>
                 </AlertDescription>
               </Alert>
             </CardContent>
@@ -250,20 +253,20 @@ export default function GenomicsPage({ user }: { user?: any }) {
                 <div key={panel.id} className="border rounded-lg p-4 flex items-start justify-between gap-4">
                   <div>
                     <div className="font-semibold">{panel.condition}</div>
-                    <div className="text-sm text-gray-600">
+                    <div className="text-sm text-muted-foreground">
                       {panel.variantCount} variants
                       {panel.pgsId ? ` · ${panel.pgsId}` : ''}
                       {panel.genomeBuild ? ` · ${panel.genomeBuild}` : ''}
                     </div>
-                    <div className="text-xs text-gray-500 mt-1">
+                    <div className="text-xs text-muted-foreground mt-1">
                       Reference distribution installed: {panel.hasReferenceDistribution ? 'yes' : 'no — percentiles withheld'}
                     </div>
                   </div>
                   <Badge
                     variant="outline"
                     className={panel.clinicalUseAllowed
-                      ? 'text-green-700 border-green-300'
-                      : 'text-red-700 border-red-300'}
+                      ? 'text-green-700 dark:text-green-400 border-green-300 dark:border-green-400/40'
+                      : 'text-red-700 dark:text-red-400 border-red-300 dark:border-red-400/40'}
                   >
                     {panel.clinicalUseAllowed ? 'Sourced' : 'Synthetic — not clinical'}
                   </Badge>
@@ -274,15 +277,15 @@ export default function GenomicsPage({ user }: { user?: any }) {
                 <div className="border rounded-lg p-4 flex items-start justify-between gap-4">
                   <div>
                     <div className="font-semibold">Actionable variants</div>
-                    <div className="text-sm text-gray-600">
+                    <div className="text-sm text-muted-foreground">
                       {panels.actionablePanel.variantCount} positions · {panels.actionablePanel.source} ({panels.actionablePanel.version})
                     </div>
                   </div>
                   <Badge
                     variant="outline"
                     className={panels.actionablePanel.clinicalUseAllowed
-                      ? 'text-green-700 border-green-300'
-                      : 'text-red-700 border-red-300'}
+                      ? 'text-green-700 dark:text-green-400 border-green-300 dark:border-green-400/40'
+                      : 'text-red-700 dark:text-red-400 border-red-300 dark:border-red-400/40'}
                   >
                     {panels.actionablePanel.clinicalUseAllowed ? 'Sourced' : 'Synthetic — not clinical'}
                   </Badge>
@@ -314,7 +317,7 @@ export default function GenomicsPage({ user }: { user?: any }) {
                     <div key={scope.scope} className="flex items-start justify-between gap-4 border rounded-lg p-4">
                       <div className="flex-1">
                         <div className="font-medium">{prettyGroup(scope.scope)}</div>
-                        <p className="text-sm text-gray-600">{scope.description}</p>
+                        <p className="text-sm text-muted-foreground">{scope.description}</p>
                       </div>
                       <Switch
                         checked={consents?.consents?.[scope.scope]?.granted === true}
@@ -340,17 +343,17 @@ export default function GenomicsPage({ user }: { user?: any }) {
                         <div key={entry.id} className="flex items-center justify-between border-b py-2 gap-2">
                           <span className="font-mono text-xs">{new Date(entry.occurredAt).toLocaleString()}</span>
                           <span>{entry.action}</span>
-                          <span className="text-gray-600">{entry.accessedByRole ?? 'unknown role'}</span>
+                          <span className="text-muted-foreground">{entry.accessedByRole ?? 'unknown role'}</span>
                           <Badge variant="outline" className={entry.granted
-                            ? 'text-green-700 border-green-300'
-                            : 'text-red-700 border-red-300'}>
+                            ? 'text-green-700 dark:text-green-400 border-green-300 dark:border-green-400/40'
+                            : 'text-red-700 dark:text-red-400 border-red-300 dark:border-red-400/40'}>
                             {entry.granted ? 'allowed' : 'refused'}
                           </Badge>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-sm text-gray-600">No access recorded yet.</p>
+                    <p className="text-sm text-muted-foreground">No access recorded yet.</p>
                   )}
                 </CardContent>
               </Card>
@@ -391,7 +394,7 @@ export default function GenomicsPage({ user }: { user?: any }) {
                       value={ancestry}
                       onChange={(e) => setAncestry(e.target.value)}
                     />
-                    <p className="text-xs text-gray-600 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                       Used only to report how well a score transfers to you. It is never
                       inferred from your DNA, and leaving it blank does not default to
                       European — percentiles are withheld instead.
@@ -420,9 +423,9 @@ export default function GenomicsPage({ user }: { user?: any }) {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     {!risk.clinicalUseAllowed && (
-                      <Alert className="border-red-300 bg-red-50">
+                      <Alert className="border-red-300 dark:border-red-400/40 bg-red-50">
                         <FileWarning className="h-4 w-4" />
-                        <AlertDescription className="text-red-900">
+                        <AlertDescription className="text-red-800 dark:text-red-200">
                           <strong>Not usable clinically.</strong> This assessment drew on
                           synthetic test panels, so the numbers carry no medical meaning.
                           Install real PGS Catalog and ClinVar data to change this.
@@ -435,8 +438,8 @@ export default function GenomicsPage({ user }: { user?: any }) {
                       <div className="font-semibold mb-1">
                         How well this applies to you — {prettyGroup(risk.ancestry.group)}
                       </div>
-                      <p className="text-sm text-gray-700">{risk.ancestry.guidance}</p>
-                      <p className="text-xs text-gray-500 mt-2">{risk.ancestry.citation}</p>
+                      <p className="text-sm text-foreground">{risk.ancestry.guidance}</p>
+                      <p className="text-xs text-muted-foreground mt-2">{risk.ancestry.citation}</p>
                     </div>
 
                     {/* Polygenic component */}
@@ -448,7 +451,7 @@ export default function GenomicsPage({ user }: { user?: any }) {
                             <div className="text-sm mb-2">
                               {risk.polygenic.percentile}th percentile
                               {risk.polygenic.percentileInterval && (
-                                <span className="text-gray-600">
+                                <span className="text-muted-foreground">
                                   {' '}(plausible range {risk.polygenic.percentileInterval.low}–
                                   {risk.polygenic.percentileInterval.high})
                                 </span>
@@ -457,7 +460,7 @@ export default function GenomicsPage({ user }: { user?: any }) {
                             {risk.polygenic.percentileInterval && (
                               // The band widens as transferability falls. A very wide
                               // band is meant to look uninformative, because it is.
-                              <div className="relative w-full h-3 bg-gray-200 rounded">
+                              <div className="relative w-full h-3 bg-slate-200 dark:bg-slate-600 rounded">
                                 <div
                                   className="absolute h-full bg-blue-400/60 rounded"
                                   style={{
@@ -473,17 +476,17 @@ export default function GenomicsPage({ user }: { user?: any }) {
                             )}
                           </>
                         ) : (
-                          <p className="text-sm text-amber-800">
+                          <p className="text-sm text-amber-700 dark:text-amber-300">
                             No percentile: {risk.polygenic.percentileWithheldReason}
                           </p>
                         )
                       ) : (
-                        <p className="text-sm text-gray-600">
+                        <p className="text-sm text-muted-foreground">
                           No polygenic score — no genotype profile or no panel installed.
                         </p>
                       )}
                       {risk.polygenic && (
-                        <p className="text-xs text-gray-500 mt-2">
+                        <p className="text-xs text-muted-foreground mt-2">
                           Panel coverage {risk.polygenic.coveragePct}% (
                           {risk.polygenic.matchedVariants}/{risk.polygenic.panelSize} variants)
                         </p>
@@ -496,15 +499,15 @@ export default function GenomicsPage({ user }: { user?: any }) {
                         <div className="font-semibold mb-2">High-penetrance variants</div>
                         {risk.actionableVariants.findings.length ? (
                           risk.actionableVariants.findings.map((finding, i) => (
-                            <div key={i} className="text-sm text-red-800">
+                            <div key={i} className="text-sm text-red-700 dark:text-red-300">
                               {finding.gene} — {finding.classification.replace(/_/g, ' ')} ({finding.copies} cop
                               {finding.copies === 1 ? 'y' : 'ies'}) · {finding.condition}
                             </div>
                           ))
                         ) : (
-                          <p className="text-sm text-gray-700">No reportable findings.</p>
+                          <p className="text-sm text-foreground">No reportable findings.</p>
                         )}
-                        <p className="text-xs text-gray-500 mt-2">
+                        <p className="text-xs text-muted-foreground mt-2">
                           {risk.actionableVariants.notAssayedCount} panel positions were not
                           present in your file. Those are unknown, not negative.
                         </p>
@@ -519,13 +522,13 @@ export default function GenomicsPage({ user }: { user?: any }) {
                           <li key={i}>
                             <span className="font-medium">{prettyGroup(contribution.source)}</span>
                             {' — '}
-                            <span className="text-blue-800">{contribution.effect}</span>
-                            <div className="text-gray-700">{contribution.detail}</div>
+                            <span className="text-blue-700 dark:text-blue-300">{contribution.effect}</span>
+                            <div className="text-foreground">{contribution.detail}</div>
                           </li>
                         ))}
                       </ul>
                       {risk.missingInputs.length > 0 && (
-                        <div className="mt-3 text-sm text-gray-600">
+                        <div className="mt-3 text-sm text-muted-foreground">
                           <div className="font-medium">Not available:</div>
                           <ul className="list-disc ml-5">
                             {risk.missingInputs.map((missing, i) => <li key={i}>{missing}</li>)}
@@ -536,7 +539,7 @@ export default function GenomicsPage({ user }: { user?: any }) {
 
                     <Alert className="border-amber-300 bg-amber-50">
                       <AlertTriangle className="h-4 w-4" />
-                      <AlertDescription className="text-amber-900 text-sm">
+                      <AlertDescription className="text-amber-800 dark:text-amber-200 text-sm">
                         <ul className="list-disc ml-4 space-y-1">
                           {risk.caveats.map((caveat, i) => <li key={i}>{caveat}</li>)}
                         </ul>

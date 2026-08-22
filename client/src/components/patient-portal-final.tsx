@@ -214,7 +214,7 @@ export default function PatientPortalFinal({ user }: { user: any }) {
       case 'scheduled': return 'bg-blue-100 text-blue-800 border-blue-300';
       case 'completed': return 'bg-green-100 text-green-800 border-green-300';
       case 'cancelled': return 'bg-red-100 text-red-800 border-red-300';
-      default: return 'bg-gray-100 text-gray-800 border-gray-300';
+      default: return 'bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-600';
     }
   };
 

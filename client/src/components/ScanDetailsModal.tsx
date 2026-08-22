@@ -81,7 +81,7 @@ export const ScanDetailsModal: React.FC<ScanDetailsModalProps> = ({ isOpen, onCl
       case 'high': return 'text-red-500 bg-red-100 border-red-300';
       case 'medium': return 'text-yellow-600 bg-yellow-100 border-yellow-300';
       case 'low': return 'text-green-600 bg-green-100 border-green-300';
-      default: return 'text-gray-600 bg-gray-100 border-gray-300';
+      default: return 'text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 border-slate-300 dark:border-slate-600';
     }
   };
 

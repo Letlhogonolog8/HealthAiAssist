@@ -145,7 +145,7 @@ export function NotificationCenter({ className, showAll = false }: NotificationC
   const getNotificationIcon = (type: string, priority: string) => {
     const iconClass = `w-5 h-5 ${priority === 'urgent' ? 'text-red-500' : 
       priority === 'high' ? 'text-orange-500' : 
-      priority === 'medium' ? 'text-blue-500' : 'text-gray-500'}`;
+      priority === 'medium' ? 'text-blue-500' : 'text-muted-foreground'}`;
 
     switch (type) {
       case 'appointment':

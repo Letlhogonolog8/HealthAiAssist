@@ -146,7 +146,7 @@ export default function CancerRiskQuestionnaire({ user, onAppointmentRecommended
       case 'low': return 'text-green-900 bg-green-200 border-green-600';
       case 'moderate': return 'text-yellow-900 bg-yellow-200 border-yellow-600';
       case 'high': return 'text-red-900 bg-red-300 border-red-700';
-      default: return 'text-gray-800 bg-gray-100 border-gray-400';
+      default: return 'text-foreground bg-slate-100 dark:bg-slate-700 border-gray-400';
     }
   };
 
@@ -155,7 +155,7 @@ export default function CancerRiskQuestionnaire({ user, onAppointmentRecommended
       case 'low': return <CheckCircle className="w-5 h-5 text-green-700" />;
       case 'moderate': return <AlertCircle className="w-5 h-5 text-yellow-700" />;
       case 'high': return <AlertTriangle className="w-5 h-5 text-red-700" />;
-      default: return <AlertCircle className="w-5 h-5 text-gray-700" />;
+      default: return <AlertCircle className="w-5 h-5 text-foreground" />;
     }
   };
 
@@ -171,7 +171,7 @@ export default function CancerRiskQuestionnaire({ user, onAppointmentRecommended
           Your responses will help determine if you need additional screening or consultation.
         </CardDescription>
         <div className="space-y-2">
-          <div className="flex justify-between text-sm text-gray-600">
+          <div className="flex justify-between text-sm text-muted-foreground">
             <span>Step {currentStep} of {totalSteps}</span>
             <span>{Math.round(progress)}% Complete</span>
           </div>
@@ -271,7 +271,7 @@ export default function CancerRiskQuestionnaire({ user, onAppointmentRecommended
         {currentStep === 3 && (
           <div className="space-y-4">
             <h3 className="font-semibold text-lg">Current Symptoms</h3>
-            <p className="text-sm text-gray-600">Select any symptoms you've experienced recently:</p>
+            <p className="text-sm text-muted-foreground">Select any symptoms you've experienced recently:</p>
             
             <div className="grid grid-cols-2 gap-3">
               {[
@@ -540,7 +540,7 @@ export default function CancerRiskQuestionnaire({ user, onAppointmentRecommended
                         <DialogHeader>
                           <DialogTitle>Schedule Medical Appointment</DialogTitle>
                         </DialogHeader>
-                        <p className="text-sm text-gray-600">
+                        <p className="text-sm text-muted-foreground">
                           Based on your risk assessment, we recommend scheduling an appointment with a {results.appointmentSuggestion.specialization} specialist.
                         </p>
                         <Button onClick={() => {

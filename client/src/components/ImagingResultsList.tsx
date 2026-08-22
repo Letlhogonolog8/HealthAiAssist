@@ -62,7 +62,7 @@ export default function ImagingResultsList({ results, onViewResult, onDeleteResu
       case 'high': return 'bg-red-100 text-red-800 border-red-300';
       case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
       case 'low': return 'bg-green-100 text-green-800 border-green-300';
-      default: return 'bg-gray-100 text-gray-800 border-gray-300';
+      default: return 'bg-slate-100 dark:bg-slate-700 text-foreground border-gray-300';
     }
   };
 
@@ -113,7 +113,7 @@ export default function ImagingResultsList({ results, onViewResult, onDeleteResu
               <Brain className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-gray-800">Medical Imaging Results</h2>
+              <h2 className="text-xl font-bold text-foreground">Medical Imaging Results</h2>
               <p className="text-sm text-blue-600 font-medium">{results.length} total analyses</p>
             </div>
           </CardTitle>
@@ -186,8 +186,8 @@ export default function ImagingResultsList({ results, onViewResult, onDeleteResu
         <Card className="text-center py-12">
           <CardContent>
             <Brain className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-            <h3 className="text-lg font-semibold text-gray-600 mb-2">No Results Found</h3>
-            <p className="text-gray-500">Try adjusting your search or filter criteria</p>
+            <h3 className="text-lg font-semibold text-muted-foreground mb-2">No Results Found</h3>
+            <p className="text-muted-foreground">Try adjusting your search or filter criteria</p>
           </CardContent>
         </Card>
       ) : (
@@ -197,8 +197,8 @@ export default function ImagingResultsList({ results, onViewResult, onDeleteResu
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
-                    <h3 className="font-bold text-gray-800 truncate">{result.patientName}</h3>
-                    <p className="text-sm text-gray-600">{result.scanType.toUpperCase()}</p>
+                    <h3 className="font-bold text-foreground truncate">{result.patientName}</h3>
+                    <p className="text-sm text-muted-foreground">{result.scanType.toUpperCase()}</p>
                   </div>
                   <Badge className={`${getRiskColor(result.riskLevel ?? '')} text-xs`}>
                     {result.riskLevel ? result.riskLevel.toUpperCase() : 'NOT ASSESSED'}
@@ -212,16 +212,16 @@ export default function ImagingResultsList({ results, onViewResult, onDeleteResu
                     <div className="text-2xl font-bold text-blue-600">
                       {result.confidence === null ? '—' : `${result.confidence}%`}
                     </div>
-                    <div className="text-xs text-gray-600">Confidence</div>
+                    <div className="text-xs text-muted-foreground">Confidence</div>
                   </div>
                   <div className="text-center p-3 bg-gray-50 rounded-lg">
-                    <div className="text-sm font-bold text-gray-800">{result.primaryFinding}</div>
-                    <div className="text-xs text-gray-600">Finding</div>
+                    <div className="text-sm font-bold text-foreground">{result.primaryFinding}</div>
+                    <div className="text-xs text-muted-foreground">Finding</div>
                   </div>
                 </div>
 
                 {/* Analysis Date */}
-                <div className="flex items-center gap-2 text-sm text-gray-600">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Calendar className="w-4 h-4" />
                   <span>{new Date(result.analysisDate).toLocaleDateString()}</span>
                 </div>
@@ -260,7 +260,7 @@ export default function ImagingResultsList({ results, onViewResult, onDeleteResu
         <Card className="border-0 shadow-lg">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
-              <div className="text-sm text-gray-600">
+              <div className="text-sm text-muted-foreground">
                 Showing {startIndex + 1}-{Math.min(startIndex + itemsPerPage, filteredAndSortedResults.length)} of {filteredAndSortedResults.length} results
               </div>
               <div className="flex items-center gap-2">

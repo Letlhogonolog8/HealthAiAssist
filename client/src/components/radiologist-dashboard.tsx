@@ -210,7 +210,7 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
       case 'high': return 'bg-orange-100 text-orange-800 border-orange-300 font-semibold';
       case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-300 font-medium';
       case 'low': return 'bg-green-100 text-green-800 border-green-300 font-medium';
-      default: return 'bg-gray-100 text-gray-800 border-gray-300 font-medium';
+      default: return 'bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-600 font-medium';
     }
   };
 

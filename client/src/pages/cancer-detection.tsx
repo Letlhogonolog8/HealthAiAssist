@@ -134,7 +134,7 @@ export default function CancerDetection() {
         <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
           AI-Powered Cancer Detection Platform
         </h1>
-        <p className="text-xl text-gray-600 max-w-3xl mx-auto">
+        <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
           Advanced medical imaging analysis using cutting-edge artificial intelligence for early cancer detection and diagnosis across multiple organ systems.
         </p>
         <div className="flex justify-center gap-4">
@@ -191,10 +191,10 @@ export default function CancerDetection() {
                           </div>
                           <div>
                             <h3 className="font-semibold text-lg mb-2">{type.name}</h3>
-                            <p className="text-sm text-gray-600 mb-3">{type.description}</p>
+                            <p className="text-sm text-muted-foreground mb-3">{type.description}</p>
                             <div className="space-y-1">
                               {type.features.map((feature, index) => (
-                                <div key={index} className="flex items-center text-xs text-gray-500">
+                                <div key={index} className="flex items-center text-xs text-muted-foreground">
                                   <div className="w-1.5 h-1.5 bg-blue-500 rounded-full mr-2" />
                                   {feature}
                                 </div>
@@ -252,14 +252,14 @@ export default function CancerDetection() {
                 on 660 and 1,244 research images with no radiologist adjudication. */}
             <div>
               <h3 className="font-semibold text-lg mb-2">No regulatory clearance</h3>
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-muted-foreground">
                 Not a registered medical device in any jurisdiction. A research
                 prototype for screening triage, not for clinical decisions.
               </p>
             </div>
             <div>
               <h3 className="font-semibold text-lg mb-2">Evaluation, not validation</h3>
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-muted-foreground">
                 Measured retrospectively on held-out research images — 660 for skin,
                 1,244 for lung. No prospective study and no clinical validation. See
                 MODEL_CARDS.md for the figures and their limits.
@@ -267,7 +267,7 @@ export default function CancerDetection() {
             </div>
             <div>
               <h3 className="font-semibold text-lg mb-2">Access controlled</h3>
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-muted-foreground">
                 Role-based access with session authentication, and every genomic data
                 access recorded in an audit log. No compliance certification is
                 claimed.

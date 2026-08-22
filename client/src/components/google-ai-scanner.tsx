@@ -177,7 +177,7 @@ export default function GoogleAIScannerFixed() {
       case 'high': return 'bg-red-100 text-red-800 border-red-300';
       case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
       case 'low': return 'bg-green-100 text-green-800 border-green-300';
-      default: return 'bg-gray-100 text-gray-800 border-gray-300';
+      default: return 'bg-slate-100 dark:bg-slate-700 text-foreground border-gray-300';
     }
   };
 
@@ -201,10 +201,10 @@ export default function GoogleAIScannerFixed() {
                 <FileImage className="w-16 h-16 mx-auto text-green-600" />
                 <div>
                   <p className="font-medium text-lg">{selectedFile.name}</p>
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-muted-foreground">
                     Size: {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
                   </p>
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-muted-foreground">
                     Type: {selectedFile.type}
                   </p>
                 </div>
@@ -236,7 +236,7 @@ export default function GoogleAIScannerFixed() {
                 <Upload className="w-16 h-16 mx-auto text-gray-400" />
                 <div>
                   <h3 className="text-lg font-medium">Upload Medical Image</h3>
-                  <p className="text-gray-500">
+                  <p className="text-muted-foreground">
                     Select a medical scan image for AI analysis
                   </p>
                   <p className="text-sm text-gray-400 mt-2">
@@ -311,7 +311,7 @@ export default function GoogleAIScannerFixed() {
             {analyzeImageMutation.isPending && (
               <div className="text-center space-y-2">
                 <Progress value={65} className="w-full" />
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-muted-foreground">
                   Analyzing medical image with advanced Health AI algorithms...
                 </p>
               </div>

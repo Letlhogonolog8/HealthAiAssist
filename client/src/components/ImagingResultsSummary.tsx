@@ -38,7 +38,7 @@ export default function ImagingResultsSummary({ results, onViewAll }: ImagingRes
       case 'high': return 'bg-red-100 text-red-800 border-red-300';
       case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
       case 'low': return 'bg-green-100 text-green-800 border-green-300';
-      default: return 'bg-gray-100 text-gray-800 border-gray-300';
+      default: return 'bg-slate-100 dark:bg-slate-700 text-foreground border-gray-300';
     }
   };
 
@@ -47,8 +47,8 @@ export default function ImagingResultsSummary({ results, onViewAll }: ImagingRes
       <Card className="shadow-lg border-0 bg-gradient-to-r from-gray-50 to-slate-50">
         <CardContent className="text-center py-8">
           <Brain className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-          <h3 className="text-lg font-semibold text-gray-600 mb-2">No Analysis Results Yet</h3>
-          <p className="text-gray-500">Upload and analyze medical images to see results here</p>
+          <h3 className="text-lg font-semibold text-muted-foreground mb-2">No Analysis Results Yet</h3>
+          <p className="text-muted-foreground">Upload and analyze medical images to see results here</p>
         </CardContent>
       </Card>
     );
@@ -64,7 +64,7 @@ export default function ImagingResultsSummary({ results, onViewAll }: ImagingRes
               <BarChart3 className="w-6 h-6 text-blue-600" />
             </div>
             <div className="text-2xl font-bold text-blue-600">{results.length}</div>
-            <div className="text-sm text-gray-600">Total Scans</div>
+            <div className="text-sm text-muted-foreground">Total Scans</div>
           </CardContent>
         </Card>
 
@@ -74,7 +74,7 @@ export default function ImagingResultsSummary({ results, onViewAll }: ImagingRes
               <Activity className="w-6 h-6 text-green-600" />
             </div>
             <div className="text-2xl font-bold text-green-600">{avgConfidence}%</div>
-            <div className="text-sm text-gray-600">Avg Confidence</div>
+            <div className="text-sm text-muted-foreground">Avg Confidence</div>
           </CardContent>
         </Card>
 
@@ -84,7 +84,7 @@ export default function ImagingResultsSummary({ results, onViewAll }: ImagingRes
               <AlertTriangle className="w-6 h-6 text-red-600" />
             </div>
             <div className="text-2xl font-bold text-red-600">{highRiskCount}</div>
-            <div className="text-sm text-gray-600">High Risk</div>
+            <div className="text-sm text-muted-foreground">High Risk</div>
           </CardContent>
         </Card>
 
@@ -94,7 +94,7 @@ export default function ImagingResultsSummary({ results, onViewAll }: ImagingRes
               <CheckCircle className="w-6 h-6 text-purple-600" />
             </div>
             <div className="text-2xl font-bold text-purple-600">{abnormalCount}</div>
-            <div className="text-sm text-gray-600">Abnormal</div>
+            <div className="text-sm text-muted-foreground">Abnormal</div>
           </CardContent>
         </Card>
       </div>
@@ -114,22 +114,22 @@ export default function ImagingResultsSummary({ results, onViewAll }: ImagingRes
         </CardHeader>
         <CardContent className="space-y-3">
           {recentResults.map((result, index) => (
-            <div key={result.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+            <div key={result.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-slate-100 dark:bg-slate-700 transition-colors">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
                   <span className="text-sm font-bold text-blue-600">{index + 1}</span>
                 </div>
                 <div>
-                  <div className="font-medium text-gray-800">{result.scanType.toUpperCase()}</div>
-                  <div className="text-sm text-gray-600">
+                  <div className="font-medium text-foreground">{result.scanType.toUpperCase()}</div>
+                  <div className="text-sm text-muted-foreground">
                     {new Date(result.analysisDate).toLocaleDateString()}
                   </div>
                 </div>
               </div>
               <div className="flex items-center gap-3">
                 <div className="text-right">
-                  <div className="text-sm font-bold text-gray-800">{result.confidence}%</div>
-                  <div className="text-xs text-gray-600">Confidence</div>
+                  <div className="text-sm font-bold text-foreground">{result.confidence}%</div>
+                  <div className="text-xs text-muted-foreground">Confidence</div>
                 </div>
                 <Badge className={`${getRiskColor(result.riskLevel)} text-xs`}>
                   {result.riskLevel.toUpperCase()}

@@ -336,7 +336,7 @@ export default function BloodTestAnalyzer() {
       case 'high': return 'bg-red-100 text-red-800 border-red-300';
       case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
       case 'low': return 'bg-green-100 text-green-800 border-green-300';
-      default: return 'bg-gray-100 text-gray-800 border-gray-300';
+      default: return 'bg-slate-100 dark:bg-slate-700 text-foreground border-gray-300';
     }
   };
 
@@ -433,7 +433,7 @@ export default function BloodTestAnalyzer() {
                   value={testValues.cea}
                   onChange={(e) => handleInputChange('cea', e.target.value)}
                 />
-                <p className="text-xs text-gray-500">Colorectal, Lung, Breast</p>
+                <p className="text-xs text-muted-foreground">Colorectal, Lung, Breast</p>
               </div>
 
               <div className="space-y-2">
@@ -446,7 +446,7 @@ export default function BloodTestAnalyzer() {
                   value={testValues.ca125}
                   onChange={(e) => handleInputChange('ca125', e.target.value)}
                 />
-                <p className="text-xs text-gray-500">Ovarian, Pancreatic</p>
+                <p className="text-xs text-muted-foreground">Ovarian, Pancreatic</p>
               </div>
 
               <div className="space-y-2">
@@ -459,7 +459,7 @@ export default function BloodTestAnalyzer() {
                   value={testValues.ca153}
                   onChange={(e) => handleInputChange('ca153', e.target.value)}
                 />
-                <p className="text-xs text-gray-500">Breast Cancer</p>
+                <p className="text-xs text-muted-foreground">Breast Cancer</p>
               </div>
 
               <div className="space-y-2">
@@ -472,7 +472,7 @@ export default function BloodTestAnalyzer() {
                   value={testValues.ca199}
                   onChange={(e) => handleInputChange('ca199', e.target.value)}
                 />
-                <p className="text-xs text-gray-500">Pancreatic, Colorectal</p>
+                <p className="text-xs text-muted-foreground">Pancreatic, Colorectal</p>
               </div>
 
               <div className="space-y-2">
@@ -485,7 +485,7 @@ export default function BloodTestAnalyzer() {
                   value={testValues.psa}
                   onChange={(e) => handleInputChange('psa', e.target.value)}
                 />
-                <p className="text-xs text-gray-500">Prostate Cancer (Male)</p>
+                <p className="text-xs text-muted-foreground">Prostate Cancer (Male)</p>
               </div>
 
               <div className="space-y-2">
@@ -498,7 +498,7 @@ export default function BloodTestAnalyzer() {
                   value={testValues.afp}
                   onChange={(e) => handleInputChange('afp', e.target.value)}
                 />
-                <p className="text-xs text-gray-500">Liver, Testicular</p>
+                <p className="text-xs text-muted-foreground">Liver, Testicular</p>
               </div>
 
               <div className="space-y-2">
@@ -511,7 +511,7 @@ export default function BloodTestAnalyzer() {
                   value={testValues.ldh}
                   onChange={(e) => handleInputChange('ldh', e.target.value)}
                 />
-                <p className="text-xs text-gray-500">General Cancer Marker</p>
+                <p className="text-xs text-muted-foreground">General Cancer Marker</p>
               </div>
 
               <div className="space-y-2">
@@ -524,7 +524,7 @@ export default function BloodTestAnalyzer() {
                   value={testValues.scc}
                   onChange={(e) => handleInputChange('scc', e.target.value)}
                 />
-                <p className="text-xs text-gray-500">Cervical, Skin Cancer</p>
+                <p className="text-xs text-muted-foreground">Cervical, Skin Cancer</p>
               </div>
             </div>
           </div>
@@ -556,7 +556,7 @@ export default function BloodTestAnalyzer() {
           {analyzeBloodTestMutation.isPending && (
             <div className="text-center space-y-2">
               <Progress value={75} className="w-full" />
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-muted-foreground">
                 Processing tumor markers and cancer risk assessment...
               </p>
             </div>
@@ -584,7 +584,7 @@ export default function BloodTestAnalyzer() {
                   <Badge className={`mb-2 ${getRiskColor(analysisResult.riskLevel)}`}>
                     {analysisResult.riskLevel.toUpperCase()} RISK
                   </Badge>
-                  <div className="text-sm text-gray-600">Cancer Risk Level</div>
+                  <div className="text-sm text-muted-foreground">Cancer Risk Level</div>
                 </CardContent>
               </Card>
               <Card>
@@ -592,7 +592,7 @@ export default function BloodTestAnalyzer() {
                   <div className="text-lg font-semibold mb-2 text-red-600 capitalize">
                     {analysisResult.cancerType !== 'unknown' ? `${analysisResult.cancerType} Cancer` : 'General Screening'}
                   </div>
-                  <div className="text-sm text-gray-600">Primary Concern</div>
+                  <div className="text-sm text-muted-foreground">Primary Concern</div>
                 </CardContent>
               </Card>
             </div>
@@ -629,7 +629,7 @@ export default function BloodTestAnalyzer() {
                             {marker.value}
                           </Badge>
                         </div>
-                        <p className="text-sm text-gray-600 mb-1">
+                        <p className="text-sm text-muted-foreground mb-1">
                           <strong>Normal Range:</strong> {marker.normalRange}
                         </p>
                         <p className="text-sm text-red-700">

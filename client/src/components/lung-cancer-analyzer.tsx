@@ -289,7 +289,7 @@ export default function LungCancerAnalyzer() {
       case 'low': return 'bg-green-100 text-green-800';
       case 'intermediate': return 'bg-yellow-100 text-yellow-800';
       case 'high': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
+      default: return 'bg-slate-100 dark:bg-slate-700 text-foreground';
     }
   };
 
@@ -351,8 +351,8 @@ export default function LungCancerAnalyzer() {
                   <div className="space-y-4">
                     <Wind className="w-16 h-16 text-gray-400 mx-auto" />
                     <div>
-                      <p className="text-lg font-medium text-gray-700">Upload Chest Imaging</p>
-                      <p className="text-sm text-gray-500">
+                      <p className="text-lg font-medium text-foreground">Upload Chest Imaging</p>
+                      <p className="text-sm text-muted-foreground">
                         Chest X-rays, CT scans, or PET scans accepted
                       </p>
                     </div>
@@ -492,12 +492,12 @@ export default function LungCancerAnalyzer() {
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium">Analysis Progress</span>
-                    <span className="text-sm text-gray-500">{Math.round(analysisProgress)}%</span>
+                    <span className="text-sm text-muted-foreground">{Math.round(analysisProgress)}%</span>
                   </div>
                   <Progress value={analysisProgress} className="w-full" />
                   <div className="text-center space-y-2">
                     <Activity className="w-8 h-8 text-blue-600 mx-auto animate-pulse" />
-                    <p className="text-sm text-gray-600">
+                    <p className="text-sm text-muted-foreground">
                       AI is analyzing your chest imaging for lung cancer indicators...
                     </p>
                   </div>
@@ -609,7 +609,7 @@ export default function LungCancerAnalyzer() {
             <Card>
               <CardContent className="p-8 text-center">
                 <Wind className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-600">No analysis results yet. Please complete the analysis process.</p>
+                <p className="text-muted-foreground">No analysis results yet. Please complete the analysis process.</p>
               </CardContent>
             </Card>
           )}

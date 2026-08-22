@@ -124,7 +124,7 @@ export function AppointmentResponseModal({ appointment, isOpen, onClose }: Appoi
                   appointment.status === 'scheduled' ? 'bg-yellow-100 text-yellow-800' :
                   appointment.status === 'confirmed' ? 'bg-green-100 text-green-800' :
                   appointment.status === 'cancelled' ? 'bg-red-100 text-red-800' :
-                  'bg-gray-100 text-gray-800'
+                  'bg-slate-100 dark:bg-slate-700 text-foreground'
                 }`}>
                   {appointment.status}
                 </span>

@@ -281,7 +281,7 @@ export default function MultiCancerDetectionSystem() {
       case 'low': return 'bg-blue-100 text-blue-900 border-blue-300';
       case 'medium': return 'bg-green-100 text-green-900 border-green-300';
       case 'high': return 'bg-red-100 text-red-900 border-red-300';
-      default: return 'bg-gray-100 text-gray-800 border-gray-300';
+      default: return 'bg-slate-100 dark:bg-slate-700 text-foreground border-gray-300';
     }
   };
 
@@ -290,7 +290,7 @@ export default function MultiCancerDetectionSystem() {
       case 'routine': return 'bg-blue-100 text-blue-800';
       case 'expedited': return 'bg-yellow-100 text-yellow-800';
       case 'urgent': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
+      default: return 'bg-slate-100 dark:bg-slate-700 text-foreground';
     }
   };
 
@@ -357,17 +357,17 @@ export default function MultiCancerDetectionSystem() {
                                   Model available
                                 </Badge>
                               ) : (
-                                <Badge variant="outline" className="text-gray-600 border-gray-300">
+                                <Badge variant="outline" className="text-muted-foreground border-gray-300">
                                   Not available
                                 </Badge>
                               )}
                             </div>
-                            <p className="text-sm text-gray-600 mb-2">{type.description}</p>
+                            <p className="text-sm text-muted-foreground mb-2">{type.description}</p>
 
                             {available && capability?.evaluation ? (
                               // Measured performance, shown up front rather than buried.
                               // Sensitivity is what a patient is actually relying on.
-                              <p className="text-xs text-gray-600">
+                              <p className="text-xs text-muted-foreground">
                                 Measured sensitivity{' '}
                                 <strong>{(capability.evaluation.sensitivity * 100).toFixed(1)}%</strong>,
                                 specificity{' '}
@@ -375,14 +375,14 @@ export default function MultiCancerDetectionSystem() {
                                 on a held-out test set. Screening triage only.
                               </p>
                             ) : (
-                              <p className="text-xs text-gray-600">
+                              <p className="text-xs text-muted-foreground">
                                 {capability?.disabledReason
                                   ? 'Disabled: this model did not pass evaluation.'
                                   : 'No trained model exists for this modality yet, so it cannot be analysed.'}
                               </p>
                             )}
 
-                            <p className="text-xs text-gray-500 mt-1">
+                            <p className="text-xs text-muted-foreground mt-1">
                               <strong>Accepted:</strong> {type.acceptedFiles}
                             </p>
                           </div>
@@ -451,8 +451,8 @@ export default function MultiCancerDetectionSystem() {
                       <div className="space-y-4">
                         <Upload className="w-16 h-16 text-gray-400 mx-auto" />
                         <div>
-                          <p className="text-lg font-medium text-gray-700">Upload Medical Image</p>
-                          <p className="text-sm text-gray-500">
+                          <p className="text-lg font-medium text-foreground">Upload Medical Image</p>
+                          <p className="text-sm text-muted-foreground">
                             High-quality medical images provide the best analysis results
                           </p>
                         </div>
@@ -481,10 +481,10 @@ export default function MultiCancerDetectionSystem() {
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium">Analysis Progress</span>
-                        <span className="text-sm text-gray-500">{Math.round(analysisProgress)}%</span>
+                        <span className="text-sm text-muted-foreground">{Math.round(analysisProgress)}%</span>
                       </div>
                       <Progress value={analysisProgress} className="w-full" />
-                      <p className="text-sm text-gray-600 text-center">
+                      <p className="text-sm text-muted-foreground text-center">
                         AI is analyzing your {selectedCancerType} imaging...
                       </p>
                     </div>
@@ -587,7 +587,7 @@ export default function MultiCancerDetectionSystem() {
             <Card>
               <CardContent className="p-8 text-center">
                 <Brain className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-600">No analysis results yet. Please upload and analyze an image first.</p>
+                <p className="text-muted-foreground">No analysis results yet. Please upload and analyze an image first.</p>
               </CardContent>
             </Card>
           )}

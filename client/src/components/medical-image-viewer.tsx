@@ -115,7 +115,7 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
     return (
       <Card className="h-96">
         <CardContent className="flex items-center justify-center h-full">
-          <div className="text-center text-gray-500">
+          <div className="text-center text-muted-foreground">
             <Eye className="w-12 h-12 mx-auto mb-4 opacity-50" />
             <p>Upload an image to view and analyze</p>
           </div>
@@ -135,7 +135,7 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
                 <Eye className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h2 className="text-xl font-bold text-gray-800">Medical Image Viewer</h2>
+                <h2 className="text-xl font-bold text-foreground">Medical Image Viewer</h2>
                 <p className="text-sm text-blue-600 font-medium">AI-Powered Analysis Platform</p>
               </div>
             </span>
@@ -147,7 +147,7 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
                 >
                   {analysisResult.hasCancer ? "Abnormal" : "Normal"}
                 </Badge>
-                <span className="text-sm font-semibold text-gray-600">
+                <span className="text-sm font-semibold text-muted-foreground">
                   Confidence: {analysisResult.confidence.toFixed(1)}%
                 </span>
               </div>
@@ -194,7 +194,7 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
                   <div className="p-1 bg-green-100 rounded">
                     <ZoomIn className="w-4 h-4 text-green-600" />
                   </div>
-                  <label className="text-sm font-semibold text-gray-700">Zoom: {zoom}%</label>
+                  <label className="text-sm font-semibold text-foreground">Zoom: {zoom}%</label>
                 </div>
                 <Slider
                   value={[zoom]}
@@ -210,7 +210,7 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
                   <div className="p-1 bg-yellow-100 rounded">
                     <Sun className="w-4 h-4 text-yellow-600" />
                   </div>
-                  <label className="text-sm font-semibold text-gray-700">Brightness: {brightness}%</label>
+                  <label className="text-sm font-semibold text-foreground">Brightness: {brightness}%</label>
                 </div>
                 <Slider
                   value={[brightness]}
@@ -226,7 +226,7 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
                   <div className="p-1 bg-purple-100 rounded">
                     <Contrast className="w-4 h-4 text-purple-600" />
                   </div>
-                  <label className="text-sm font-semibold text-gray-700">Contrast: {contrast}%</label>
+                  <label className="text-sm font-semibold text-foreground">Contrast: {contrast}%</label>
                 </div>
                 <Slider
                   value={[contrast]}
@@ -320,7 +320,7 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
       {/* Enhanced Image Information */}
       <Card className="shadow-lg border-0 bg-gradient-to-r from-gray-50 to-slate-50">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-gray-800">
+          <CardTitle className="flex items-center gap-2 text-foreground">
             <FileText className="w-5 h-5 text-blue-600" />
             Image Information
           </CardTitle>
@@ -330,30 +330,30 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
             <div className="p-4 bg-white rounded-lg shadow-sm border border-gray-200">
               <div className="flex items-center gap-2 mb-2">
                 <FileText className="w-4 h-4 text-blue-500" />
-                <span className="text-sm font-semibold text-gray-600">File Name</span>
+                <span className="text-sm font-semibold text-muted-foreground">File Name</span>
               </div>
-              <p className="font-bold text-gray-800 truncate" title={imageFile.name}>{imageFile.name}</p>
+              <p className="font-bold text-foreground truncate" title={imageFile.name}>{imageFile.name}</p>
             </div>
             <div className="p-4 bg-white rounded-lg shadow-sm border border-gray-200">
               <div className="flex items-center gap-2 mb-2">
                 <Activity className="w-4 h-4 text-green-500" />
-                <span className="text-sm font-semibold text-gray-600">File Size</span>
+                <span className="text-sm font-semibold text-muted-foreground">File Size</span>
               </div>
-              <p className="font-bold text-gray-800">{(imageFile.size / 1024 / 1024).toFixed(2)} MB</p>
+              <p className="font-bold text-foreground">{(imageFile.size / 1024 / 1024).toFixed(2)} MB</p>
             </div>
             <div className="p-4 bg-white rounded-lg shadow-sm border border-gray-200">
               <div className="flex items-center gap-2 mb-2">
                 <Settings className="w-4 h-4 text-purple-500" />
-                <span className="text-sm font-semibold text-gray-600">File Type</span>
+                <span className="text-sm font-semibold text-muted-foreground">File Type</span>
               </div>
-              <p className="font-bold text-gray-800">{imageFile.type}</p>
+              <p className="font-bold text-foreground">{imageFile.type}</p>
             </div>
             <div className="p-4 bg-white rounded-lg shadow-sm border border-gray-200">
               <div className="flex items-center gap-2 mb-2">
                 <Clock className="w-4 h-4 text-orange-500" />
-                <span className="text-sm font-semibold text-gray-600">Last Modified</span>
+                <span className="text-sm font-semibold text-muted-foreground">Last Modified</span>
               </div>
-              <p className="font-bold text-gray-800">{new Date(imageFile.lastModified).toLocaleDateString()}</p>
+              <p className="font-bold text-foreground">{new Date(imageFile.lastModified).toLocaleDateString()}</p>
             </div>
           </div>
         </CardContent>

@@ -594,7 +594,7 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
       <div className="text-center py-8">
         <AlertTriangle className="w-12 h-12 mx-auto mb-4 text-red-500" />
         <p className="text-red-500 mb-4">Error loading dashboard data</p>
-        <p className="text-gray-600 mb-4 text-sm">Please check your connection and try again</p>
+        <p className="text-muted-foreground mb-4 text-sm">Please check your connection and try again</p>
         <Button onClick={handleRefresh} className="bg-blue-600 hover:bg-blue-700">
           <RefreshCw className="w-4 h-4 mr-2" />
           Retry
@@ -640,7 +640,7 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
                 className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                   activeSection === id
                     ? 'bg-white dark:bg-slate-700 text-blue-700 dark:text-blue-300 shadow-sm border border-blue-100 dark:border-slate-600'
-                    : 'text-gray-700 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
                 <Icon className="w-4 h-4" />
@@ -654,7 +654,7 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
         <div className="flex justify-between items-center mb-6">
         <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Administrator Dashboard</h1>
-            <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
+            <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
             Last updated: {lastUpdated.toLocaleTimeString()}
           </p>
         </div>
@@ -758,7 +758,7 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-gray-600">Critical Alerts</p>
+                    <p className="text-sm font-medium text-muted-foreground">Critical Alerts</p>
                     <p className="text-2xl font-bold text-red-600">{dashboardData?.stats.criticalAlerts || 0}</p>
                   </div>
                   <AlertTriangle className="h-8 w-8 text-red-500" />
@@ -770,7 +770,7 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-gray-600">Database Latency</p>
+                    <p className="text-sm font-medium text-muted-foreground">Database Latency</p>
                     <p className="text-2xl font-bold text-blue-600">
                       {dashboardData?.stats.database
                         ? dashboardData.stats.database.reachable
@@ -788,7 +788,7 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-gray-600">Security Status</p>
+                    <p className="text-sm font-medium text-muted-foreground">Security Status</p>
                     <p className="text-lg font-bold text-green-600 capitalize">{dashboardData?.stats.securityStatus || 'Secure'}</p>
                   </div>
                   <Shield className="h-8 w-8 text-green-500" />
@@ -956,7 +956,7 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
             </CardTitle>
             <div className="flex items-center gap-2">
               <div className="relative">
-                <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-500" />
+                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Search users..."
                   value={searchTerm}
@@ -1199,7 +1199,7 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
               <TabsContent value={activeUserTab} className="space-y-4">
                 {filteredUsers.length === 0 ? (
                   <div className="text-center py-8">
-                    <p className="text-gray-500 mb-3">No users found in this category.</p>
+                    <p className="text-muted-foreground mb-3">No users found in this category.</p>
                     <Button
                       variant="outline"
                       onClick={() => setActiveUserTab('all')}
@@ -1229,7 +1229,7 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
                                   {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
                                 </Badge>
                               </div>
-                              <div className="space-y-1 text-sm text-gray-600">
+                              <div className="space-y-1 text-sm text-muted-foreground">
                                 <div className="flex items-center gap-2">
                                   <span>@{user.username}</span>
                                 </div>
@@ -1573,7 +1573,7 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
           </Card>
           <div className="flex justify-between items-center">
             <h2 className="text-xl font-semibold flex items-center gap-2">
-              <Settings className="w-6 h-6 text-gray-600" />
+              <Settings className="w-6 h-6 text-muted-foreground" />
               System Configuration & Management
             </h2>
             <div className="flex gap-2">
@@ -1599,7 +1599,7 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-gray-600">Server Status</p>
+                    <p className="text-sm font-medium text-muted-foreground">Server Status</p>
                     <p className="text-lg font-bold text-green-600">Online</p>
                   </div>
                   <Server className="h-8 w-8 text-green-500" />
@@ -1610,7 +1610,7 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-gray-600">Database</p>
+                    <p className="text-sm font-medium text-muted-foreground">Database</p>
                     <p className="text-lg font-bold text-blue-600">Healthy</p>
                   </div>
                   <Database className="h-8 w-8 text-blue-500" />
@@ -1621,7 +1621,7 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-gray-600">AI Models</p>
+                    <p className="text-sm font-medium text-muted-foreground">AI Models</p>
                     <p className="text-lg font-bold text-purple-600">Active</p>
                   </div>
                   <Brain className="h-8 w-8 text-purple-500" />
@@ -1632,7 +1632,7 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-gray-600">Security</p>
+                    <p className="text-sm font-medium text-muted-foreground">Security</p>
                     <p className="text-lg font-bold text-orange-600">Protected</p>
                   </div>
                   <Shield className="h-8 w-8 text-orange-500" />
@@ -1963,7 +1963,7 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
           <Card className="shadow-lg">
             <CardHeader className="bg-gradient-to-r from-gray-50 to-slate-100">
               <CardTitle className="flex items-center gap-2">
-                <Database className="h-5 w-5 text-gray-600" />
+                <Database className="h-5 w-5 text-muted-foreground" />
                 System Logs & Diagnostics
               </CardTitle>
             </CardHeader>

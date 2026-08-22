@@ -77,13 +77,13 @@ export function EnhancedDashboard({ userRole, className }: EnhancedDashboardProp
   const getTrendIcon = (trend: number) => {
     if (trend > 0) return <TrendingUp className="w-4 h-4 text-green-500" />;
     if (trend < 0) return <TrendingDown className="w-4 h-4 text-red-500" />;
-    return <Minus className="w-4 h-4 text-gray-500" />;
+    return <Minus className="w-4 h-4 text-muted-foreground" />;
   };
 
   const getTrendColor = (trend: number) => {
     if (trend > 0) return 'text-green-500';
     if (trend < 0) return 'text-red-500';
-    return 'text-gray-500';
+    return 'text-muted-foreground';
   };
 
   // Role-specific dashboard configurations
@@ -289,9 +289,9 @@ export function EnhancedDashboard({ userRole, className }: EnhancedDashboardProp
             <Card key={i}>
               <CardContent className="p-6">
                 <div className="animate-pulse space-y-3">
-                  <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-                  <div className="h-8 bg-gray-200 rounded w-3/4"></div>
-                  <div className="h-3 bg-gray-200 rounded w-1/3"></div>
+                  <div className="h-4 bg-slate-200 dark:bg-slate-600 rounded w-1/2"></div>
+                  <div className="h-8 bg-slate-200 dark:bg-slate-600 rounded w-3/4"></div>
+                  <div className="h-3 bg-slate-200 dark:bg-slate-600 rounded w-1/3"></div>
                 </div>
               </CardContent>
             </Card>

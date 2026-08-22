@@ -76,7 +76,7 @@ export default function DoctorReports({ user }: { user: any }) {
       case 'high': return 'text-orange-500';
       case 'medium': return 'text-yellow-500';
       case 'low': return 'text-green-500';
-      default: return 'text-gray-500';
+      default: return 'text-muted-foreground';
     }
   };
 
@@ -85,7 +85,7 @@ export default function DoctorReports({ user }: { user: any }) {
       case 'pending': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
       case 'reviewed': return 'bg-blue-100 text-blue-800 border-blue-300';
       case 'completed': return 'bg-green-100 text-green-800 border-green-300';
-      default: return 'bg-gray-100 text-gray-800 border-gray-300';
+      default: return 'bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-600';
     }
   };
 

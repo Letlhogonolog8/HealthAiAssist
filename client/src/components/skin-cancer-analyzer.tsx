@@ -181,7 +181,7 @@ export default function SkinCancerAnalyzer() {
       case 'low': return 'bg-blue-100 text-blue-900 border-blue-300';
       case 'medium': return 'bg-green-100 text-green-900 border-green-300';
       case 'high': return 'bg-red-100 text-red-900 border-red-300';
-      default: return 'bg-gray-100 text-gray-900 border-gray-300';
+      default: return 'bg-slate-100 dark:bg-slate-700 text-foreground border-gray-300';
     }
   };
 
@@ -190,7 +190,7 @@ export default function SkinCancerAnalyzer() {
       case 'routine': return 'bg-blue-100 text-blue-900';
       case 'expedited': return 'bg-yellow-100 text-yellow-900';
       case 'urgent': return 'bg-red-100 text-red-900';
-      default: return 'bg-gray-100 text-gray-900';
+      default: return 'bg-slate-100 dark:bg-slate-700 text-foreground';
     }
   };
 
@@ -259,8 +259,8 @@ export default function SkinCancerAnalyzer() {
                     <div className="space-y-4">
                       <Camera className="w-16 h-16 text-gray-400 mx-auto" />
                       <div>
-                        <p className="text-lg font-medium text-gray-700">Upload Skin Lesion Image</p>
-                        <p className="text-sm text-gray-500">
+                        <p className="text-lg font-medium text-foreground">Upload Skin Lesion Image</p>
+                        <p className="text-sm text-muted-foreground">
                           High-quality, well-lit photos provide the best analysis results
                         </p>
                       </div>

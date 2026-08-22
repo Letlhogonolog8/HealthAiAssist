@@ -239,7 +239,7 @@ export default function DermatologistSchedulingButton({ scanResult, urgency }: D
               <div className="space-y-4">
                 <div className="space-y-2">
                   <h3 className="text-lg font-semibold">Select a Dermatologist</h3>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-muted-foreground">
                     Based on your scan results, we recommend scheduling with one of these specialists:
                   </p>
                 </div>
@@ -339,7 +339,7 @@ export default function DermatologistSchedulingButton({ scanResult, urgency }: D
                         ))}
                       </div>
                     ) : (
-                      <p className="text-sm text-gray-500 p-4 border rounded-md">
+                      <p className="text-sm text-muted-foreground p-4 border rounded-md">
                         Please select a date to view available times
                       </p>
                     )}

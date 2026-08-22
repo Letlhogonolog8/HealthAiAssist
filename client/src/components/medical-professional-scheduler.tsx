@@ -206,7 +206,7 @@ export default function MedicalProfessionalScheduler({ user, onAppointmentBooked
                         <Stethoscope className="w-5 h-5 text-blue-600" />
                         <div>
                           <h3 className="font-semibold">{doctor.name}</h3>
-                          <p className="text-sm text-gray-600">{doctor.specialty}</p>
+                          <p className="text-sm text-muted-foreground">{doctor.specialty}</p>
                         </div>
                       </div>
                       <Badge variant={doctor.available ? "default" : "secondary"}>
@@ -235,7 +235,7 @@ export default function MedicalProfessionalScheduler({ user, onAppointmentBooked
                         <div className="w-5 h-5 bg-purple-500 rounded-full flex items-center justify-center text-white text-xs font-bold">R</div>
                         <div>
                           <h3 className="font-semibold">{radiologist.name}</h3>
-                          <p className="text-sm text-gray-600">{radiologist.specialty}</p>
+                          <p className="text-sm text-muted-foreground">{radiologist.specialty}</p>
                         </div>
                       </div>
                       <Badge variant={radiologist.available ? "default" : "secondary"} className="bg-purple-100 text-purple-800">

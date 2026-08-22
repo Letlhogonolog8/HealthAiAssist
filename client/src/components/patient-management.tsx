@@ -161,7 +161,7 @@ export default function PatientManagement() {
       case 'low': return 'bg-green-100 text-green-800';
       // No 'stable' case: nothing produces that value any more, and a blue
       // "STABLE" pill was the most reassuring thing on this screen.
-      default: return 'bg-gray-100 text-gray-800';
+      default: return 'bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200';
     }
   };
 

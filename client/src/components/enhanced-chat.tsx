@@ -308,7 +308,7 @@ export default function EnhancedChat({
       case 'error':
         return <SignalLow className="w-4 h-4 text-red-500" />;
       default:
-        return <WifiOff className="w-4 h-4 text-gray-500" />;
+        return <WifiOff className="w-4 h-4 text-muted-foreground" />;
     }
   };
   

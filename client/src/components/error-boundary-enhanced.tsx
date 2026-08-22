@@ -56,15 +56,15 @@ export default class ErrorBoundaryEnhanced extends Component<Props, State> {
               <div className="mx-auto w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4">
                 <AlertTriangle className="w-6 h-6 text-red-600" />
               </div>
-              <CardTitle className="text-xl text-gray-900">Something went wrong</CardTitle>
+              <CardTitle className="text-xl text-foreground">Something went wrong</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <p className="text-gray-600 text-center">
+              <p className="text-muted-foreground text-center">
                 We encountered an unexpected error. Please try refreshing the page or contact support if the problem persists.
               </p>
               
               {process.env.NODE_ENV === 'development' && this.state.error && (
-                <details className="mt-4 p-3 bg-gray-100 rounded text-sm">
+                <details className="mt-4 p-3 bg-slate-100 dark:bg-slate-700 rounded text-sm">
                   <summary className="cursor-pointer font-medium">Error Details</summary>
                   <pre className="mt-2 whitespace-pre-wrap text-xs">
                     {this.state.error.toString()}

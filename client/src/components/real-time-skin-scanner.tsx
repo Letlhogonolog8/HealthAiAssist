@@ -419,7 +419,7 @@ export default function RealTimeSkinScanner() {
                     Urgency Level
                     {getUrgencyIcon(scanResult.analysis.urgency)}
                   </h4>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-muted-foreground">
                     {scanResult.analysis.urgency === 'urgent' 
                       ? 'Immediate medical attention recommended'
                       : scanResult.analysis.urgency === 'expedited'
@@ -437,27 +437,27 @@ export default function RealTimeSkinScanner() {
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
                   <div className="text-center p-2 bg-gray-50 rounded">
                     <div className="font-medium">A</div>
-                    <div className="text-xs text-gray-600">Asymmetry</div>
+                    <div className="text-xs text-muted-foreground">Asymmetry</div>
                     <div className="font-bold">{scanResult.analysis.abcdeScore.asymmetry || 0}/2</div>
                   </div>
                   <div className="text-center p-2 bg-gray-50 rounded">
                     <div className="font-medium">B</div>
-                    <div className="text-xs text-gray-600">Border</div>
+                    <div className="text-xs text-muted-foreground">Border</div>
                     <div className="font-bold">{scanResult.analysis.abcdeScore.border || 0}/2</div>
                   </div>
                   <div className="text-center p-2 bg-gray-50 rounded">
                     <div className="font-medium">C</div>
-                    <div className="text-xs text-gray-600">Color</div>
+                    <div className="text-xs text-muted-foreground">Color</div>
                     <div className="font-bold">{scanResult.analysis.abcdeScore.color || 0}/2</div>
                   </div>
                   <div className="text-center p-2 bg-gray-50 rounded">
                     <div className="font-medium">D</div>
-                    <div className="text-xs text-gray-600">Diameter</div>
+                    <div className="text-xs text-muted-foreground">Diameter</div>
                     <div className="font-bold">{scanResult.analysis.abcdeScore.diameter || 0}/2</div>
                   </div>
                   <div className="text-center p-2 bg-gray-50 rounded">
                     <div className="font-medium">E</div>
-                    <div className="text-xs text-gray-600">Evolving</div>
+                    <div className="text-xs text-muted-foreground">Evolving</div>
                     <div className="font-bold">{scanResult.analysis.abcdeScore.evolving || 0}/2</div>
                   </div>
                 </div>
@@ -508,7 +508,7 @@ export default function RealTimeSkinScanner() {
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="font-semibold text-lg">Next Steps</h4>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-muted-foreground">
                     {scanResult.riskLevel === 'high' 
                       ? 'Immediate dermatologist consultation recommended'
                       : scanResult.riskLevel === 'medium'
@@ -533,7 +533,7 @@ export default function RealTimeSkinScanner() {
         <CardHeader>
           <CardTitle>Scanning Guidelines</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2 text-sm text-gray-600">
+        <CardContent className="space-y-2 text-sm text-muted-foreground">
           <p>• Position the lesion within the circle overlay</p>
           <p>• Ensure good lighting - natural light works best</p>
           <p>• Hold the device steady during capture</p>

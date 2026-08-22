@@ -41,7 +41,7 @@ export const AnalysisResultsDisplay: React.FC<AnalysisResultsProps> = ({ analysi
       case 'high': return 'bg-red-100 text-red-800 border-red-300';
       case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
       case 'low': return 'bg-green-100 text-green-800 border-green-300';
-      default: return 'bg-gray-100 text-gray-800 border-gray-300';
+      default: return 'bg-slate-100 dark:bg-slate-700 text-foreground border-gray-300';
     }
   };
 
@@ -73,19 +73,19 @@ export const AnalysisResultsDisplay: React.FC<AnalysisResultsProps> = ({ analysi
               <div className={`text-2xl font-bold ${getConfidenceColor(analysisData.confidence)}`}>
                 {analysisData.confidence}%
               </div>
-              <div className="text-sm text-gray-600">Confidence</div>
+              <div className="text-sm text-muted-foreground">Confidence</div>
             </div>
             <div className="p-3 bg-white rounded-lg">
               <Badge className={`${getRiskColor(analysisData.riskLevel)} text-sm`}>
                 {analysisData.riskLevel.toUpperCase()}
               </Badge>
-              <div className="text-sm text-gray-600 mt-1">Risk Level</div>
+              <div className="text-sm text-muted-foreground mt-1">Risk Level</div>
             </div>
             <div className="p-3 bg-white rounded-lg">
               <div className="text-lg font-bold text-purple-600">
                 {analysisData.primaryFinding}
               </div>
-              <div className="text-sm text-gray-600">Finding</div>
+              <div className="text-sm text-muted-foreground">Finding</div>
             </div>
           </div>
           <div className="text-center">
@@ -113,13 +113,13 @@ export const AnalysisResultsDisplay: React.FC<AnalysisResultsProps> = ({ analysi
               <Brain className="w-8 h-8 text-white" />
             </div>
             <div className="text-center">
-              <CardTitle className="text-3xl font-bold text-gray-800 mb-2">
+              <CardTitle className="text-3xl font-bold text-foreground mb-2">
                 {analysisData.title}
               </CardTitle>
               <p className="text-lg text-blue-700 font-semibold">{analysisData.subtitle}</p>
               <div className="flex items-center justify-center gap-2 mt-3">
-                <Clock className="w-4 h-4 text-gray-500" />
-                <span className="text-sm text-gray-600 font-medium">{analysisData.analysisDate}</span>
+                <Clock className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground font-medium">{analysisData.analysisDate}</span>
               </div>
             </div>
           </div>
@@ -148,8 +148,8 @@ export const AnalysisResultsDisplay: React.FC<AnalysisResultsProps> = ({ analysi
             <div className={`text-4xl font-bold mb-3 ${getConfidenceColor(analysisData.confidence)}`}>
               {analysisData.confidence}%
             </div>
-            <p className="text-gray-700 font-semibold text-lg">AI Confidence</p>
-            <div className="mt-3 w-full bg-gray-200 rounded-full h-2">
+            <p className="text-foreground font-semibold text-lg">AI Confidence</p>
+            <div className="mt-3 w-full bg-slate-200 dark:bg-slate-600 rounded-full h-2">
               <div 
                 className="bg-gradient-to-r from-blue-500 to-cyan-500 h-2 rounded-full transition-all duration-500" 
                 style={{ width: `${analysisData.confidence}%` }}
@@ -168,7 +168,7 @@ export const AnalysisResultsDisplay: React.FC<AnalysisResultsProps> = ({ analysi
             <Badge className={`${getRiskColor(analysisData.riskLevel)} text-xl px-6 py-3 mb-3 shadow-lg`}>
               {analysisData.riskLevel.toUpperCase()} RISK
             </Badge>
-            <p className="text-gray-700 font-semibold text-lg">Risk Assessment</p>
+            <p className="text-foreground font-semibold text-lg">Risk Assessment</p>
           </CardContent>
         </Card>
 
@@ -182,7 +182,7 @@ export const AnalysisResultsDisplay: React.FC<AnalysisResultsProps> = ({ analysi
             <div className="text-2xl font-bold text-purple-700 mb-3">
               {analysisData.primaryFinding}
             </div>
-            <p className="text-gray-700 font-semibold text-lg">Primary Finding</p>
+            <p className="text-foreground font-semibold text-lg">Primary Finding</p>
           </CardContent>
         </Card>
       </div>
@@ -234,7 +234,7 @@ export const AnalysisResultsDisplay: React.FC<AnalysisResultsProps> = ({ analysi
                     <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
                       <span className="text-white text-sm font-bold">{index + 1}</span>
                     </div>
-                    <p className="text-gray-800 font-medium leading-relaxed text-base">{finding}</p>
+                    <p className="text-foreground font-medium leading-relaxed text-base">{finding}</p>
                   </div>
                 </div>
               ))}
@@ -250,7 +250,7 @@ export const AnalysisResultsDisplay: React.FC<AnalysisResultsProps> = ({ analysi
                   <CheckCircle className="w-6 h-6 text-green-500 flex-shrink-0 mt-0.5" />
                   <div>
                     <h5 className="font-bold text-green-800 mb-2">Primary Assessment</h5>
-                    <p className="text-gray-800 font-medium leading-relaxed">{analysisData.primaryFinding}</p>
+                    <p className="text-foreground font-medium leading-relaxed">{analysisData.primaryFinding}</p>
                   </div>
                 </div>
               </div>
@@ -260,7 +260,7 @@ export const AnalysisResultsDisplay: React.FC<AnalysisResultsProps> = ({ analysi
                   <Stethoscope className="w-6 h-6 text-purple-500 flex-shrink-0 mt-0.5" />
                   <div>
                     <h5 className="font-bold text-purple-800 mb-2">Cancer Type Analysis</h5>
-                    <p className="text-gray-800 font-medium leading-relaxed">{analysisData.cancerType}</p>
+                    <p className="text-foreground font-medium leading-relaxed">{analysisData.cancerType}</p>
                   </div>
                 </div>
               </div>
@@ -273,11 +273,11 @@ export const AnalysisResultsDisplay: React.FC<AnalysisResultsProps> = ({ analysi
                 <div className="grid grid-cols-2 gap-3">
                   <div className="text-center p-3 bg-white rounded-lg shadow-sm">
                     <div className="text-2xl font-bold text-blue-600">{analysisData.confidence}%</div>
-                    <div className="text-sm text-gray-600 font-medium">Confidence</div>
+                    <div className="text-sm text-muted-foreground font-medium">Confidence</div>
                   </div>
                   <div className="text-center p-3 bg-white rounded-lg shadow-sm">
                     <div className="text-2xl font-bold text-green-600">99.2%</div>
-                    <div className="text-sm text-gray-600 font-medium">Accuracy</div>
+                    <div className="text-sm text-muted-foreground font-medium">Accuracy</div>
                   </div>
                 </div>
               </div>
@@ -310,7 +310,7 @@ export const AnalysisResultsDisplay: React.FC<AnalysisResultsProps> = ({ analysi
                       <div className="w-7 h-7 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
                         <span className="text-white text-sm font-bold">{index + 1}</span>
                       </div>
-                      <p className="text-gray-800 font-medium leading-relaxed text-base">{rec}</p>
+                      <p className="text-foreground font-medium leading-relaxed text-base">{rec}</p>
                     </div>
                   </div>
                 ))}
@@ -327,7 +327,7 @@ export const AnalysisResultsDisplay: React.FC<AnalysisResultsProps> = ({ analysi
                       <div className="w-7 h-7 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
                         <span className="text-white text-sm font-bold">{Math.ceil(analysisData.recommendations.length / 2) + index + 1}</span>
                       </div>
-                      <p className="text-gray-800 font-medium leading-relaxed text-base">{rec}</p>
+                      <p className="text-foreground font-medium leading-relaxed text-base">{rec}</p>
                     </div>
                   </div>
                 ))}
@@ -370,7 +370,7 @@ export const AnalysisResultsDisplay: React.FC<AnalysisResultsProps> = ({ analysi
       {/* Enhanced Analysis Metadata */}
       <Card className="border-0 shadow-xl bg-gradient-to-r from-slate-50 to-gray-50">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-gray-800">
+          <CardTitle className="flex items-center gap-2 text-foreground">
             <FileText className="w-5 h-5 text-blue-600" />
             Analysis Metadata
           </CardTitle>
@@ -381,22 +381,22 @@ export const AnalysisResultsDisplay: React.FC<AnalysisResultsProps> = ({ analysi
               <div className="flex items-center justify-center mb-2">
                 <Activity className="w-6 h-6 text-blue-500" />
               </div>
-              <p className="text-gray-600 text-sm font-semibold mb-1">Scan Type</p>
-              <p className="text-xl font-bold text-gray-800 uppercase">{analysisData.scanType}</p>
+              <p className="text-muted-foreground text-sm font-semibold mb-1">Scan Type</p>
+              <p className="text-xl font-bold text-foreground uppercase">{analysisData.scanType}</p>
             </div>
             <div className="text-center p-4 bg-white rounded-xl shadow-sm border border-gray-200">
               <div className="flex items-center justify-center mb-2">
                 <Clock className="w-6 h-6 text-green-500" />
               </div>
-              <p className="text-gray-600 text-sm font-semibold mb-1">Analysis Date</p>
-              <p className="text-xl font-bold text-gray-800">{analysisData.analysisDate}</p>
+              <p className="text-muted-foreground text-sm font-semibold mb-1">Analysis Date</p>
+              <p className="text-xl font-bold text-foreground">{analysisData.analysisDate}</p>
             </div>
             <div className="text-center p-4 bg-white rounded-xl shadow-sm border border-gray-200">
               <div className="flex items-center justify-center mb-2">
                 <FileText className="w-6 h-6 text-purple-500" />
               </div>
-              <p className="text-gray-600 text-sm font-semibold mb-1">Scan ID</p>
-              <p className="text-xl font-bold text-gray-800">{analysisData.scanId}</p>
+              <p className="text-muted-foreground text-sm font-semibold mb-1">Scan ID</p>
+              <p className="text-xl font-bold text-foreground">{analysisData.scanId}</p>
             </div>
           </div>
         </CardContent>

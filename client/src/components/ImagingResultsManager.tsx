@@ -44,7 +44,7 @@ export default function ImagingResultsManager({ results, onViewResult, onDeleteR
     <div className="space-y-4">
       {/* View Toggle */}
       <div className="flex justify-end">
-        <div className="flex bg-gray-100 rounded-lg p-1">
+        <div className="flex bg-slate-100 dark:bg-slate-700 rounded-lg p-1">
           <Button
             variant={viewMode === 'cards' ? 'default' : 'ghost'}
             size="sm"

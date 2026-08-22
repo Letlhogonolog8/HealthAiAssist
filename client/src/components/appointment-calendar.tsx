@@ -301,7 +301,7 @@ export default function AppointmentCalendar({
           {/* Calendar Grid */}
           <div className="grid grid-cols-7 gap-1 mb-4">
             {dayNames.map((day) => (
-              <div key={day} className="text-center text-sm font-medium text-gray-500 p-2">
+              <div key={day} className="text-center text-sm font-medium text-muted-foreground p-2">
                 {day}
               </div>
             ))}
@@ -311,7 +311,7 @@ export default function AppointmentCalendar({
                 onClick={() => selectDate(day)}
                 className={`
                   p-2 text-center cursor-pointer rounded-lg transition-all duration-200
-                  ${!day.isCurrentMonth ? 'text-gray-300' : 'text-gray-900'}
+                  ${!day.isCurrentMonth ? 'text-gray-300' : 'text-foreground'}
                   ${day.isToday ? 'bg-blue-100 border-2 border-blue-500' : ''}
                   ${day.isSelected ? 'bg-blue-600 text-white' : ''}
                   ${day.availableSlots.length > 0 && day.isCurrentMonth ? 'hover:bg-blue-50' : ''}
@@ -348,7 +348,7 @@ export default function AppointmentCalendar({
                     >
                       <Clock className="w-3 h-3" />
                       {slot.time}
-                      <span className="text-xs text-gray-500">{slot.doctor}</span>
+                      <span className="text-xs text-muted-foreground">{slot.doctor}</span>
                     </Button>
                   ))}
               </div>
@@ -396,7 +396,7 @@ export default function AppointmentCalendar({
                                   }
                                   <div>
                                     <div className="font-medium">{professional.name}</div>
-                                    <div className="text-xs text-gray-500">
+                                    <div className="text-xs text-muted-foreground">
                                       {professional.role === 'radiologist' ? 'Radiologist' : 'Doctor'} - {professional.specialty}
                                     </div>
                                   </div>
@@ -476,10 +476,10 @@ export default function AppointmentCalendar({
                   <CalendarIcon className="w-5 h-5 text-blue-600" />
                 </div>
                 <div className="flex-1">
-                  <h3 className="font-semibold text-gray-900 mb-1">
+                  <h3 className="font-semibold text-foreground mb-1">
                     {mode === 'book' ? selectedAppointmentType : appointment?.type}
                   </h3>
-                  <div className="space-y-1 text-sm text-gray-600">
+                  <div className="space-y-1 text-sm text-muted-foreground">
                     <div className="flex items-center gap-2">
                       <User className="w-4 h-4" />
                       <span>Dr. {selectedDoctor || appointment?.doctor}</span>
@@ -517,8 +517,8 @@ export default function AppointmentCalendar({
 
             {/* Important Notes */}
             <div className="bg-gray-50 rounded-lg p-3">
-              <h4 className="text-sm font-medium text-gray-900 mb-2">Important Notes:</h4>
-              <ul className="text-xs text-gray-600 space-y-1">
+              <h4 className="text-sm font-medium text-foreground mb-2">Important Notes:</h4>
+              <ul className="text-xs text-muted-foreground space-y-1">
                 <li>• Please arrive 15 minutes early</li>
                 <li>• Bring a valid ID and insurance card</li>
                 <li>• You'll receive a confirmation email</li>

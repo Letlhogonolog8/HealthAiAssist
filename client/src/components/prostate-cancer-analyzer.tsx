@@ -168,7 +168,7 @@ export default function ProstateCancerAnalyzer() {
                   <FileImage className="w-12 h-12 mx-auto text-gray-400" />
                   <div>
                     <h3 className="text-lg font-medium">Upload Prostate MRI</h3>
-                    <p className="text-sm text-gray-600">
+                    <p className="text-sm text-muted-foreground">
                       Support for T2-weighted, DWI, DCE, and multiparametric MRI
                     </p>
                   </div>
@@ -320,7 +320,7 @@ export default function ProstateCancerAnalyzer() {
                       {analysisResult.prostateAnalysis.piradsScore}/5
                     </Badge>
                   </h4>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-muted-foreground">
                     {analysisResult.prostateAnalysis.piradsScore >= 4 
                       ? 'Clinically significant cancer likely'
                       : analysisResult.prostateAnalysis.piradsScore === 3
@@ -338,15 +338,15 @@ export default function ProstateCancerAnalyzer() {
                   <h4 className="font-semibold mb-2">PSA Correlation</h4>
                   <div className="grid grid-cols-3 gap-4 text-sm">
                     <div>
-                      <span className="text-gray-600">Estimated PSA:</span>
+                      <span className="text-muted-foreground">Estimated PSA:</span>
                       <p className="font-medium">{analysisResult.prostateAnalysis.psaCorrelation.estimatedPSA}</p>
                     </div>
                     <div>
-                      <span className="text-gray-600">PSA Density:</span>
+                      <span className="text-muted-foreground">PSA Density:</span>
                       <p className="font-medium">{analysisResult.prostateAnalysis.psaCorrelation.psaDensity}</p>
                     </div>
                     <div>
-                      <span className="text-gray-600">Volume:</span>
+                      <span className="text-muted-foreground">Volume:</span>
                       <p className="font-medium">{analysisResult.prostateAnalysis.prostateVolume}</p>
                     </div>
                   </div>
