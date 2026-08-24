@@ -766,20 +766,7 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                                   : '\u2014'}
                               </span>
                             </div>
-                            <div className="flex justify-between items-center">
-                              <span className="text-slate-300">Security Status</span>
-                              <Badge
-                                className={
-                                  statsData?.securityStatus === 'secure'
-                                    ? 'bg-green-600'
-                                    : statsData?.securityStatus
-                                      ? 'bg-amber-600'
-                                      : 'bg-slate-600'
-                                }
-                              >
-                                {statsData?.securityStatus ?? 'unknown'}
-                              </Badge>
-                            </div>
+
                           </div>
                         </CardContent>
                       </Card>
@@ -911,29 +898,40 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                           </CardContent>
                         </Card>
                         
-                        {/* Quick Stats */}
+                        {/*
+                          These four were 6 / 3 / 2 / 1 — literals, on a
+                          clinician's own appointments tab. A doctor with an
+                          empty diary was shown six appointments today, three of
+                          them already completed.
+
+                          They come from /api/doctor/stats now, which counts
+                          them in the database and scopes them to the clinician
+                          asking. A figure that has not loaded renders as a dash
+                          rather than as zero: "0 appointments today" is a claim,
+                          "—" is not.
+                        */}
                         <Card className="bg-slate-700 border-slate-600">
                           <CardHeader>
-                            <CardTitle className="text-white text-lg">Today's Schedule</CardTitle>
+                            <CardTitle className="text-white text-lg">Your appointments</CardTitle>
                           </CardHeader>
                           <CardContent>
                             <div className="space-y-3">
-                              <div className="flex justify-between">
-                                <span className="text-slate-300">Total Appointments</span>
-                                <span className="text-white font-medium">6</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-slate-300">Completed</span>
-                                <span className="text-green-400 font-medium">3</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-slate-300">Upcoming</span>
-                                <span className="text-blue-400 font-medium">2</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-slate-300">Pending</span>
-                                <span className="text-yellow-400 font-medium">1</span>
-                              </div>
+                              {[
+                                { label: 'Today', key: 'todaysAppointments', tone: 'text-white' },
+                                { label: 'Upcoming', key: 'upcomingAppointments', tone: 'text-blue-400' },
+                                { label: 'Completed', key: 'appointmentsCompleted', tone: 'text-green-400' },
+                                { label: 'Scans awaiting your report', key: 'pendingReports', tone: 'text-yellow-400' },
+                              ].map((row) => {
+                                const value = statsData ? statsData[row.key] : undefined;
+                                return (
+                                  <div key={row.key} className="flex justify-between">
+                                    <span className="text-slate-300">{row.label}</span>
+                                    <span className={`${row.tone} font-medium tabular-nums`}>
+                                      {value ?? '—'}
+                                    </span>
+                                  </div>
+                                );
+                              })}
                             </div>
                           </CardContent>
                         </Card>

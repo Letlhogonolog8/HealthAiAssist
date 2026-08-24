@@ -377,20 +377,24 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
 
       {/* Enhanced Radiologist Interface */}
       <Tabs value={activeSection} onValueChange={setActiveSection}>
+        {/* The active trigger inherits bg-background from the shadcn default,
+            which is white under the light theme — on a hardcoded slate-800 bar,
+            with data-[state=active]:text-white on top, that rendered the
+            selected tab as a blank white block. */}
         <TabsList className="grid w-full grid-cols-4 bg-slate-800 border-slate-600">
-          <TabsTrigger value="overview" className="text-slate-300 data-[state=active]:text-white">
+          <TabsTrigger value="overview" className="text-slate-300 data-[state=active]:bg-slate-700 data-[state=active]:text-white">
             Workstation
           </TabsTrigger>
-          <TabsTrigger value="pending" className="text-slate-300 data-[state=active]:text-white">
+          <TabsTrigger value="pending" className="text-slate-300 data-[state=active]:bg-slate-700 data-[state=active]:text-white">
             Pending Reviews ({safePendingScans.length})
           </TabsTrigger>
-          <TabsTrigger value="completed" className="text-slate-300 data-[state=active]:text-white">
+          <TabsTrigger value="completed" className="text-slate-300 data-[state=active]:bg-slate-700 data-[state=active]:text-white">
             Completed ({safeCompletedScans.length})
           </TabsTrigger>
           {/* The step that turns predictions into measurements. Without it the
               platform can report what the models said and never whether they
               were right. */}
-          <TabsTrigger value="outcomes" className="text-slate-300 data-[state=active]:text-white">
+          <TabsTrigger value="outcomes" className="text-slate-300 data-[state=active]:bg-slate-700 data-[state=active]:text-white">
             Outcomes
           </TabsTrigger>
         </TabsList>
@@ -465,15 +469,26 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
                   </div>
                 </div>
                 <div className="space-y-3">
+                  {/*
+                    A "Daily Target Progress" bar stood here, computed as
+                    completedToday / 30. No target of thirty reviews exists —
+                    not in the database, not in a setting, not anywhere. The
+                    denominator was typed, and the bar rendered a clinician's
+                    day as progress against a quota nobody set.
+
+                    What the queue can honestly report is its own size.
+                  */}
                   <div className="space-y-1">
                     <div className="flex justify-between text-sm text-slate-300">
-                      <span>Daily Target Progress</span>
-                      <span>{Math.min(Math.round(((safeStats.completedToday || safeCompletedScans.length) / 30) * 100), 100)}%</span>
+                      <span>Scans in the queue</span>
+                      <span className="tabular-nums">
+                        {(safeStats.pendingReviews || safePendingScans.length) +
+                          (safeStats.completedToday || safeCompletedScans.length)}
+                      </span>
                     </div>
-                    <Progress 
-                      value={Math.min(Math.round(((safeStats.completedToday || safeCompletedScans.length) / 30) * 100), 100)} 
-                      className="h-2" 
-                    />
+                    <p className="text-xs text-slate-500">
+                      Completed today plus still pending. There is no review quota.
+                    </p>
                   </div>
                   {/*
                     A progress bar labelled "Detection Confidence" and filled to

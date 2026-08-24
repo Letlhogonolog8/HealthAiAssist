@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -47,7 +47,6 @@ interface DashboardData {
     databaseHealth: number | null;
     /** A live connectivity probe, replacing the constant "databaseHealth". */
     database?: { reachable: boolean; latencyMs: number | null };
-    securityStatus: string;
   };
   users: {
     admins: number;
@@ -125,6 +124,28 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
     refetchInterval: 30000,
   });
 
+  /**
+   * Readiness, which is where the real operational facts live.
+   *
+   * /api/ready probes the database on each call and reports the pool counters,
+   * which notification channels are configured, and which encryption key is
+   * active. It is the same endpoint a load balancer polls, so what an operator
+   * sees here is what the infrastructure sees.
+   */
+  const { data: ready, refetch: refetchReady } = useQuery<{
+    status: string;
+    uptimeSec: number;
+    database: string;
+    latencyMs?: number;
+    pool?: { total: number; idle: number; waiting: number };
+    notificationChannels?: { email: boolean; sms: boolean };
+    encryption?: { configured: boolean; activeKeyId: string | null; keyCount: number };
+  }>({
+    queryKey: ['/api/ready'],
+    queryFn: async () => (await fetch('/api/ready')).json(),
+    refetchInterval: 30000,
+  });
+
   /** Round trip the browser measured for the last /api/admin/stats call. */
   const [statsResponseMs, setStatsResponseMs] = useState<number | null>(null);
 
@@ -150,7 +171,7 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
         const [stats, users, staff, activities, wsStats, metrics]: any[] = await Promise.all([
           statsRes.ok ? statsRes.json().catch(() => ({})) : {
             totalUsers: 0, activeScans: 0, systemUptime: null, aiAccuracy: null,
-            dailyScans: 0, criticalAlerts: 0, databaseHealth: null, securityStatus: 'unknown'
+            dailyScans: 0, criticalAlerts: 0, databaseHealth: null
           },
           usersRes.ok ? usersRes.json().catch(() => []) : [],
           staffRes.ok ? staffRes.json().catch(() => ({ data: [] })) : { data: [] },
@@ -211,7 +232,7 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
         return {
           stats: {
             totalUsers: 0, activeScans: 0, systemUptime: null, aiAccuracy: null,
-            dailyScans: 0, criticalAlerts: 0, databaseHealth: null, securityStatus: 'unknown'
+            dailyScans: 0, criticalAlerts: 0, databaseHealth: null
           },
           users: { admins: 0, doctors: 0, radiologists: 0, patients: 0, activeUsers: 0, newUsersToday: 0, list: [] },
           staff: [],
@@ -788,8 +809,18 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Security Status</p>
-                    <p className="text-lg font-bold text-green-600 capitalize">{dashboardData?.stats.securityStatus || 'Secure'}</p>
+                    <p className="text-sm font-medium text-muted-foreground">At-rest encryption</p>
+                    <p
+                      className={`text-lg font-bold ${
+                        ready?.encryption?.configured ? 'text-green-600' : 'text-red-600'
+                      }`}
+                    >
+                      {ready?.encryption == null
+                        ? '—'
+                        : ready.encryption.configured
+                          ? 'Configured'
+                          : 'Not configured'}
+                    </p>
                   </div>
                   <Shield className="h-8 w-8 text-green-500" />
                 </div>
@@ -890,12 +921,23 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
                   <div className="bg-gradient-to-r from-green-50 to-green-100 p-4 rounded-lg">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm font-medium text-green-900">Security Status</p>
-                        <p className="text-lg font-bold text-green-700 capitalize">{dashboardData?.stats.securityStatus || 'Secure'}</p>
+                        <p className="text-sm font-medium text-green-900">At-rest encryption</p>
+                        <p className="text-lg font-bold text-green-700">
+                          {ready?.encryption == null
+                            ? '—'
+                            : ready.encryption.configured
+                              ? 'Configured'
+                              : 'Not configured'}
+                        </p>
                       </div>
                       <Shield className="h-8 w-8 text-green-600" />
                     </div>
-                    <p className="text-xs text-green-600 mt-1">All security protocols active</p>
+                    {/* Was "All security protocols active" — a literal. */}
+                    <p className="text-xs text-green-600 mt-1">
+                      {ready?.encryption?.configured
+                        ? `Active key ${ready.encryption.activeKeyId}, ${ready.encryption.keyCount} in the ring`
+                        : 'No encryption key is configured for this deployment'}
+                    </p>
                   </div>
                   
                   <div className={`p-4 rounded-lg ${
@@ -921,15 +963,25 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
                     <p className={`text-xs mt-1 ${
                       (dashboardData?.stats.criticalAlerts || 0) > 0 ? 'text-red-600' : 'text-green-600'
                     }`}>
-                      {(dashboardData?.stats.criticalAlerts || 0) > 0 ? 'Immediate attention required' : 'All systems operational'}
+                      {/* Was "All systems operational" at zero. This counts
+                          scans flagged critical; it says nothing about the
+                          system's own health. */}
+                      {(dashboardData?.stats.criticalAlerts || 0) > 0
+                        ? 'Scans flagged critical, awaiting review'
+                        : 'No scans currently flagged critical'}
                     </p>
                   </div>
                   
                   <div className="bg-gradient-to-r from-purple-50 to-purple-100 p-4 rounded-lg">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm font-medium text-purple-900">AI Model Status</p>
-                        <p className="text-lg font-bold text-purple-700">Active</p>
+                        <p className="text-sm font-medium text-purple-900">Models serving</p>
+                        {/* Was the literal "Active", whatever the registry said. */}
+                        <p className="text-lg font-bold text-purple-700 tabular-nums">
+                          {modelCards
+                            ? `${modelCards.models.filter((m) => m.enabled).length} of ${modelCards.models.length}`
+                            : '—'}
+                        </p>
                       </div>
                       <Brain className="h-8 w-8 text-purple-600" />
                     </div>
@@ -1577,417 +1629,339 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
               System Configuration & Management
             </h2>
             <div className="flex gap-2">
-              <Badge variant="outline" className="text-blue-600 border-blue-600">
+              {/* Was the literal "System Online". */}
+              <Badge
+                variant="outline"
+                className={
+                  ready?.status === 'ready'
+                    ? 'text-green-600 border-green-600'
+                    : 'text-red-600 border-red-600'
+                }
+              >
                 <Server className="w-3 h-3 mr-1" />
-                System Online
+                {ready?.status === 'ready' ? 'Ready' : ready ? 'Not ready' : 'Checking…'}
               </Badge>
-              <Button variant="outline" size="sm" onClick={() => {
-                toast({ title: "System Check", description: "Running comprehensive system diagnostics...", duration: 3000 });
-                setTimeout(() => {
-                  toast({ title: "System Healthy", description: "All systems operational and secure.", duration: 2000 });
-                }, 3000);
-              }}>
+
+              {/*
+                Re-probes and reports what came back.
+
+                This used to show "Running comprehensive system diagnostics…",
+                wait three seconds on a setTimeout, and then assert "All systems
+                operational and secure" — unconditionally, having checked
+                nothing. An administrator clicking it during an incident was
+                told everything was fine by a button that had not looked.
+
+                /api/ready runs a real SELECT against the database on each call
+                and returns 503 when it fails, so refetching it is a genuine
+                check, and the toast now says whatever it actually found.
+              */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  const probe = await refetchReady();
+                  const result = probe.data;
+                  const ok = result?.status === 'ready';
+                  toast({
+                    title: ok ? 'Ready' : 'Not ready',
+                    description: ok
+                      ? `Database responded in ${result?.latencyMs ?? '?'} ms.`
+                      : `Database is ${result?.database ?? 'unreachable'}. This instance cannot serve requests.`,
+                    variant: ok ? undefined : 'destructive',
+                    duration: 4000,
+                  });
+                }}
+              >
                 <CheckCircle className="w-4 h-4 mr-2" />
-                Run Diagnostics
+                Re-check readiness
               </Button>
             </div>
           </div>
           
-          {/* System Status Overview */}
+          {/*
+            This span held about four hundred lines of operations panel, and
+            almost none of it described this deployment.
+
+              Server Configuration   "3 active nodes, Round-robin algorithm",
+                                     "CDN Status: 12 edge locations, 95% cache
+                                     hit rate, Latency 45ms". There is one Node
+                                     process and no CDN.
+
+              Database Management    "PostgreSQL 14.9 — High availability
+                                     cluster, 3 replicas", "Backup Status: 2
+                                     hours ago — Success", "Storage: 2.4 GB /
+                                     50 GB", "Connection Pool 12 / 100".
+                                     There are no replicas and no backup system
+                                     at all; the pool max is 20.
+
+              AI Model Configuration "5 cancer detection models active —
+                                     Breast, Lung, Skin, Colon, Prostate",
+                                     "v2.1.4, Released Nov 2024, Trained on 2M+
+                                     images", "Confidence Threshold 85%". Two
+                                     models exist. They were retrained in
+                                     August 2026 on 1,244 and 660 images, and
+                                     the thresholds are 0.30 for lung and a
+                                     0.70/0.30 band for skin.
+
+              Status cards           "Server Status: Online", "Database:
+                                     Healthy", "AI Models: Active", "Security:
+                                     Protected" — four string literals that
+                                     said the same thing whatever was true.
+
+            "Backup Status: 2 hours ago — Success" is the dangerous one. This is
+            the screen an operator opens during an incident, and it asserted a
+            recovery point that does not exist.
+
+            Every button was the same shape: Backup, Optimize, Health, Retrain,
+            Update, Security Audit, Scan Threats, Schedule Restart fired a toast
+            claiming the work had started and did nothing. They are gone rather
+            than disabled — a control that cannot act should not be drawn.
+
+            What replaces them is what the system can actually answer.
+          */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
             <Card className="border-l-4 border-l-green-500">
               <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Server Status</p>
-                    <p className="text-lg font-bold text-green-600">Online</p>
-                  </div>
-                  <Server className="h-8 w-8 text-green-500" />
-                </div>
+                <p className="text-sm font-medium text-muted-foreground">Readiness</p>
+                <p className={`text-lg font-bold ${ready?.status === 'ready' ? 'text-green-600' : 'text-red-600'}`}>
+                  {ready?.status ?? '—'}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {ready?.uptimeSec != null ? `up ${formatUptime(ready.uptimeSec)}` : 'not reported'}
+                </p>
               </CardContent>
             </Card>
+
             <Card className="border-l-4 border-l-blue-500">
               <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Database</p>
-                    <p className="text-lg font-bold text-blue-600">Healthy</p>
-                  </div>
-                  <Database className="h-8 w-8 text-blue-500" />
-                </div>
+                <p className="text-sm font-medium text-muted-foreground">Database</p>
+                <p className={`text-lg font-bold ${ready?.database === 'ok' ? 'text-blue-600' : 'text-red-600'}`}>
+                  {ready?.database ?? '—'}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {ready?.latencyMs != null ? `${ready.latencyMs} ms probe` : 'no probe recorded'}
+                </p>
               </CardContent>
             </Card>
+
             <Card className="border-l-4 border-l-purple-500">
               <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">AI Models</p>
-                    <p className="text-lg font-bold text-purple-600">Active</p>
-                  </div>
-                  <Brain className="h-8 w-8 text-purple-500" />
-                </div>
+                <p className="text-sm font-medium text-muted-foreground">Models served</p>
+                <p className="text-lg font-bold text-purple-600">
+                  {modelCards ? modelCards.models.filter((m) => m.enabled).length : '—'}
+                  {modelCards && (
+                    <span className="text-sm font-normal text-muted-foreground">
+                      {' '}of {modelCards.models.length} registered
+                    </span>
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">from /api/models/cards</p>
               </CardContent>
             </Card>
+
             <Card className="border-l-4 border-l-orange-500">
               <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Security</p>
-                    <p className="text-lg font-bold text-orange-600">Protected</p>
-                  </div>
-                  <Shield className="h-8 w-8 text-orange-500" />
-                </div>
+                <p className="text-sm font-medium text-muted-foreground">At-rest encryption</p>
+                <p className={`text-lg font-bold ${ready?.encryption?.configured ? 'text-orange-600' : 'text-red-600'}`}>
+                  {ready?.encryption == null
+                    ? '—'
+                    : ready.encryption.configured
+                      ? 'configured'
+                      : 'not configured'}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {ready?.encryption?.configured
+                    ? `active key ${ready.encryption.activeKeyId}, ${ready.encryption.keyCount} in ring`
+                    : 'no key in the environment'}
+                </p>
               </CardContent>
             </Card>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Server Configuration */}
-            <Card className="shadow-lg border-2 border-slate-300">
-              <CardHeader className="bg-slate-200 border-b border-slate-300">
+            {/* ── Connection pool ── */}
+            <Card className="shadow-lg">
+              <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Server className="h-5 w-5 text-slate-700" />
-                  <span className="text-slate-900">Server Configuration</span>
+                  <Database className="h-5 w-5 text-blue-600" />
+                  Connection pool
                 </CardTitle>
+                <CardDescription>
+                  Live counters from the pg pool, via /api/ready.
+                </CardDescription>
               </CardHeader>
-              <CardContent className="p-6 space-y-4 bg-white">
-                <div className="p-4 bg-slate-100 rounded-lg border border-slate-200">
-                  <span className="font-semibold text-slate-900">Patient reach</span>
-                  <p className="text-sm text-slate-600 mb-3">
-                    Whether a result can reach someone who is not signed in
+              <CardContent className="space-y-3">
+                {ready?.pool ? (
+                  <>
+                    {[
+                      { label: 'Total', value: ready.pool.total },
+                      { label: 'Idle', value: ready.pool.idle },
+                      {
+                        label: 'Waiting',
+                        value: ready.pool.waiting,
+                        note: 'Persistently above zero means requests are queuing for a connection.',
+                      },
+                    ].map((row) => (
+                      <div key={row.label} className="flex justify-between items-start gap-4">
+                        <div>
+                          <span className="text-sm text-foreground">{row.label}</span>
+                          {row.note && (
+                            <p className="text-xs text-muted-foreground mt-0.5 max-w-xs">{row.note}</p>
+                          )}
+                        </div>
+                        <span className="text-sm font-semibold tabular-nums text-foreground">
+                          {row.value}
+                        </span>
+                      </div>
+                    ))}
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Pool counters are unavailable — the readiness probe did not reach the
+                    database.
                   </p>
-                  <div className="rounded bg-slate-900 p-3">
-                    <DeliveryReachPanel />
-                  </div>
-                </div>
-                <div className="p-4 bg-slate-100 rounded-lg border border-slate-200">
-                  <span className="font-semibold text-slate-900">Language coverage</span>
-                  <p className="text-sm text-slate-600 mb-3">
-                    Which languages patients can select, and why the others are withheld
-                  </p>
-                  <div className="rounded bg-slate-900 p-3">
-                    <LanguageCoverage />
-                  </div>
-                </div>
-                <div className="flex justify-between items-center p-4 bg-slate-100 rounded-lg border border-slate-200">
-                  <div>
-                    <span className="font-semibold text-slate-900">Maintenance Mode</span>
-                    <p className="text-sm text-slate-600">System-wide maintenance window</p>
-                    {/* "Next scheduled: Sunday 3:00 AM" described a maintenance
-                        window that nothing schedules or enforces. */}
-                    <p className="text-xs text-slate-500 mt-1">No window configured</p>
-                  </div>
-                  <div className="text-right">
-                    <Badge className="bg-green-200 text-green-900 border border-green-300">Disabled</Badge>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Uptime: {dashboardData?.stats.uptimeSec != null
-                        ? formatUptime(dashboardData.stats.uptimeSec)
-                        : '\u2014'}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center p-4 bg-slate-100 rounded-lg border border-slate-200">
-                  <div>
-                    <span className="font-semibold text-slate-900">Auto Backup</span>
-                    <p className="text-sm text-slate-600">Automated daily backups</p>
-                    <p className="text-xs text-slate-500 mt-1">Retention: 30 days, Compression: 85%</p>
-                  </div>
-                  <div className="text-right">
-                    <Badge className="bg-green-200 text-green-900 border border-green-300">Enabled</Badge>
-                    <p className="text-xs text-slate-500 mt-1">Next: 2:00 AM</p>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center p-4 bg-slate-100 rounded-lg border border-slate-200">
-                  <div>
-                    <span className="font-semibold text-slate-900">Load Balancing</span>
-                    <p className="text-sm text-slate-600">Traffic distribution across servers</p>
-                    <p className="text-xs text-slate-500 mt-1">3 active nodes, Round-robin algorithm</p>
-                  </div>
-                  <div className="text-right">
-                    <Badge className="bg-blue-200 text-blue-900 border border-blue-300">Active</Badge>
-                    <p className="text-xs text-slate-500 mt-1">Load: 68%</p>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center p-4 bg-slate-100 rounded-lg border border-slate-200">
-                  <div>
-                    <span className="font-semibold text-slate-900">CDN Status</span>
-                    <p className="text-sm text-slate-600">Global content delivery network</p>
-                    <p className="text-xs text-slate-500 mt-1">12 edge locations, 95% cache hit rate</p>
-                  </div>
-                  <div className="text-right">
-                    <Badge className="bg-purple-200 text-purple-900 border border-purple-300">Optimized</Badge>
-                    <p className="text-xs text-slate-500 mt-1">Latency: 45ms</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2 mt-6">
-                  <Button variant="outline" className="border-slate-300 hover:bg-slate-100" onClick={() => {
-                    toast({ title: "Server Restart", description: "Server restart scheduled for 2:00 AM", duration: 3000 });
-                  }}>
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                    Schedule Restart
-                  </Button>
-                  <Button variant="outline" className="border-slate-300 hover:bg-slate-100" onClick={() => {
-                    toast({ title: "Performance Report", description: "Generating server performance report...", duration: 3000 });
-                  }}>
-                    <TrendingUp className="h-4 w-4 mr-2" />
-                    Performance
-                  </Button>
-                </div>
+                )}
               </CardContent>
             </Card>
 
-            {/* Security Settings */}
-            <Card className="shadow-lg border-2 border-slate-300">
-              <CardHeader className="bg-slate-200 border-b border-slate-300">
+            {/* ── Reachability ── */}
+            <Card className="shadow-lg">
+              <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Shield className="h-5 w-5 text-red-700" />
-                  <span className="text-slate-900">Security Configuration</span>
+                  <Shield className="h-5 w-5 text-amber-600" />
+                  Can a patient be reached?
                 </CardTitle>
+                <CardDescription>
+                  Off-platform delivery channels, as the server sees them.
+                </CardDescription>
               </CardHeader>
-              <CardContent className="p-6 space-y-4 bg-white">
-                <div className="flex justify-between items-center p-4 bg-red-100 rounded-lg border border-red-200">
-                  <div>
-                    <span className="font-semibold text-red-900">Two-Factor Authentication</span>
-                    <p className="text-sm text-red-700">Enhanced login security for all users</p>
-                    <p className="text-xs text-red-600 mt-1">TOTP & SMS backup, 98% adoption rate</p>
-                  </div>
-                  <div className="text-right">
-                    <Badge className="bg-green-200 text-green-900 border border-green-300">Enforced</Badge>
-                    <p className="text-xs text-red-600 mt-1">Mandatory</p>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center p-4 bg-orange-100 rounded-lg border border-orange-200">
-                  <div>
-                    <span className="font-semibold text-orange-900">Session Timeout</span>
-                    <p className="text-sm text-orange-700">Auto logout inactive users</p>
-                    <p className="text-xs text-orange-600 mt-1">Configurable per role, extends on activity</p>
-                  </div>
-                  <div className="text-right">
-                    <Badge className="bg-orange-200 text-orange-900 border border-orange-300">30 minutes</Badge>
-                    <p className="text-xs text-orange-600 mt-1">Adjustable</p>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center p-4 bg-yellow-100 rounded-lg border border-yellow-200">
-                  <div>
-                    <span className="font-semibold text-yellow-900">Password Policy</span>
-                    <p className="text-sm text-yellow-700">Minimum security requirements</p>
-                    <p className="text-xs text-yellow-600 mt-1">12+ chars, mixed case, numbers, symbols</p>
-                  </div>
-                  <div className="text-right">
-                    <Badge className="bg-yellow-200 text-yellow-900 border border-yellow-300">Strong</Badge>
-                    <p className="text-xs text-yellow-600 mt-1">Enforced</p>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center p-4 bg-blue-100 rounded-lg border border-blue-200">
-                  <div>
-                    <span className="font-semibold text-blue-900">SSL Certificate</span>
-                    <p className="text-sm text-blue-700">TLS 1.3 encryption, wildcard cert</p>
-                    <p className="text-xs text-blue-600 mt-1">Auto-renewal enabled, 256-bit encryption</p>
-                  </div>
-                  <div className="text-right">
-                    <Badge className="bg-blue-200 text-blue-900 border border-blue-300">Valid</Badge>
-                    <p className="text-xs text-blue-600 mt-1">89 days left</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2 mt-6">
-                  <Button variant="outline" className="border-slate-300 hover:bg-slate-100" onClick={() => {
-                    toast({ title: "Security Audit", description: "Comprehensive security scan initiated", duration: 3000 });
-                  }}>
-                    <Shield className="h-4 w-4 mr-2" />
-                    Security Audit
-                  </Button>
-                  <Button variant="outline" className="border-slate-300 hover:bg-slate-100" onClick={() => {
-                    toast({ title: "Vulnerability Scan", description: "Starting vulnerability assessment...", duration: 3000 });
-                  }}>
-                    <AlertTriangle className="h-4 w-4 mr-2" />
-                    Scan Threats
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Database Management */}
-            <Card className="shadow-lg border-2 border-slate-300">
-              <CardHeader className="bg-slate-200 border-b border-slate-300">
-                <CardTitle className="flex items-center gap-2">
-                  <Database className="h-5 w-5 text-blue-700" />
-                  <span className="text-slate-900">Database Management</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-6 space-y-4 bg-white">
-                <div className="flex justify-between items-center p-4 bg-blue-100 rounded-lg border border-blue-200">
-                  <div>
-                    <span className="font-semibold text-blue-900">Database Engine</span>
-                    <p className="text-sm text-blue-700">Primary database system</p>
-                    <p className="text-xs text-blue-600 mt-1">High availability cluster, 3 replicas</p>
-                  </div>
-                  <div className="text-right">
-                    <Badge className="bg-blue-200 text-blue-900 border border-blue-300">PostgreSQL 14.9</Badge>
-                    <p className="text-xs text-blue-600 mt-1">Latest stable</p>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center p-4 bg-green-100 rounded-lg border border-green-200">
-                  <div>
-                    <span className="font-semibold text-green-900">Backup Status</span>
-                    <p className="text-sm text-green-700">Automated backup system</p>
-                    <p className="text-xs text-green-600 mt-1">Incremental + full weekly, encrypted</p>
-                  </div>
-                  <div className="text-right">
-                    <Badge className="bg-green-200 text-green-900 border border-green-300">2 hours ago</Badge>
-                    <p className="text-xs text-green-600 mt-1">Success</p>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center p-4 bg-orange-100 rounded-lg border border-orange-200">
-                  <div>
-                    <span className="font-semibold text-orange-900">Storage Usage</span>
-                    <p className="text-sm text-orange-700">Database size and capacity</p>
-                    <p className="text-xs text-orange-600 mt-1">Growth rate: +150MB/month</p>
-                  </div>
-                  <div className="text-right">
-                    <Badge className="bg-orange-200 text-orange-900 border border-orange-300">2.4 GB / 50 GB</Badge>
-                    <p className="text-xs text-orange-600 mt-1">4.8% used</p>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center p-4 bg-purple-100 rounded-lg border border-purple-200">
-                  <div>
-                    <span className="font-semibold text-purple-900">Connection Pool</span>
-                    <p className="text-sm text-purple-700">Active database connections</p>
-                    <p className="text-xs text-purple-600 mt-1">Peak today: 28, Avg response: 12ms</p>
-                  </div>
-                  <div className="text-right">
-                    <Badge className="bg-purple-200 text-purple-900 border border-purple-300">12 / 100</Badge>
-                    <p className="text-xs text-purple-600 mt-1">Healthy</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-3 gap-2 mt-6">
-                  <Button variant="outline" className="border-slate-300 hover:bg-slate-100" onClick={() => {
-                    toast({ title: "Backup Started", description: "Manual database backup initiated", duration: 3000 });
-                  }}>
-                    <Database className="h-4 w-4 mr-1" />
-                    Backup
-                  </Button>
-                  <Button variant="outline" className="border-slate-300 hover:bg-slate-100" onClick={() => {
-                    toast({ title: "Optimization", description: "Database optimization scheduled", duration: 3000 });
-                  }}>
-                    <TrendingUp className="h-4 w-4 mr-1" />
-                    Optimize
-                  </Button>
-                  <Button variant="outline" className="border-slate-300 hover:bg-slate-100" onClick={() => {
-                    toast({ title: "Health Check", description: "Running database diagnostics...", duration: 3000 });
-                  }}>
-                    <CheckCircle className="h-4 w-4 mr-1" />
-                    Health
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* AI Model Settings */}
-            <Card className="shadow-lg border-2 border-slate-300">
-              <CardHeader className="bg-slate-200 border-b border-slate-300">
-                <CardTitle className="flex items-center gap-2">
-                  <Brain className="h-5 w-5 text-purple-700" />
-                  <span className="text-slate-900">AI Model Configuration</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-6 space-y-4 bg-white">
-                <div className="flex justify-between items-center p-4 bg-purple-100 rounded-lg border border-purple-200">
-                  <div>
-                    <span className="font-semibold text-purple-900">Model Status</span>
-                    <p className="text-sm text-purple-700">5 cancer detection models active</p>
-                    <p className="text-xs text-purple-600 mt-1">Breast, Lung, Skin, Colon, Prostate</p>
-                  </div>
-                  <div className="text-right">
-                    <Badge className="bg-green-200 text-green-900 border border-green-300">Active</Badge>
-                    <p className="text-xs text-purple-600 mt-1">All online</p>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center p-4 bg-pink-100 rounded-lg border border-pink-200">
-                  <div>
-                    <span className="font-semibold text-pink-900">Model Version</span>
-                    <p className="text-sm text-pink-700">Latest AI model release</p>
-                    <p className="text-xs text-pink-600 mt-1">Released: Nov 2024, Trained on 2M+ images</p>
-                  </div>
-                  <div className="text-right">
-                    <Badge className="bg-pink-200 text-pink-900 border border-pink-300">v2.1.4</Badge>
-                    <p className="text-xs text-pink-600 mt-1">Latest</p>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center p-4 bg-indigo-100 rounded-lg border border-indigo-200">
-                  <div>
-                    <span className="font-semibold text-indigo-900">Confidence Threshold</span>
-                    <p className="text-sm text-indigo-700">Minimum detection confidence</p>
-                    <p className="text-xs text-indigo-600 mt-1">Adjustable per model, optimized for accuracy</p>
-                  </div>
-                  <div className="text-right">
-                    <Badge className="bg-indigo-200 text-indigo-900 border border-indigo-300">85%</Badge>
-                    <p className="text-xs text-indigo-600 mt-1">Configurable</p>
-                  </div>
-                </div>
-                <div className="flex justify-between items-center p-4 bg-cyan-100 rounded-lg border border-cyan-200">
-                  <div>
-                    <span className="font-semibold text-cyan-900">Processing Queue</span>
-                    <p className="text-sm text-cyan-700">Pending scan analyses</p>
-                    <p className="text-xs text-cyan-600 mt-1">Avg processing time: 2.3 seconds</p>
-                  </div>
-                  <div className="text-right">
-                    <Badge className="bg-cyan-200 text-cyan-900 border border-cyan-300">0 pending</Badge>
-                    <p className="text-xs text-cyan-600 mt-1">Real-time</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-3 gap-2 mt-6">
-                  <Button variant="outline" className="border-slate-300 hover:bg-slate-100" onClick={() => {
-                    toast({ title: "Model Update", description: "Checking for AI model updates...", duration: 3000 });
-                  }}>
-                    <Brain className="h-4 w-4 mr-1" />
-                    Update
-                  </Button>
-                  <Button variant="outline" className="border-slate-300 hover:bg-slate-100" onClick={() => {
-                    toast({ title: "Model Training", description: "Retraining models with latest data", duration: 3000 });
-                  }}>
-                    <Activity className="h-4 w-4 mr-1" />
-                    Retrain
-                  </Button>
-                  <Button variant="outline" className="border-slate-300 hover:bg-slate-100" onClick={() => {
-                    toast({ title: "Model Analytics", description: "Viewing AI model performance metrics...", duration: 3000 });
-                  }}>
-                    <TrendingUp className="h-4 w-4 mr-1" />
-                    Analytics
-                  </Button>
-                </div>
+              <CardContent className="space-y-3">
+                {(['email', 'sms'] as const).map((channel) => {
+                  const on = ready?.notificationChannels?.[channel];
+                  return (
+                    <div key={channel} className="flex justify-between items-center gap-4">
+                      <span className="text-sm text-foreground capitalize">{channel}</span>
+                      <Badge
+                        className={
+                          on
+                            ? 'bg-green-100 text-green-800 border border-green-300'
+                            : 'bg-slate-100 text-slate-700 border border-slate-300'
+                        }
+                      >
+                        {on == null ? 'unknown' : on ? 'configured' : 'not configured'}
+                      </Badge>
+                    </div>
+                  );
+                })}
+                <p className="text-xs text-muted-foreground pt-2 border-t">
+                  A channel that is off is not an error — it is a channel with no
+                  credentials. Notifications still persist in-app either way.
+                </p>
               </CardContent>
             </Card>
           </div>
-          
-          {/* System Logs */}
+
+          {/* ── Registered models ── */}
           <Card className="shadow-lg">
-            <CardHeader className="bg-gradient-to-r from-gray-50 to-slate-100">
+            <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Database className="h-5 w-5 text-muted-foreground" />
-                System Logs & Diagnostics
+                <Brain className="h-5 w-5 text-purple-600" />
+                Registered models
+              </CardTitle>
+              <CardDescription>
+                The registry decides what is served. A model is enabled only when a
+                trained artifact exists and its measured balanced accuracy beats chance.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {modelCards ? (
+                <div className="space-y-3">
+                  {modelCards.models.map((model) => (
+                    <div
+                      key={model.scanType}
+                      className="flex flex-wrap justify-between items-start gap-3 p-3 rounded-lg border"
+                    >
+                      <div>
+                        <span className="font-semibold capitalize text-foreground">
+                          {model.scanType}
+                        </span>
+                        {model.evaluation ? (
+                          <p className="text-xs text-muted-foreground mt-1 tabular-nums">
+                            balanced acc {(model.evaluation.balancedAccuracy * 100).toFixed(1)}% ·
+                            sensitivity {(model.evaluation.sensitivity * 100).toFixed(1)}% ·
+                            specificity {(model.evaluation.specificity * 100).toFixed(1)}%
+                          </p>
+                        ) : (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            No evaluation recorded.
+                          </p>
+                        )}
+                        {model.disabledReason && (
+                          <p className="text-xs text-red-600 mt-1">{model.disabledReason}</p>
+                        )}
+                      </div>
+                      <Badge
+                        className={
+                          model.enabled
+                            ? 'bg-green-100 text-green-800 border border-green-300'
+                            : 'bg-red-100 text-red-800 border border-red-300'
+                        }
+                      >
+                        {model.enabled ? 'Serving' : 'Disabled'}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Loading the registry…</p>
+              )}
+
+              <p className="text-xs text-muted-foreground mt-4 pt-4 border-t">
+                There is no Retrain or Update button here. Retraining is a scripted,
+                reviewed operation that produces a new evaluation — it is not something
+                to trigger from a dashboard, and the buttons that appeared to do it only
+                showed a toast.
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* ── What this screen cannot tell you ── */}
+          <Card className="shadow-lg border-amber-300">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-amber-600" />
+                Not monitored from here
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Button variant="outline" className="h-20 flex flex-col gap-2" onClick={() => {
-                  toast({ title: "Error Logs", description: "Downloading system error logs...", duration: 2000 });
-                }}>
-                  <AlertTriangle className="w-6 h-6 text-red-500" />
-                  <span className="text-sm">Error Logs</span>
-                </Button>
-                <Button variant="outline" className="h-20 flex flex-col gap-2" onClick={() => {
-                  toast({ title: "Audit Trail", description: "Generating audit trail report...", duration: 2000 });
-                }}>
-                  <Eye className="w-6 h-6 text-blue-500" />
-                  <span className="text-sm">Audit Trail</span>
-                </Button>
-                <Button variant="outline" className="h-20 flex flex-col gap-2" onClick={() => {
-                  toast({ title: "Performance Metrics", description: "Exporting performance data...", duration: 2000 });
-                }}>
-                  <TrendingUp className="w-6 h-6 text-green-500" />
-                  <span className="text-sm">Performance Logs</span>
-                </Button>
-              </div>
+            <CardContent>
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                <li className="flex gap-2">
+                  <span aria-hidden className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                  <span>
+                    <span className="text-foreground font-medium">Backups.</span> This
+                    deployment has no backup system. The panel that stood here reported
+                    "2 hours ago — Success", which was a literal. Recovery points are a
+                    deployment-side concern and nothing in the application can confirm one
+                    exists.
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <span aria-hidden className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                  <span>
+                    <span className="text-foreground font-medium">Uptime and logs.</span>{' '}
+                    Nothing external polls /api/ready and no log drain is configured. Both
+                    have to be added where the app is hosted.
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <span aria-hidden className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                  <span>
+                    <span className="text-foreground font-medium">Storage and replicas.</span>{' '}
+                    Single instance, single database. There is no cluster and no CDN,
+                    whatever the previous version of this card said.
+                  </span>
+                </li>
+              </ul>
             </CardContent>
           </Card>
         </div>

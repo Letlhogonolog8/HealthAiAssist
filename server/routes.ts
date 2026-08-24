@@ -1036,7 +1036,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // accuracy needs adjudicated outcomes, which nothing here records.
         aiAccuracy: scanStats.averageConfidencePct,
 
-        securityStatus: dbProbe.reachable ? 'secure' : 'degraded'
+        // `securityStatus` is gone from this response. It was
+        // `dbProbe.reachable ? 'secure' : 'degraded'` — a database ping
+        // reported under a name that claims far more than it checked, and the
+        // admin dashboard rendered it as "Secure / All security protocols
+        // active". Reachability is already reported by `database` and
+        // `databaseLatencyMs` above, under their own names.
       });
     } catch (error) {
       console.error("Error fetching admin stats:", error);
