@@ -625,17 +625,39 @@ export class DatabaseStorage implements IStorage {
       const scans = await this.getScans(patientId);
       const appts = await this.getAppointments(patientId);
 
+      /**
+       * What actually happened to the scan.
+       *
+       * The verb was `status === 'pending' ? 'submitted' : 'completed'`, which
+       * makes every status that is not literally 'pending' read as completed.
+       * `pending_manual_review` is the status a scan gets when no model could
+       * analyse it and it was queued for a human — so a refused scan was
+       * announced to the patient as "completed", on their own activity feed.
+       * `rejected` had the same problem.
+       *
+       * The band is read from risk_level rather than by searching the prose in
+       * `result`, and is withheld until the scan is complete: risk_level
+       * defaults to 'low' in the schema, so an unread scan was being reported
+       * as normal.
+       */
+      const describe = (status: string | null | undefined) => {
+        switch (status) {
+          case 'completed': return 'completed';
+          case 'pending_manual_review': return 'awaiting a clinician — no model could analyse it';
+          case 'rejected': return 'was not accepted';
+          case 'pending':
+          default: return 'submitted';
+        }
+      };
+
       const scanActivities = (scans || []).map((s: any) => ({
         id: s.id,
-        message: `${(s.scanType || 'Medical')} scan ${s.status === 'pending' ? 'submitted' : 'completed'}`,
+        message: `${(s.scanType || 'Medical')} scan ${describe(s.status)}`,
         description: s.result || 'Scan updated',
         timestamp: s.createdAt || s.updatedAt || new Date(),
-        status: (() => {
-          const res = (s.result || '').toString().toLowerCase();
-          if (res.includes('abnormal') || res.includes('suspicious')) return 'abnormal';
-          if (res.includes('urgent') || res.includes('critical')) return 'critical';
-          return 'normal';
-        })(),
+        status: s.status === 'completed'
+          ? (['high', 'critical'].includes((s.riskLevel || '').toLowerCase()) ? 'critical' : 'normal')
+          : 'pending',
         type: 'scan'
       }));
 

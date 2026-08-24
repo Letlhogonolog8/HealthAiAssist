@@ -224,14 +224,22 @@ export default function PatientPortalFinal({ user }: { user: any }) {
     return 'text-red-700';
   };
 
+  /**
+   * Names the scan without inventing how it was acquired.
+   *
+   * This mapped 'lung' to "Pulmonary MRI / Magnetic Resonance Imaging". The lung
+   * model accepts chest X-ray and CT — it has never seen an MRI, and the model
+   * card says so. Telling a patient their chest X-ray was a Pulmonary MRI is a
+   * claim about their medical record, invented in a lookup table.
+   *
+   * `modality` now says what the classifier accepts, which is a fact about the
+   * model, rather than asserting which machine produced the image.
+   */
   const getScanTypeDisplay = (scanType: string) => {
-    const type = scanType.toLowerCase();
-    if (type.includes('breast')) return { name: 'Mammography', modality: 'Digital Mammogram', icon: '🔬' };
-    if (type.includes('lung')) return { name: 'Pulmonary MRI', modality: 'Magnetic Resonance Imaging', icon: '🫁' };
-    if (type.includes('skin')) return { name: 'Dermatoscopy', modality: 'Digital Dermoscopy', icon: '🔍' };
-    if (type.includes('colon')) return { name: 'Colonoscopy', modality: 'Endoscopic Imaging', icon: '🩺' };
-    if (type.includes('prostate')) return { name: 'Prostate MRI', modality: 'Multiparametric MRI', icon: '⚕️' };
-    return { name: scanType, modality: 'Medical Imaging', icon: '🏥' };
+    const type = (scanType || '').toLowerCase();
+    if (type.includes('lung')) return { name: 'Chest imaging', modality: 'Chest X-ray or CT', icon: '🫁' };
+    if (type.includes('skin')) return { name: 'Skin lesion', modality: 'Dermoscopy or clinical photograph', icon: '🔍' };
+    return { name: scanType || 'Scan', modality: 'Medical imaging', icon: '🏥' };
   };
 
   /**
@@ -259,6 +267,17 @@ export default function PatientPortalFinal({ user }: { user: any }) {
 
     return scanResults.map(scan => {
       const scanDisplay = getScanTypeDisplay(scan.scanType || 'Medical Scan');
+      /*
+        A scan that has not been read carries no finding.
+
+        `risk_level` defaults to 'low' and `ai_confidence` to '0%' in the schema,
+        so a scan still in the queue arrived here as LOW risk with 0% confidence
+        and the card rendered both — telling the patient their unread scan was
+        low risk. Those columns are only meaningful once something has written
+        them, so they are withheld until the scan is complete.
+      */
+      const complete = scan.status === 'completed';
+
       return {
         id: scan.id,
         type: scanDisplay.name,
@@ -266,13 +285,13 @@ export default function PatientPortalFinal({ user }: { user: any }) {
         icon: scanDisplay.icon,
         // Null rather than "Analysis completed" — a scan still being read has no
         // result, and saying it completed is the opposite of true.
-        result: scan.result ?? null,
-        // Null when the scan recorded no confidence, so the card can say so.
-        confidence: scan.aiConfidence || null,
+        result: complete ? scan.result ?? null : null,
+        confidence: complete ? scan.aiConfidence || null : null,
         date: scan.createdAt ?? null,
         status: scan.status ?? 'pending',
         // The band the model assigned, as stored. Not re-derived from prose.
-        riskLevel: scan.riskLevel ?? null,
+        riskLevel: complete ? scan.riskLevel ?? null : null,
+        predictedPositive: complete ? scan.predictedPositive ?? null : null,
         modelVersion: scan.modelVersion ?? null,
       };
     });
@@ -415,16 +434,28 @@ export default function PatientPortalFinal({ user }: { user: any }) {
                     <Card className="bg-gradient-to-br from-yellow-600 to-yellow-700 border-yellow-500">
                       <CardContent className="p-5 text-center">
                         <div className="text-3xl font-bold text-white mb-1">
-                          {processedScans.filter(s => s.status === 'pending').length}
+                          {/* Was `status === 'pending'`, which counts only scans
+                              literally in that state. A scan no model could read
+                              is 'pending_manual_review' and was excluded, so the
+                              tile said 1 while four scans were unread. */}
+                          {processedScans.filter(s => s.status !== 'completed').length}
                         </div>
-                        <div className="text-sm text-yellow-100 font-medium">In Processing</div>
-                        <div className="text-xs text-yellow-200 mt-1">AI Analysis Active</div>
+                        <div className="text-sm text-yellow-100 font-medium">Awaiting a clinician</div>
+                        <div className="text-xs text-yellow-200 mt-1">Not yet read</div>
                       </CardContent>
                     </Card>
                     <Card className="bg-gradient-to-br from-blue-700 to-blue-800 border-blue-600">
                       <CardContent className="p-5 text-center">
                         <div className="text-3xl font-bold text-white mb-1">
-                          {processedScans.filter(s => new Date(s.date) > new Date(Date.now() - 30*24*60*60*1000)).length}
+                          {/* A scan with no date parsed as Invalid Date, and every
+                              comparison against it is false — so undated scans
+                              silently vanished from this count rather than being
+                              excluded deliberately. */}
+                          {processedScans.filter(s => {
+                            if (!s.date) return false;
+                            const when = new Date(s.date).getTime();
+                            return !Number.isNaN(when) && when > Date.now() - 30 * 24 * 60 * 60 * 1000;
+                          }).length}
                         </div>
                         <div className="text-sm text-blue-100 font-medium">Recent Studies</div>
                         <div className="text-xs text-blue-200 mt-1">Last 30 Days</div>

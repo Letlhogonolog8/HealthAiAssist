@@ -6,7 +6,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Upload, Brain, AlertTriangle, CheckCircle, FileImage, Zap, X } from 'lucide-react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 // import { apiRequest } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import MedicalImageViewer from './medical-image-viewer';
@@ -41,6 +41,27 @@ interface AnalysisResult {
 export default function GoogleAIScannerFixed() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [scanType, setScanType] = useState<string>('');
+
+  /**
+   * What the server will actually analyse.
+   *
+   * Read from the registry rather than written into this file, so the options
+   * and the resolver cannot drift apart again.
+   */
+  const { data: modelCards, isLoading: modelsLoading } = useQuery<{
+    models: Array<{ scanType: string; enabled: boolean }>;
+  }>({
+    queryKey: ['/api/models/cards'],
+    queryFn: async () => (await fetch('/api/models/cards')).json(),
+  });
+
+  const availableScanTypes = (modelCards?.models ?? []).filter((m) => m.enabled);
+
+  /** What each registry key accepts, for the option label. */
+  const ACCEPTS: Record<string, string> = {
+    lung: 'Chest X-ray or CT',
+    skin: 'Dermoscopy or clinical photograph',
+  };
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -265,22 +286,40 @@ export default function GoogleAIScannerFixed() {
           {/* Scan Type Selection */}
           <div className="space-y-3">
             <label className="text-sm font-medium">Medical Scan Type</label>
-            <Select value={scanType} onValueChange={setScanType}>
+            <Select value={scanType} onValueChange={setScanType} disabled={modelsLoading}>
               <SelectTrigger>
                 <SelectValue placeholder="Choose the type of medical scan" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="mammography">Mammography (Breast Cancer Screening)</SelectItem>
-                <SelectItem value="chest_xray">Chest X-Ray (Lung Cancer Detection)</SelectItem>
-                <SelectItem value="ct_scan">CT Scan (Comprehensive Imaging)</SelectItem>
-                <SelectItem value="mri">MRI (Magnetic Resonance Imaging)</SelectItem>
-                <SelectItem value="prostate">Prostate MRI (Prostate Cancer)</SelectItem>
-                <SelectItem value="cervical">Cervical Screening (Cervical Cancer)</SelectItem>
-                <SelectItem value="skin">Dermatological Imaging (Skin Cancer)</SelectItem>
-                <SelectItem value="ultrasound">Ultrasound Imaging</SelectItem>
-                <SelectItem value="pet_scan">PET Scan (Metabolic Imaging)</SelectItem>
+                {availableScanTypes.map((model) => (
+                  <SelectItem key={model.scanType} value={model.scanType}>
+                    <span className="capitalize">{model.scanType}</span>
+                    {ACCEPTS[model.scanType] && (
+                      <span className="text-muted-foreground"> — {ACCEPTS[model.scanType]}</span>
+                    )}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
+
+            {!modelsLoading && availableScanTypes.length === 0 && (
+              <p className="text-sm text-amber-600">
+                No imaging model is currently being served. An upload would be queued
+                for a human rather than analysed.
+              </p>
+            )}
+
+            {/*
+              Named, not hidden. This dropdown used to list mammography, prostate
+              MRI, cervical screening, ultrasound, PET and CT — none of which has
+              a classifier. Selecting one uploaded the image and then failed.
+            */}
+            {!modelsLoading && availableScanTypes.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Only these have a trained model. Breast, prostate and cervical imaging
+                are not analysed by this platform.
+              </p>
+            )}
           </div>
 
           {/* Analysis Button */}
@@ -299,10 +338,10 @@ export default function GoogleAIScannerFixed() {
               ) : (
                 <div className="flex items-center justify-center space-x-2">
                   <Brain className="w-5 h-5" />
+                  {/* A "Professional Grade" badge sat here. This platform holds
+                      no regulatory clearance and has had no clinical validation;
+                      the model cards say so on every other screen. */}
                   <span>Start AI Analysis</span>
-                  <Badge variant="secondary" className="ml-2 bg-white bg-opacity-20 text-white">
-                    Professional Grade
-                  </Badge>
                 </div>
               )}
             </Button>

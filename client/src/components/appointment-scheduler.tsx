@@ -192,8 +192,113 @@ export default function AppointmentScheduler({ user, onClose }: AppointmentSched
     'Specialist Referral'
   ];
 
+  /**
+   * The appointments this patient already has.
+   *
+   * The tab showed only the booking wizard, so an existing appointment was
+   * invisible here — the patient had to go back to the overview tile to learn
+   * they had one.
+   */
+  const {
+    data: myAppointments = [],
+    isLoading: appointmentsLoading,
+    isError: appointmentsError,
+  } = useQuery<any[]>({
+    queryKey: ['/api/patient/appointments'],
+    queryFn: async () => {
+      const response = await fetch('/api/patient/appointments', { credentials: 'include' });
+      if (!response.ok) {
+        throw new Error(`Your appointments could not be loaded (${response.status}).`);
+      }
+      return response.json();
+    },
+    enabled: Boolean(user?.id),
+  });
+
+  const now = Date.now();
+  const upcoming = myAppointments
+    .filter(
+      (a: any) =>
+        a.appointmentDate &&
+        a.status !== 'cancelled' &&
+        new Date(a.appointmentDate).getTime() >= now
+    )
+    .sort(
+      (a: any, b: any) =>
+        new Date(a.appointmentDate).getTime() - new Date(b.appointmentDate).getTime()
+    );
+
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
+      {/* ── What you already have booked ── */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <CalendarIcon className="w-5 h-5" />
+            Your appointments
+          </CardTitle>
+          <CardDescription>
+            {upcoming.length === 0
+              ? 'Nothing scheduled.'
+              : `${upcoming.length} upcoming`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {appointmentsLoading ? (
+            <p className="text-sm text-muted-foreground">Loading your appointments…</p>
+          ) : appointmentsError ? (
+            /* Distinguished from having none. Before this list existed the
+               question did not arise; now an empty panel must not be able to
+               mean "the request failed". */
+            <p className="text-sm text-amber-600">
+              Your appointments could not be loaded. This does not mean you have none —
+              reload, or sign in again.
+            </p>
+          ) : upcoming.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              You have no upcoming appointments. Book one below.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {upcoming.map((appointment: any) => (
+                <div
+                  key={appointment.id}
+                  className="flex flex-wrap items-start justify-between gap-3 rounded-lg border p-4"
+                >
+                  <div>
+                    <p className="font-medium text-foreground">
+                      {appointment.type || 'Consultation'}
+                    </p>
+                    <p className="text-sm text-muted-foreground mt-0.5">
+                      {format(new Date(appointment.appointmentDate), 'EEEE d MMMM yyyy')}
+                      {appointment.appointmentTime ? ` at ${appointment.appointmentTime}` : ''}
+                    </p>
+                    {appointment.doctorName && (
+                      <p className="text-sm text-muted-foreground">
+                        With {appointment.doctorName}
+                      </p>
+                    )}
+                    {appointment.reason && (
+                      <p className="text-xs text-muted-foreground mt-1">{appointment.reason}</p>
+                    )}
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={
+                      appointment.status === 'confirmed'
+                        ? 'border-green-500 text-green-700 dark:text-green-400'
+                        : 'border-slate-400 text-muted-foreground'
+                    }
+                  >
+                    {appointment.status || 'scheduled'}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Header */}
       <Card className="bg-gradient-to-r from-slate-700 to-slate-900 text-white">
         <CardHeader>

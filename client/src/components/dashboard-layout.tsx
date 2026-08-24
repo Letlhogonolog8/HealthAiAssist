@@ -69,6 +69,37 @@ function formatProcessUptime(seconds: number): string {
   return `${Math.floor(seconds / 86400)}d ${Math.floor((seconds % 86400) / 3600)}h`;
 }
 
+/**
+ * "3 days ago" from an instant, or empty when there is nothing to format.
+ *
+ * Tolerant of what the activity endpoints actually return: an ISO string, a
+ * Date, or a value that does not parse at all. An unparseable timestamp renders
+ * as nothing rather than as "Invalid Date".
+ */
+function formatRelative(value: unknown): string {
+  if (!value) return '';
+  const when = new Date(value as string);
+  if (Number.isNaN(when.getTime())) return '';
+
+  const seconds = Math.round((Date.now() - when.getTime()) / 1000);
+  if (seconds < 60) return 'just now';
+
+  const units: Array<[number, string]> = [
+    [60, 'minute'],
+    [3600, 'hour'],
+    [86400, 'day'],
+    [604800, 'week'],
+  ];
+  for (let i = units.length - 1; i >= 0; i--) {
+    const [size, name] = units[i];
+    if (seconds >= size) {
+      const n = Math.floor(seconds / size);
+      return `${n} ${name}${n === 1 ? '' : 's'} ago`;
+    }
+  }
+  return when.toLocaleDateString();
+}
+
 export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps) {
   const [activeTab, setActiveTab] = useState("overview");
 
@@ -327,6 +358,15 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                         {Array.isArray(recentActivities) && recentActivities.length > 0 ? (
                           recentActivities.map((item: any, idx: number) => {
                             const message = item.message || item.description || 'Activity';
+                            /*
+                              The server sends an ISO instant, which this
+                              rendered verbatim — "2026-08-24T10:22:13.131Z" sat
+                              beside every activity row. The branch below passed
+                              strings straight through on the assumption they
+                              were already human-readable, which stopped being
+                              true when the endpoint switched from
+                              toLocaleTimeString() on the server to ISO.
+                            */
                             const timeLabel = item.timestamp || item.date || '';
                             const status = (item.status || item.type || '').toString().toLowerCase();
                             const colorClass = status.includes('critical') ? 'bg-red-400' :
@@ -337,7 +377,9 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                               <div key={idx} className="flex items-center space-x-3 p-3 bg-slate-700 rounded-lg hover:bg-slate-600 transition-colors">
                                 <div className={`w-2 h-2 ${colorClass} rounded-full`}></div>
                                 <span className="text-slate-300 flex-1">{message}</span>
-                                <span className="text-slate-500 text-sm">{typeof timeLabel === 'string' ? timeLabel : new Date(timeLabel).toLocaleString()}</span>
+                                <span className="text-slate-500 text-sm whitespace-nowrap">
+                                  {formatRelative(timeLabel)}
+                                </span>
                               </div>
                             );
                           })

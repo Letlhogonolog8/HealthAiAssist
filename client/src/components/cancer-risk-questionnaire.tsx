@@ -37,7 +37,9 @@ export default function CancerRiskQuestionnaire({ user, onAppointmentRecommended
   const { toast } = useToast();
   const [currentStep, setCurrentStep] = useState(1);
   const [responses, setResponses] = useState<QuestionnaireResponse>({
-    age: 30,
+    // Was 30. A pre-filled age is a value the patient did not give, and the
+    // form submits whatever is sitting in the box.
+    age: 0,
     gender: '',
     familyHistory: '',
     smoking: '',
@@ -164,10 +166,16 @@ export default function CancerRiskQuestionnaire({ user, onAppointmentRecommended
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Stethoscope className="w-5 h-5" />
-          Breast Cancer Risk Assessment Questionnaire
+          {/* Was "Breast Cancer Risk Assessment Questionnaire". Nothing it asks
+              is breast-specific — age, gender, family history, smoking,
+              symptoms, exercise, diet, alcohol, medical history, medications,
+              occupation — and this platform has no breast classifier at all, so
+              naming breast cancer implied a screening capability that does not
+              exist. */}
+          Health and risk-factor questionnaire
         </CardTitle>
         <CardDescription>
-          Help us assess your breast cancer risk with this comprehensive health questionnaire. 
+          Records the history and lifestyle factors a clinician would ask about. 
           Your responses will help determine if you need additional screening or consultation.
         </CardDescription>
         <div className="space-y-2">
@@ -189,7 +197,7 @@ export default function CancerRiskQuestionnaire({ user, onAppointmentRecommended
               <Input
                 id="age"
                 type="number"
-                value={responses.age}
+                value={responses.age || ''}
                 onChange={(e) => setResponses(prev => ({ ...prev, age: parseInt(e.target.value) || 0 }))}
                 placeholder="Enter your age"
                 min="18"
