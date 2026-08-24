@@ -49,25 +49,59 @@ interface ScanReview {
   scanType: string;
   priority: 'urgent' | 'high' | 'medium' | 'low';
   submittedAt: string;
+  /** Clinical risk as recorded by the analysis. Null when none was written. */
+  riskLevel: string | null;
   aiPrediction: string;
-  aiConfidence: number;
-  bodyPart: string;
-  referringDoctor: string;
+  /**
+   * The model's self-reported confidence, or null when nothing scored the scan.
+   *
+   * Was typed `number`, so every render site wrote `{scan.aiConfidence}%`
+   * unguarded. The server sends null for a scan no model has run on, which
+   * printed as "Confidence: %".
+   */
+  aiConfidence: number | null;
+  /**
+   * Always null: a scan has no referring-doctor column. Typed `string` here, so
+   * the JSX rendered `Dr. {scan.referringDoctor}` and every row in the queue
+   * displayed a bare "Dr." with nothing after it.
+   */
+  referringDoctor: string | null;
+  /** Whether GET /api/scans/:id/image has anything to serve. */
+  hasImage?: boolean;
+  awaitingManualReview?: boolean;
   notes?: string;
 }
 
 interface CompletedScan {
   id: number;
-  patientName: string;
+  patientName: string | null;
   scanType: string;
   completedAt: string;
-  findings: string;
-  recommendation: string;
-  aiAccuracy: number;
+  findings: string | null;
+  recommendation: string | null;
+  /**
+   * Named for what it is.
+   *
+   * This was `aiAccuracy`, and the server field was renamed to aiConfidencePct
+   * precisely because it holds the model's confidence rather than a measured
+   * accuracy. The client was never updated, so it read a property that no
+   * longer arrives and rendered "AI Accuracy: %" on every completed row --
+   * mislabelled and blank at the same time.
+   */
+  aiConfidencePct: number | null;
 }
 
-export default function RadiologistDashboard({ user, setActiveTab }: { user: any; setActiveTab?: (tab: string) => void }) {
-  const [activeSection, setActiveSection] = useState('overview');
+export default function RadiologistDashboard({
+  user,
+  setActiveTab,
+  initialSection = 'overview',
+}: {
+  user: any;
+  setActiveTab?: (tab: string) => void;
+  /** Which inner tab to open on. The Scans tab opens on the review queue. */
+  initialSection?: 'overview' | 'pending' | 'completed' | 'outcomes';
+}) {
+  const [activeSection, setActiveSection] = useState<string>(initialSection);
   const [searchText, setSearchText] = useState('');
   const [priorityFilter, setPriorityFilter] = useState<'all' | 'urgent' | 'high' | 'medium' | 'low'>('all');
   const [sortBy, setSortBy] = useState<'submittedAt' | 'priority' | 'aiConfidence'>('submittedAt');
@@ -281,7 +315,15 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
   const safeCompletedScans = completedScans || [];
 
   const filteredPending = safePendingScans
-    .filter(s => !searchText || s.patientName.toLowerCase().includes(searchText.toLowerCase()) || s.scanType.toLowerCase().includes(searchText.toLowerCase()))
+    // Both fields are optional in the database. Calling .toLowerCase() on a
+    // null scanType throws inside render, which unmounts the whole dashboard
+    // into its error boundary the moment someone types in the search box.
+    .filter(s => {
+      if (!searchText) return true;
+      const needle = searchText.toLowerCase();
+      return (s.patientName ?? '').toLowerCase().includes(needle)
+        || (s.scanType ?? '').toLowerCase().includes(needle);
+    })
     .filter(s => priorityFilter === 'all' || s.priority === priorityFilter)
     .sort((a, b) => {
       if (sortBy === 'submittedAt') return new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime();
@@ -532,9 +574,10 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
                               {scan.priority}
                             </Badge>
                           </div>
-                          <p className="text-sm text-slate-400">{scan.scanType} - {scan.bodyPart}</p>
+                          <p className="text-sm text-slate-400">{scan.scanType}</p>
                           <p className="text-xs text-slate-500">
-                            AI: {scan.aiPrediction} ({scan.aiConfidence}% confidence)
+                            AI: {scan.aiPrediction}
+                            {scan.aiConfidence != null && ` (${scan.aiConfidence}% confidence)`}
                           </p>
                         </div>
                         <Button 
@@ -564,8 +607,14 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="text-white">Pending Scan Reviews</CardTitle>
+                  {/* Said "{filteredPending.length} scans awaiting review",
+                      which drops as you type -- reporting the search result as
+                      though it were the size of the queue. */}
                   <div className="text-sm text-slate-400">
-                    {filteredPending.length} scans awaiting review
+                    {safePendingScans.length} scan
+                    {safePendingScans.length === 1 ? '' : 's'} awaiting review
+                    {filteredPending.length !== safePendingScans.length &&
+                      ` · ${filteredPending.length} shown`}
                   </div>
                 </div>
                 <Button
@@ -628,9 +677,7 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
                         <div className="flex items-center gap-3">
                           <div>
                             <h4 className="font-medium text-white">{scan.patientName}</h4>
-                            <p className="text-sm text-slate-400">
-                              {scan.scanType} - {scan.bodyPart}
-                            </p>
+                            <p className="text-sm text-slate-400">{scan.scanType}</p>
                           </div>
                           <Badge className={getPriorityColor(scan.priority)}>
                             {scan.priority}
@@ -640,21 +687,53 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
                           <div className="text-sm text-slate-400">
                             Submitted: {new Date(scan.submittedAt).toLocaleDateString()}
                           </div>
-                          <div className="text-sm text-slate-400">
-                            Dr. {scan.referringDoctor}
-                          </div>
+                          {/* Rendered "Dr. {null}" -- a bare "Dr." -- on every
+                              row. A scan records no referring doctor, so there
+                              is nothing to show unless one day there is. */}
+                          {scan.referringDoctor && (
+                            <div className="text-sm text-slate-400">
+                              Dr. {scan.referringDoctor}
+                            </div>
+                          )}
                         </div>
                       </div>
                       
-                      <div className="bg-blue-900/20 p-3 rounded border border-blue-700">
-                        <div className="flex items-center gap-2 mb-1">
-                          <Brain className="w-4 h-4 text-blue-400" />
-                          <span className="text-sm font-medium text-blue-300">AI Analysis</span>
+                      {/*
+                        A scan that no model could analyse is not an AI analysis.
+                        Both cases were drawn in the same blue "AI Analysis" box,
+                        so "No AI result - automated analysis unavailable" was
+                        presented as though it were a finding, with "(Confidence:
+                        %)" after it. They are different situations and the queue
+                        should not make a radiologist read carefully to tell them
+                        apart.
+                      */}
+                      {scan.awaitingManualReview ? (
+                        <div className="bg-amber-900/20 p-3 rounded border border-amber-700">
+                          <div className="flex items-center gap-2 mb-1">
+                            <AlertTriangle className="w-4 h-4 text-amber-400" />
+                            <span className="text-sm font-medium text-amber-300">
+                              No automated analysis
+                            </span>
+                          </div>
+                          <p className="text-sm text-amber-200">
+                            No model could run on this scan, so it carries no AI
+                            result. It depends entirely on your read.
+                          </p>
                         </div>
-                        <p className="text-sm text-blue-200">
-                          {scan.aiPrediction} (Confidence: {scan.aiConfidence}%)
-                        </p>
-                      </div>
+                      ) : (
+                        <div className="bg-blue-900/20 p-3 rounded border border-blue-700">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Brain className="w-4 h-4 text-blue-400" />
+                            <span className="text-sm font-medium text-blue-300">AI Analysis</span>
+                          </div>
+                          <p className="text-sm text-blue-200">
+                            {scan.aiPrediction}
+                            {scan.aiConfidence == null
+                              ? ' (confidence not recorded)'
+                              : ` (Confidence: ${scan.aiConfidence}%)`}
+                          </p>
+                        </div>
+                      )}
 
                       <div className="flex gap-2">
                         <Button 
@@ -679,11 +758,34 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
                       </div>
                     </div>
                   ))}
-                  {safePendingScans.length === 0 && (
+                  {/*
+                    Tested safePendingScans while the list above renders
+                    filteredPending, so a search or priority filter that matched
+                    nothing produced neither rows nor a message -- a blank panel
+                    that looks like a failed load. The two cases also want
+                    different words: "nothing to review" and "nothing matches
+                    what you typed" are not the same news.
+                  */}
+                  {filteredPending.length === 0 && (
                     <div className="text-center text-slate-400 py-8">
                       <Scan className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                      <p className="font-medium">No pending reviews at this time</p>
-                      <p className="text-sm">Great work! You're all caught up.</p>
+                      {safePendingScans.length === 0 ? (
+                        <>
+                          <p className="font-medium">No pending reviews at this time</p>
+                          <p className="text-sm">Great work! You're all caught up.</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="font-medium">
+                            No scans match this search or filter
+                          </p>
+                          <p className="text-sm">
+                            {safePendingScans.length} scan
+                            {safePendingScans.length === 1 ? ' is' : 's are'} awaiting
+                            review. Clear the filters to see them.
+                          </p>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
@@ -739,22 +841,36 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
                           <div className="text-sm text-slate-400">
                             Completed: {new Date(scan.completedAt).toLocaleTimeString()}
                           </div>
-                          <div className="flex items-center gap-1">
-                            <Star className="w-3 h-3 text-yellow-500" />
-                            <span className="text-xs text-slate-300">AI Accuracy: {scan.aiAccuracy}%</span>
-                          </div>
+                          {/* Read scan.aiAccuracy, which the server renamed to
+                              aiConfidencePct because it is confidence, not a
+                              measured accuracy. It printed "AI Accuracy: %". */}
+                          {scan.aiConfidencePct != null && (
+                            <div className="flex items-center gap-1">
+                              <Star className="w-3 h-3 text-yellow-500" />
+                              <span className="text-xs text-slate-300">
+                                AI confidence: {scan.aiConfidencePct}%
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
                       
                       <div className="bg-slate-600 p-3 rounded">
                         <div className="text-sm font-medium mb-1 text-slate-300">Findings:</div>
-                        <p className="text-sm text-slate-200">{scan.findings}</p>
+                        <p className="text-sm text-slate-200">
+                          {scan.findings || 'No findings were recorded.'}
+                        </p>
                       </div>
                       
-                      <div className="bg-green-900/20 p-3 rounded border border-green-700">
-                        <div className="text-sm font-medium mb-1 text-green-300">Recommendation:</div>
-                        <p className="text-sm text-green-200">{scan.recommendation}</p>
-                      </div>
+                      {/* Drawn unconditionally, so a scan with no recommendation
+                          got an empty green panel headed "Recommendation:" --
+                          which reads as a recommendation that says nothing. */}
+                      {scan.recommendation && (
+                        <div className="bg-green-900/20 p-3 rounded border border-green-700">
+                          <div className="text-sm font-medium mb-1 text-green-300">Recommendation:</div>
+                          <p className="text-sm text-green-200">{scan.recommendation}</p>
+                        </div>
+                      )}
                     </div>
                   ))}
                   {safeCompletedScans.length === 0 && (
@@ -798,10 +914,6 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
                   <p className="text-white">{selectedScan.scanType}</p>
                 </div>
                 <div>
-                  <Label className="text-slate-400">Body Part</Label>
-                  <p className="text-white">{selectedScan.bodyPart}</p>
-                </div>
-                <div>
                   <Label className="text-slate-400">Priority</Label>
                   <Badge className={getPriorityColor(selectedScan.priority)}>
                     {selectedScan.priority}
@@ -809,7 +921,12 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
                 </div>
                 <div>
                   <Label className="text-slate-400">Referring Doctor</Label>
-                  <p className="text-white">Dr. {selectedScan.referringDoctor}</p>
+                  {/* "Dr. " followed by nothing, on every scan. */}
+                  <p className="text-white">
+                    {selectedScan.referringDoctor
+                      ? `Dr. ${selectedScan.referringDoctor}`
+                      : 'Not recorded'}
+                  </p>
                 </div>
                 <div>
                   <Label className="text-slate-400">Submitted</Label>
@@ -817,13 +934,47 @@ export default function RadiologistDashboard({ user, setActiveTab }: { user: any
                 </div>
               </div>
               
+              {/*
+                The image.
+
+                This dialog is what the button labelled "Open Viewer" opens, and
+                it contained no viewer: patient details, the AI verdict and two
+                textareas. A radiologist was being asked to write findings on a
+                scan the interface never showed them.
+
+                GET /api/scans/:id/image already existed and enforces its own
+                access check; nothing was calling it from here.
+              */}
+              <div className="rounded border border-slate-600 bg-slate-900 overflow-hidden">
+                {selectedScan.hasImage === false ? (
+                  <div className="p-8 text-center">
+                    <Image className="w-10 h-10 mx-auto mb-3 text-slate-600" />
+                    <p className="text-sm font-medium text-slate-300">No image stored</p>
+                    <p className="mt-1 text-xs text-slate-500 max-w-sm mx-auto">
+                      This scan has no image on file, so there is nothing to display.
+                      Any report written here rests on the record alone.
+                    </p>
+                  </div>
+                ) : (
+                  <img
+                    src={`/api/scans/${selectedScan.id}/image`}
+                    alt={`${selectedScan.scanType} scan for ${selectedScan.patientName}`}
+                    className="w-full max-h-[45vh] object-contain bg-black"
+                  />
+                )}
+              </div>
+
               <div className="bg-blue-900/20 p-4 rounded border border-blue-700">
                 <div className="flex items-center gap-2 mb-2">
                   <Brain className="w-4 h-4 text-blue-400" />
                   <span className="text-blue-300 font-medium">AI Analysis</span>
                 </div>
                 <p className="text-blue-200">{selectedScan.aiPrediction}</p>
-                <p className="text-blue-300 text-sm mt-1">Confidence: {selectedScan.aiConfidence}%</p>
+                <p className="text-blue-300 text-sm mt-1">
+                  {selectedScan.aiConfidence == null
+                    ? 'Confidence not recorded'
+                    : `Confidence: ${selectedScan.aiConfidence}%`}
+                </p>
               </div>
 
               <div className="space-y-4">

@@ -1410,24 +1410,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/radiologist/pending-reviews", auditLog('READ_PENDING_REVIEWS'), requireAuth, requireMedicalAccess, async (req, res) => {
     try {
-      // Scans awaiting a human: still processing, or queued because automated
-      // analysis could not run at all. The second case must not be dropped —
-      // those scans have no AI result and depend entirely on this queue.
-      //
-      // Two indexed queries with the patient joined on, instead of reading every
-      // scan and every user and filtering in JavaScript. They are separate
-      // queries because the two cases live in different columns: one is a
-      // `result` value, the other a `status` value.
-      const [processing, manualReview] = await Promise.all([
-        storage.listScansWithPatient({ limit: 200, order: 'oldest' }),
-        storage.listScansWithPatient({ status: 'pending_manual_review', limit: 200, order: 'oldest' }),
-      ]);
-
-      const seen = new Set<number>();
-      const pendingScans = [
-        ...manualReview,
-        ...processing.filter(scan => scan.result === 'Processing'),
-      ].filter(scan => (seen.has(scan.id) ? false : seen.add(scan.id)));
+      /**
+       * Everything waiting on a radiologist.
+       *
+       * This collected two sets: rows whose status was 'pending_manual_review',
+       * and rows whose result was still the literal string 'Processing'. It
+       * never asked for status = 'pending' -- which is the status of a scan the
+       * analysis pipeline has finished with, because handleScanAnalysis writes a
+       * result and a risk level and leaves status at the schema default.
+       *
+       * That is the normal end state of every successful scan. So the review
+       * queue could see scans no model could run on, and scans still mid-flight,
+       * and could not see a single one of the analysed scans that are the actual
+       * work: a lung scan reading "Lung Cancer detected - high risk" sat in the
+       * database while the radiologist's queue showed "Pending Reviews (0)".
+       *
+       * Meanwhile getRadiologistWorkload() counts status <> 'completed' for the
+       * stat card above the queue, so the same page reported 2 pending and then
+       * listed none of them.
+       *
+       * Asking for the complement of 'completed' fixes both halves at once: the
+       * list is now defined by the same predicate as the counter, so they cannot
+       * disagree, and a status added later joins the queue instead of vanishing
+       * from it.
+       */
+      const pendingScans = await storage.listScansWithPatient({
+        statusNot: 'completed',
+        limit: 200,
+        order: 'oldest',
+      });
 
       const reviews = pendingScans.map(scan => {
         const patient = scan.patientName ? { fullName: scan.patientName } : null;
@@ -1436,18 +1447,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
           id: scan.id,
           patientName: patient ? patient.fullName : `Patient ${scan.patientId}`,
           scanType: scan.scanType,
-          // Read the stored triage priority. This was previously randomised,
-          // which shuffled the order radiologists review patients in.
-          priority: scan.priority || 'medium',
+          /**
+           * Triage priority, derived from the recorded clinical risk.
+           *
+           * This read the `priority` column, which defaults to 'medium' and
+           * which nothing in the codebase ever writes. So every row in the
+           * queue carried a MEDIUM badge, the "All priorities" filter had
+           * nothing to separate, and "Sort: Priority" was a no-op ordering a
+           * list by a constant -- including for a scan whose risk_level was
+           * 'high'. A radiologist reading this queue top-down had no signal
+           * telling them which patient to open first.
+           *
+           * risk_level is what the analysis actually wrote. The same mapping is
+           * used by /api/doctor/reports, so the two portals rank a given scan
+           * the same way.
+           */
+          priority: (() => {
+            const risk = (scan.riskLevel ?? '').toLowerCase();
+            if (risk === 'critical') return 'urgent';
+            if (risk === 'high') return 'high';
+            if (risk === 'medium') return 'medium';
+            if (risk === 'low') return 'low';
+            return scan.priority || 'medium';
+          })(),
+          // Whether GET /api/scans/:id/image has anything to serve. The review
+          // dialog is opened by a button labelled "Open Viewer" and needs to
+          // know whether there is an image before offering one.
+          hasImage: Boolean(scan.imagePath),
           awaitingManualReview,
           submittedAt: scan.createdAt,
+          riskLevel: scan.riskLevel ?? null,
+          /**
+           * What the model actually said.
+           *
+           * Every row that was not awaiting manual review reported "Analysis in
+           * progress", because the only rows that reached this list were ones
+           * still processing. Now that analysed scans appear, the stored result
+           * is the honest answer -- and a radiologist triaging a queue needs to
+           * see which rows are flagged before opening them.
+           */
           aiPrediction: awaitingManualReview
             ? 'No AI result - automated analysis unavailable'
-            : 'Analysis in progress',
-          aiConfidence: (typeof scan.aiConfidence === 'string')
-            ? (parseFloat(scan.aiConfidence.replace('%', '')) || 0)
-            : (typeof scan.aiConfidence === 'number' ? scan.aiConfidence : 0),
-          bodyPart: (scan.scanType || '').split(' ')[0] || 'Unknown',
+            : (scan.result && scan.result !== 'Processing'
+                ? scan.result
+                : 'Analysis in progress'),
+          // Null, not 0. A scan no model has scored has no confidence; drawing
+          // that as "0%" states the model was certain the finding was absent.
+          aiConfidence: (typeof scan.aiConfidence === 'string' && scan.aiConfidence.trim() !== '')
+            ? (Number.parseFloat(scan.aiConfidence.replace('%', '')) || null)
+            : (typeof scan.aiConfidence === 'number' ? scan.aiConfidence : null),
+          // `bodyPart` is gone. It was scanType.split(' ')[0] -- and the only
+          // scan types this platform has are single words ('lung', 'skin'), so
+          // it was always exactly equal to scanType. The queue rendered the two
+          // side by side and every row read "lung - lung"; the review dialog
+          // listed "Scan Type: lung" above "Body Part: lung". A derived field
+          // that can never differ from its source is not a second fact.
+          //
+          // A real anatomical site would need a column and something writing to
+          // it. There is neither.
           // Was the literal 'Johnson' on every row. There is no referring-doctor
           // field on a scan, so the honest answer is that it is not recorded.
           referringDoctor: null,
@@ -1470,19 +1527,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const startOfToday = new Date();
       startOfToday.setHours(0, 0, 0, 0);
 
-      const scans = await storage.listScansWithPatient({ since: startOfToday, limit: 200 });
+      /**
+       * Signed off today -- the same predicate the "Completed Today" counter uses.
+       *
+       * Two things were wrong. It filtered on `since`, which is created_at, so
+       * it asked "which scans were uploaded today"; and it kept every row whose
+       * result was not the literal 'Processing', which is true of any analysed
+       * scan whether or not a radiologist has looked at it. A skin scan uploaded
+       * this morning and still sitting unreviewed in the queue was therefore
+       * listed under Completed, with its AI result presented as the findings.
+       *
+       * A scan is completed when a radiologist completed it: status 'completed',
+       * reviewed_at today. getRadiologistWorkload() already counts exactly that.
+       */
+      const scans = await storage.listScansWithPatient({
+        status: 'completed',
+        reviewedSince: startOfToday,
+        limit: 200,
+      });
 
       const completed = scans
-        .filter(scan => scan.result !== 'Processing')
         .map(scan => ({
           id: scan.id,
           patientName: scan.patientName,
           scanType: scan.scanType,
-          completedAt: scan.createdAt,
-          findings: scan.result,
+          // When it was signed off, not when it was uploaded.
+          completedAt: scan.reviewedAt ?? scan.createdAt,
+          // The radiologist's findings if they wrote any, falling back to the
+          // result line. This read scan.result unconditionally, so a report that
+          // had been written out in full was displayed as the one-line AI
+          // verdict it was meant to supersede.
+          findings: scan.findings || scan.result,
           // Was `|| 'Follow-up as needed'`, which put a clinical instruction on
           // every scan whose notes happened to be empty.
-          recommendation: scan.notes ?? null,
+          recommendation: scan.recommendations ?? scan.notes ?? null,
           // Named for what it is. This was called aiAccuracy while holding the
           // model's self-reported confidence, and fell back to 0 — which reads
           // as "0% accurate" rather than "not recorded".
@@ -2931,20 +3009,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/radiologist/awaiting-outcome", auditLog('READ_OUTCOME_QUEUE'), requireAuth, requireMedicalAccess, async (req, res) => {
     try {
       const limit = Math.min(parseInt(req.query.limit as string, 10) || 50, 200);
+      /**
+       * The name arrives joined now, so this no longer issues a getUser() per
+       * distinct patient in a loop. It also no longer returns null for all of
+       * them: the query behind this used SELECT s.* through raw pg, whose rows
+       * are keyed patient_id, so scan.patientId was undefined, the Map lookup
+       * was a lookup on undefined, and JSON.stringify then dropped every other
+       * undefined field -- leaving the Outcomes tab a list of rows with an id
+       * and a result and nothing to identify them by.
+       */
       const scans = await storage.getScansAwaitingOutcome(limit);
-
-      const patientIds = Array.from(new Set(scans.map((scan) => scan.patientId)));
-      const patients = new Map<number, string>();
-      for (const id of patientIds) {
-        const patient = await storage.getUser(id);
-        if (patient) patients.set(id, patient.fullName || patient.username);
-      }
 
       res.json(
         scans.map((scan) => ({
           id: scan.id,
           patientId: scan.patientId,
-          patientName: patients.get(scan.patientId) ?? null,
+          patientName: scan.patientName ?? null,
           scanType: scan.scanType,
           predictedPositive: scan.predictedPositive,
           result: scan.result,

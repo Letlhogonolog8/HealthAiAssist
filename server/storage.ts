@@ -4,7 +4,7 @@ import { getDb } from "./db";
 // when no key is configured, and reads tolerate plaintext — which is what lets
 // this be switched on over a live table without rewriting it first.
 import { encryptRow, decryptRow, decryptRows } from "./crypto";
-import { eq, ilike, or, and, sql, inArray, isNull, desc, gte } from "drizzle-orm";
+import { eq, ne, ilike, or, and, sql, inArray, isNull, desc, gte } from "drizzle-orm";
 
 const db = getDb();
 
@@ -36,8 +36,25 @@ export type ScanWithPatient = MedicalScan & {
 /** Narrows a scan listing. Everything here maps to an existing index. */
 export interface ScanQuery {
   status?: string;
+  /**
+   * Every status except this one.
+   *
+   * The review queue wants "not yet signed off", which is an open-ended set —
+   * `pending`, `pending_manual_review`, and whatever a later workflow adds.
+   * Enumerating the ones that exist today is how the queue came to miss the
+   * commonest status of all.
+   */
+  statusNot?: string;
   /** Rows created at or after this instant. */
   since?: Date;
+  /**
+   * Rows signed off at or after this instant.
+   *
+   * Distinct from `since`. "Completed today" is a fact about when a radiologist
+   * reviewed the scan, not about when the patient uploaded it — a scan taken on
+   * Monday and reported on Thursday belongs to Thursday's tally.
+   */
+  reviewedSince?: Date;
   patientId?: number;
   radiologistId?: number;
   /** The clinician the scan is assigned to. Indexed by idx_scans_doctor. */
@@ -259,7 +276,7 @@ export interface IStorage {
   /** Every adjudication for a scan, newest first. Append-only, so this is history. */
   getOutcomeHistory(scanId: number): Promise<ScanOutcome[]>;
   /** Scans that have a model prediction and no adjudication yet. */
-  getScansAwaitingOutcome(limit?: number): Promise<MedicalScan[]>;
+  getScansAwaitingOutcome(limit?: number): Promise<Array<MedicalScan & { patientName: string | null }>>;
   /** Confusion-matrix counts per modality, from adjudicated scans only. */
   getOutcomeMatrix(minimumMethod?: string): Promise<OutcomeMatrixRow[]>;
 
@@ -983,6 +1000,8 @@ export class DatabaseStorage implements IStorage {
     // Typed, because an empty literal infers as never[] and every push fails.
     const conditions: any[] = [];
     if (query.status) conditions.push(eq(medicalScans.status, query.status));
+    if (query.statusNot) conditions.push(ne(medicalScans.status, query.statusNot));
+    if (query.reviewedSince) conditions.push(gte(medicalScans.reviewedAt, query.reviewedSince));
     if (query.patientId) conditions.push(eq(medicalScans.patientId, query.patientId));
     if (query.radiologistId) conditions.push(eq(medicalScans.radiologistId, query.radiologistId));
     if (query.doctorId) conditions.push(eq(medicalScans.doctorId, query.doctorId));
@@ -1272,14 +1291,50 @@ export class DatabaseStorage implements IStorage {
     );
   }
 
-  async getScansAwaitingOutcome(limit = 100): Promise<MedicalScan[]> {
+  /**
+   * The outcome queue, with the columns spelled the way the callers read them.
+   *
+   * This ran `SELECT s.*` through `pool.query`, which is raw node-postgres and
+   * therefore returns the database's own column names: `patient_id`,
+   * `scan_type`, `image_path`, `predicted_positive`, `created_at`. Drizzle's
+   * camelCase mapping only applies to queries built through Drizzle, so every
+   * caller reading `scan.patientId` or `scan.scanType` got `undefined`.
+   *
+   * The route then did `patients.get(scan.patientId)` — a lookup on undefined —
+   * and JSON.stringify dropped every undefined field, so the Outcomes tab
+   * received rows carrying an id and a result string and nothing else: no
+   * patient, no modality, no date, no confidence, and `hasImage: false` on
+   * every row regardless of whether an image existed.
+   *
+   * Aliased explicitly rather than switching to Drizzle, because the ordering
+   * below is the point of the query and reads better in SQL. The patient's name
+   * is joined here too, replacing a getUser() call per distinct patient in the
+   * route.
+   */
+  async getScansAwaitingOutcome(limit = 100): Promise<Array<MedicalScan & { patientName: string | null }>> {
     const { pool } = await import('./db');
     // A scan is measurable only if a model actually made a call on it, so rows
     // with a null prediction are not in this queue — they are in the manual
     // review queue, which is a different job.
     const { rows } = await pool.query(
-      `SELECT s.*
+      `SELECT s.id,
+              s.patient_id          AS "patientId",
+              s.scan_type           AS "scanType",
+              s.image_path          AS "imagePath",
+              s.ai_confidence       AS "aiConfidence",
+              s.result,
+              s.notes,
+              s.findings,
+              s.recommendations,
+              s.status,
+              s.risk_level          AS "riskLevel",
+              s.model_version       AS "modelVersion",
+              s.predicted_positive  AS "predictedPositive",
+              s.created_at          AS "createdAt",
+              s.reviewed_at         AS "reviewedAt",
+              u.full_name           AS "patientName"
          FROM medical_scans s
+         LEFT JOIN users u ON u.id = s.patient_id
         WHERE s.predicted_positive IS NOT NULL
           AND NOT EXISTS (SELECT 1 FROM scan_outcomes o WHERE o.scan_id = s.id)
         ORDER BY
@@ -1596,7 +1651,7 @@ class FallbackStorage implements IStorage {
   }
   async getCurrentOutcome(scanId: number): Promise<ScanOutcome | undefined> { return undefined; }
   async getOutcomeHistory(scanId: number): Promise<ScanOutcome[]> { return []; }
-  async getScansAwaitingOutcome(limit?: number): Promise<MedicalScan[]> { return []; }
+  async getScansAwaitingOutcome(limit?: number): Promise<Array<MedicalScan & { patientName: string | null }>> { return []; }
   async getOutcomeMatrix(minimumMethod?: string): Promise<OutcomeMatrixRow[]> { return []; }
   async getScansPerDay(days: number) { return []; }
   async getCumulativeUsersByMonth(months: number) { return []; }

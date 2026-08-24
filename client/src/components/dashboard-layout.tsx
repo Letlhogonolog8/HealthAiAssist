@@ -115,7 +115,21 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
       icon: Brain,
       title: "Radiologist Interface",
       color: "bg-purple-600",
-      tabs: ["overview", "scans", "appointments", "google-ai"]
+      /**
+       * "appointments" is gone, for the reason "debug" went from the doctor's
+       * list: it rendered a tab and no panel.
+       *
+       * The only two <TabsContent value="appointments"> in this file are gated
+       * on user.role === 'patient' and user.role === 'doctor', so a radiologist
+       * clicking Appointments got an empty page under a heading.
+       *
+       * It is not an oversight that can be fixed by adding a panel, either.
+       * An appointment row has patient_id and doctor_id and no radiologist
+       * column, and there is no /api/radiologist/appointments endpoint --
+       * there is nothing for the tab to show. A radiologist reads scans; the
+       * diary belongs to the referring clinician.
+       */
+      tabs: ["overview", "scans", "google-ai"]
     },
     doctor: {
       icon: Stethoscope,
@@ -715,7 +729,18 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
             </>
           )}
 
-            {config.tabs.includes("scans") && (
+            {/*
+              Role-gated, because there is a second <TabsContent value="scans">
+              below for radiologists and Radix renders every panel whose value
+              matches -- not just the first.
+
+              A radiologist opening Scans therefore got the upload-and-analyse
+              tool stacked on top of a complete second copy of the
+              RadiologistDashboard, the same component already filling the
+              Overview tab: two sets of stat cards, two review queues, two
+              Outcomes panels, each with its own queries in flight.
+            */}
+            {config.tabs.includes("scans") && user.role !== 'radiologist' && (
               <TabsContent value="scans">
                 <div className="space-y-6">
                   <AIScanSimulator />
@@ -825,9 +850,19 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
               </TabsContent>
             )}
 
+            {/*
+              Scans opens on the review queue rather than repeating Overview.
+              Both tabs mounted RadiologistDashboard with no argument, so they
+              were the same screen twice and Scans landed the radiologist on the
+              Workstation summary they had just left.
+            */}
             {config.tabs.includes("scans") && user.role === 'radiologist' && (
               <TabsContent value="scans">
-                <RadiologistDashboard user={user} setActiveTab={setActiveTab} />
+                <RadiologistDashboard
+                  user={user}
+                  setActiveTab={setActiveTab}
+                  initialSection="pending"
+                />
               </TabsContent>
             )}
 
