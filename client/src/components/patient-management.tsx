@@ -10,9 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { Search, Plus, Eye, Edit, Trash2, Users, Phone, Mail, Calendar, Activity, FileText, AlertTriangle } from 'lucide-react';
-import BloodTestAnalyzer from './blood-test-analyzer';
-import MedicalImageViewer from './medical-image-viewer';
+import { Search, Plus, Eye, Edit, Trash2, Users, Phone, Mail, Calendar, FileText, AlertTriangle } from 'lucide-react';
 
 interface Patient {
   id: number;

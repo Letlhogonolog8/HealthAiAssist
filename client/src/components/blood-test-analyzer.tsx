@@ -1,3 +1,41 @@
+/**
+ * ⚠️  NOT WIRED UP. Do not route to this component as it stands.
+ *
+ * Nothing renders it. It was reachable from the patient portal's "Blood Tests"
+ * tab and from the cancer-detection tool menu; both were removed, deliberately,
+ * and this file is kept only so the input form is available if a real backend
+ * ever exists.
+ *
+ * ── Why it was pulled ──────────────────────────────────────────────────────
+ *
+ * It produces a cancer diagnosis from arithmetic nobody evaluated.
+ *
+ * There is no endpoint behind it and no model. `analyzeBloodTest` adds
+ * hand-written weights per marker — `riskScore += cea > 10 ? 30 : 15`,
+ * `riskScore += ca199 > 100 ? 40 : 20` — sums them, and buckets the total at
+ * 25 / 50 / 80 into low / medium / high / critical. Every one of those numbers
+ * was typed, not measured. It then attaches findings in the same style:
+ *
+ *     "Strongly indicates ovarian or pancreatic cancer"
+ *     "Highly suspicious for pancreatic cancer"
+ *     "High risk for prostate cancer"
+ *
+ * A patient entering their own tumour-marker values on their own portal got a
+ * cancer-type determination back, with no clinician between them and it, from a
+ * formula with no evaluation, no calibration and no held-out set. The rest of
+ * this application refuses to report what it did not measure — the model
+ * registry disables classifiers that score at chance, and /api/models/cards
+ * publishes the evidence for the two that survive. This had none of that.
+ *
+ * ── What it would take to bring back ───────────────────────────────────────
+ *
+ * A server-side model with a held-out evaluation, registered in MODEL_REGISTRY
+ * like every other modality, so that availability and performance come from the
+ * same place as the rest. Tumour markers are a legitimate screening input; a
+ * scoring function invented in a component file is not the way to use them.
+ *
+ * Until then the interpretation must come out, even if the form stays.
+ */
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';

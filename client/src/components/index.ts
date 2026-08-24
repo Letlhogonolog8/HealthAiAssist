@@ -35,7 +35,6 @@ export { default as RealTimeSkinScanner } from './real-time-skin-scanner';
 export { default as SkinCancerAnalyzer } from './skin-cancer-analyzer';
 export { default as LungCancerAnalyzer } from './lung-cancer-analyzer';
 export { default as ProstateCancerAnalyzer } from './prostate-cancer-analyzer';
-export { default as BloodTestAnalyzer } from './blood-test-analyzer';
 export { default as MultiCancerDetectionSystem } from './multi-cancer-detection-system';
 
 // Specialized Components

@@ -50,7 +50,6 @@ import DoctorPatients from "./doctor-patients";
 import { DoctorAppointmentSection } from "./doctor-appointment-section";
 const CancerDetection = lazy(() => import("@/pages/cancer-detection"));
 const EnhancedChatbot = lazy(() => import("./enhanced-chatbot"));
-const BloodTestAnalyzer = lazy(() => import("./blood-test-analyzer"));
 import CancerRiskQuestionnaire from "./cancer-risk-questionnaire";
 const LungCancerAnalyzer = lazy(() => import("./lung-cancer-analyzer"));
 const MedicalImageViewer = lazy(() => import("./medical-image-viewer"));
@@ -96,7 +95,22 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
       icon: User,
       title: "Patient Portal",
       color: "bg-green-600",
-      tabs: ["overview", "scan", "results", "appointments", "blood-tests", "questionnaire", "skin-scanner"]
+      /**
+       * "blood-tests" is gone from this list, and BloodTestAnalyzer with it.
+       *
+       * That tab ran a cancer risk calculation entirely in the browser. There
+       * was no endpoint behind it and no model: it added hand-written weights
+       * per marker (`riskScore += cea > 10 ? 30 : 15`), bucketed the total into
+       * low / medium / high / critical, and rendered findings reading
+       * "Strongly indicates ovarian or pancreatic cancer" and "Highly
+       * suspicious for pancreatic cancer".
+       *
+       * Nobody measured those thresholds or those weights. A patient entering
+       * their own tumour-marker values got a cancer-type determination out of
+       * arithmetic that had never been evaluated against anything — on the
+       * patient's own portal, with no clinician between them and it.
+       */
+      tabs: ["overview", "scan", "results", "appointments", "questionnaire", "skin-scanner"]
     }
   };
 
@@ -414,19 +428,30 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                 )}
                 {user.role === 'patient' && (
                   <>
-                    <Button 
+                    <Button
                       className="w-full justify-start bg-blue-600 hover:bg-blue-700"
+                      onClick={() => setActiveTab('scan')}
+                    >
+                      <Brain className="w-4 h-4 mr-2" />
+                      New Scan
+                    </Button>
+                    <Button
+                      className="w-full justify-start bg-purple-600 hover:bg-purple-700"
+                      onClick={() => setActiveTab('appointments')}
+                    >
+                      <Calendar className="w-4 h-4 mr-2" />
+                      Book Appointment
+                    </Button>
+                    <Button
+                      className="w-full justify-start bg-green-600 hover:bg-green-700"
                       onClick={() => setActiveTab('results')}
                     >
                       <FileText className="w-4 h-4 mr-2" />
                       View Results
                     </Button>
-                    <Button 
-                      className="w-full justify-start bg-purple-600 hover:bg-purple-700"
-                      onClick={() => {
-                        console.log('Chat button clicked, navigating to /chat');
-                        window.location.href = '/chat';
-                      }}
+                    <Button
+                      className="w-full justify-start bg-slate-700 hover:bg-slate-600"
+                      onClick={() => { window.location.href = '/chat'; }}
                     >
                       <MessageSquare className="w-4 h-4 mr-2" />
                       Chat with Doctor
@@ -499,7 +524,6 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                   'appointments': <Calendar className="w-4 h-4" />,
                   'schedule': <Clock className="w-4 h-4" />,
                   'debug': <Settings className="w-4 h-4" />,
-                  'blood-tests': <Activity className="w-4 h-4" />,
                   'questionnaire': <FileText className="w-4 h-4" />,
                   'lung-analyzer': <Activity className="w-4 h-4" />,
                   'image-viewer': <Eye className="w-4 h-4" />,
@@ -513,6 +537,7 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                 
                 const tabLabels = {
                   'overview': 'Overview',
+                  'scan': 'New Scan',
                   'cancer-detection': 'Cancer Detection',
                   'google-ai': 'Google AI',
                   'simulator': 'Simulator',
@@ -523,7 +548,6 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                   'appointments': 'Appointments',
                   'schedule': 'Schedule',
                   'debug': 'Debug',
-                  'blood-tests': 'Blood Tests',
                   'questionnaire': 'Risk Assessment',
                   'lung-analyzer': 'Lung Analysis',
                   'image-viewer': 'Image Viewer',
@@ -580,116 +604,37 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
           {/* Patient-specific tabs */}
           {user.role === 'patient' && (
             <>
+              {/*
+                The patient's overview was four hardcoded cards and three
+                invented events, shadowing renderOverview() — which reads
+                /api/patient/stats and /api/patient/activities/recent and is
+                what every other role gets.
+
+                A brand-new account with an empty record was shown:
+
+                  Health Score        85%
+                  Total Scans         2
+                  Next Appointment    Tomorrow 2PM
+                  Last Scan           2 days ago
+
+                  "Breast Cancer Scan completed - No abnormalities detected"
+                  "Appointment scheduled with Dr. Smith"
+                  "Lung CT Scan completed - Normal findings"
+
+                Every one a literal. This is the patient's own screen, about
+                their own health, and it told them they had been scanned twice,
+                cleared once, and were due to be seen tomorrow — none of which
+                had happened. "Breast Cancer Scan" names a modality with no
+                classifier at all, and Dr. Smith is the same fictional clinician
+                removed from the pending-reports endpoint.
+
+                Health Score in particular was removed from /api/patient/stats
+                for being derived from a substring search; it survived here as a
+                flat 85%.
+              */}
               <TabsContent value="overview">
                 <div className="space-y-6">
-                  {/* Health Summary Cards */}
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <Card className="bg-slate-800 border-slate-600">
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-slate-400 text-sm">Health Score</p>
-                            <p className="text-2xl font-bold text-green-400">85%</p>
-                          </div>
-                          <Heart className="w-8 h-8 text-green-400" />
-                        </div>
-                      </CardContent>
-                    </Card>
-                    <Card className="bg-slate-800 border-slate-600">
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-slate-400 text-sm">Total Scans</p>
-                            <p className="text-2xl font-bold text-blue-400">2</p>
-                          </div>
-                          <Brain className="w-8 h-8 text-blue-400" />
-                        </div>
-                      </CardContent>
-                    </Card>
-                    <Card className="bg-slate-800 border-slate-600">
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-slate-400 text-sm">Next Appointment</p>
-                            <p className="text-sm font-bold text-purple-400">Tomorrow 2PM</p>
-                          </div>
-                          <Calendar className="w-8 h-8 text-purple-400" />
-                        </div>
-                      </CardContent>
-                    </Card>
-                    <Card className="bg-slate-800 border-slate-600">
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-slate-400 text-sm">Last Scan</p>
-                            <p className="text-sm font-bold text-orange-400">2 days ago</p>
-                          </div>
-                          <Activity className="w-8 h-8 text-orange-400" />
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
-
-                  {/* Quick Actions */}
-                  <Card className="bg-slate-800 border-slate-600">
-                    <CardHeader>
-                      <CardTitle className="text-white">Quick Actions</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <Button 
-                          onClick={() => setActiveTab('scan')}
-                          className="bg-blue-600 hover:bg-blue-700 h-16 flex flex-col gap-2"
-                        >
-                          <Brain className="w-6 h-6" />
-                          <span>New Scan</span>
-                        </Button>
-                        <Button 
-                          onClick={() => setActiveTab('appointments')}
-                          className="bg-purple-600 hover:bg-purple-700 h-16 flex flex-col gap-2"
-                        >
-                          <Calendar className="w-6 h-6" />
-                          <span>Book Appointment</span>
-                        </Button>
-                        <Button 
-                          onClick={() => setActiveTab('results')}
-                          className="bg-green-600 hover:bg-green-700 h-16 flex flex-col gap-2"
-                        >
-                          <FileText className="w-6 h-6" />
-                          <span>View Results</span>
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* Recent Activity */}
-                  <Card className="bg-slate-800 border-slate-600">
-                    <CardHeader>
-                      <CardTitle className="text-white flex items-center gap-2">
-                        <Activity className="w-5 h-5" />
-                        Recent Activity
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-3">
-                        <div className="flex items-center space-x-3 p-3 bg-slate-700 rounded-lg">
-                          <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-                          <span className="text-slate-300 flex-1">Breast Cancer Scan completed - No abnormalities detected</span>
-                          <span className="text-slate-500 text-sm">2d ago</span>
-                        </div>
-                        <div className="flex items-center space-x-3 p-3 bg-slate-700 rounded-lg">
-                          <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
-                          <span className="text-slate-300 flex-1">Appointment scheduled with Dr. Smith</span>
-                          <span className="text-slate-500 text-sm">3d ago</span>
-                        </div>
-                        <div className="flex items-center space-x-3 p-3 bg-slate-700 rounded-lg">
-                          <div className="w-2 h-2 bg-purple-400 rounded-full"></div>
-                          <span className="text-slate-300 flex-1">Lung CT Scan completed - Normal findings</span>
-                          <span className="text-slate-500 text-sm">1w ago</span>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  {renderOverview()}
                 </div>
               </TabsContent>
               
@@ -881,12 +826,6 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
             )}
 
             {/* Blood Test Analyzer */}
-            {config.tabs.includes("blood-tests") && (
-              <TabsContent value="blood-tests">
-                <BloodTestAnalyzer />
-              </TabsContent>
-            )}
-
             {/* Cancer Risk Questionnaire */}
             {config.tabs.includes("questionnaire") && (
               <TabsContent value="questionnaire">
