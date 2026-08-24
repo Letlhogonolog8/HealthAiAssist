@@ -38,7 +38,7 @@ export default function ImagingResultsSummary({ results, onViewAll }: ImagingRes
       case 'high': return 'bg-red-100 text-red-800 border-red-300';
       case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
       case 'low': return 'bg-green-100 text-green-800 border-green-300';
-      default: return 'bg-slate-100 dark:bg-slate-700 text-foreground border-gray-300';
+      default: return 'bg-slate-100 dark:bg-slate-700 text-foreground border-slate-300 dark:border-slate-600';
     }
   };
 
@@ -114,7 +114,7 @@ export default function ImagingResultsSummary({ results, onViewAll }: ImagingRes
         </CardHeader>
         <CardContent className="space-y-3">
           {recentResults.map((result, index) => (
-            <div key={result.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-slate-100 dark:bg-slate-700 transition-colors">
+            <div key={result.id} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-lg hover:bg-slate-100 dark:bg-slate-700 transition-colors">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
                   <span className="text-sm font-bold text-blue-600">{index + 1}</span>

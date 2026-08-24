@@ -172,7 +172,7 @@ export function DoctorAppointmentSection({ user }: { user: any }) {
                     size="sm"
                     onClick={() => deleteAppointment.mutate(appointment.id)}
                     disabled={deleteAppointment.isPending}
-                    className="text-muted-foreground hover:text-red-600 border-gray-200 hover:border-red-300"
+                    className="text-muted-foreground hover:text-red-600 border-slate-200 dark:border-slate-700 hover:border-red-300"
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>

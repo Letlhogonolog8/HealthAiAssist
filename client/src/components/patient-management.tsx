@@ -172,7 +172,7 @@ export default function PatientManagement() {
       case 'medium': return 'bg-yellow-500';
       case 'low': return 'bg-green-500';
       // Grey, not green. An unassessed scan is not a low-risk one.
-      default: return 'bg-gray-500';
+      default: return 'bg-slate-50 dark:bg-slate-8000';
     }
   };
 

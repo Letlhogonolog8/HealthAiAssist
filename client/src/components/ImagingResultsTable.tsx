@@ -111,7 +111,7 @@ export default function ImagingResultsTable({ results, onViewResult, onDeleteRes
       <CardContent className="p-0">
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-gray-50 border-b">
+            <thead className="bg-slate-50 dark:bg-slate-800 border-b">
               <tr>
                 <th className="text-left p-4 font-semibold text-foreground">Patient</th>
                 <th className="text-left p-4 font-semibold text-foreground">Scan Type</th>
@@ -124,7 +124,7 @@ export default function ImagingResultsTable({ results, onViewResult, onDeleteRes
             </thead>
             <tbody>
               {paginatedResults.map((result, index) => (
-                <tr key={result.id} className={`border-b hover:bg-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-25'}`}>
+                <tr key={result.id} className={`border-b hover:bg-slate-50 dark:bg-slate-800 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-25'}`}>
                   <td className="p-4">
                     <div className="font-medium text-foreground">{result.patientName}</div>
                   </td>
@@ -200,7 +200,7 @@ export default function ImagingResultsTable({ results, onViewResult, onDeleteRes
         )}
 
         {totalPages > 1 && (
-          <div className="flex items-center justify-between p-4 border-t bg-gray-50">
+          <div className="flex items-center justify-between p-4 border-t bg-slate-50 dark:bg-slate-800">
             <div className="text-sm text-muted-foreground">
               Showing {startIndex + 1}-{Math.min(startIndex + itemsPerPage, filteredResults.length)} of {filteredResults.length} results
             </div>

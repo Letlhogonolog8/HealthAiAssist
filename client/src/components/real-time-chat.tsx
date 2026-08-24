@@ -571,7 +571,7 @@ export default function RealTimeChat({ currentUser, chatWith, onClose }: RealTim
                         </AvatarFallback>
                       </Avatar>
                       <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-slate-800 ${
-                        participant.isOnline ? 'bg-green-400' : 'bg-gray-500'
+                        participant.isOnline ? 'bg-green-400' : 'bg-slate-50 dark:bg-slate-8000'
                       }`}></div>
                     </div>
                     

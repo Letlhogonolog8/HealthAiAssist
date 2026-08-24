@@ -733,7 +733,7 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
 
             {config.tabs.includes("cancer-detection") && (
               <TabsContent value="cancer-detection">
-                <CancerDetection />
+                <CancerDetection user={user} />
               </TabsContent>
             )}
 
@@ -1047,7 +1047,11 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
           } else if (action.type === 'view_results') {
             setActiveTab('results');
           } else if (action.type === 'book_scan') {
-            setActiveTab('cancer-detection');
+            // 'cancer-detection' is not in any role's tab list, so this switched
+            // to a tab whose content never renders — the assistant's "book a
+            // scan" action dropped the patient on an empty panel. 'scan' is the
+            // patient's upload tab and is the one this meant.
+            setActiveTab('scan');
           }
         }}
       />

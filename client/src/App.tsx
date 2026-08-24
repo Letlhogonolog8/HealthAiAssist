@@ -23,6 +23,7 @@ import AppErrorBoundary from "@/components/app-error-boundary";
 const About = lazy(() => import("@/pages/about"));
 const ChatPage = lazy(() => import("@/pages/chat"));
 const GenomicsPage = lazy(() => import("@/pages/genomics"));
+const CancerDetection = lazy(() => import("@/pages/cancer-detection"));
 const DashboardLayout = lazy(() => import("@/components/dashboard-layout"));
 const ForgotPassword = lazy(() => import("@/components/forgot-password"));
 
@@ -56,6 +57,14 @@ function Router({ user, onLogin, onLogout }: { user: any; onLogin: (user: any) =
           would defeat the purpose. Consent and upload tabs still require a user. */}
       <Route path="/genomics" component={() => <GenomicsPage user={user} />} />
       <Route path="/about" component={() => <About onLoginSuccess={onLogin} />} />
+      {/* Public like /genomics, and for the same reason: which modalities have a
+          model — and which do not — is a statement about the system's limits.
+          The analysers themselves post scans and need a session, so the page
+          asks for one at the point of use rather than at the door. */}
+      <Route
+        path="/cancer-detection"
+        component={() => <CancerDetection user={user} onLoginSuccess={onLogin} standalone />}
+      />
       <Route path="/forgot-password" component={() => {
         const [, setLocation] = useLocation();
         return <ForgotPassword onBack={() => setLocation('/')} />;

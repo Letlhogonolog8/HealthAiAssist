@@ -41,7 +41,7 @@ export const AnalysisResultsDisplay: React.FC<AnalysisResultsProps> = ({ analysi
       case 'high': return 'bg-red-100 text-red-800 border-red-300';
       case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
       case 'low': return 'bg-green-100 text-green-800 border-green-300';
-      default: return 'bg-slate-100 dark:bg-slate-700 text-foreground border-gray-300';
+      default: return 'bg-slate-100 dark:bg-slate-700 text-foreground border-slate-300 dark:border-slate-600';
     }
   };
 
@@ -377,21 +377,21 @@ export const AnalysisResultsDisplay: React.FC<AnalysisResultsProps> = ({ analysi
         </CardHeader>
         <CardContent className="p-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="text-center p-4 bg-white rounded-xl shadow-sm border border-gray-200">
+            <div className="text-center p-4 bg-white rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
               <div className="flex items-center justify-center mb-2">
                 <Activity className="w-6 h-6 text-blue-500" />
               </div>
               <p className="text-muted-foreground text-sm font-semibold mb-1">Scan Type</p>
               <p className="text-xl font-bold text-foreground uppercase">{analysisData.scanType}</p>
             </div>
-            <div className="text-center p-4 bg-white rounded-xl shadow-sm border border-gray-200">
+            <div className="text-center p-4 bg-white rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
               <div className="flex items-center justify-center mb-2">
                 <Clock className="w-6 h-6 text-green-500" />
               </div>
               <p className="text-muted-foreground text-sm font-semibold mb-1">Analysis Date</p>
               <p className="text-xl font-bold text-foreground">{analysisData.analysisDate}</p>
             </div>
-            <div className="text-center p-4 bg-white rounded-xl shadow-sm border border-gray-200">
+            <div className="text-center p-4 bg-white rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
               <div className="flex items-center justify-center mb-2">
                 <FileText className="w-6 h-6 text-purple-500" />
               </div>

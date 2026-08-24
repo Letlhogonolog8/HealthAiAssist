@@ -177,7 +177,7 @@ export default function GoogleAIScannerFixed() {
       case 'high': return 'bg-red-100 text-red-800 border-red-300';
       case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
       case 'low': return 'bg-green-100 text-green-800 border-green-300';
-      default: return 'bg-slate-100 dark:bg-slate-700 text-foreground border-gray-300';
+      default: return 'bg-slate-100 dark:bg-slate-700 text-foreground border-slate-300 dark:border-slate-600';
     }
   };
 
@@ -195,7 +195,7 @@ export default function GoogleAIScannerFixed() {
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Simple File Upload Button */}
-          <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center space-y-4">
+          <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-8 text-center space-y-4">
             {selectedFile ? (
               <div className="space-y-4">
                 <FileImage className="w-16 h-16 mx-auto text-green-600" />

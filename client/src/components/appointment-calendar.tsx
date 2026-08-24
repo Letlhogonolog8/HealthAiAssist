@@ -516,7 +516,7 @@ export default function AppointmentCalendar({
             )}
 
             {/* Important Notes */}
-            <div className="bg-gray-50 rounded-lg p-3">
+            <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-3">
               <h4 className="text-sm font-medium text-foreground mb-2">Important Notes:</h4>
               <ul className="text-xs text-muted-foreground space-y-1">
                 <li>• Please arrive 15 minutes early</li>

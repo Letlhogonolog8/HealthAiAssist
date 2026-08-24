@@ -281,7 +281,7 @@ export default function MultiCancerDetectionSystem() {
       case 'low': return 'bg-blue-100 text-blue-900 border-blue-300';
       case 'medium': return 'bg-green-100 text-green-900 border-green-300';
       case 'high': return 'bg-red-100 text-red-900 border-red-300';
-      default: return 'bg-slate-100 dark:bg-slate-700 text-foreground border-gray-300';
+      default: return 'bg-slate-100 dark:bg-slate-700 text-foreground border-slate-300 dark:border-slate-600';
     }
   };
 
@@ -337,10 +337,10 @@ export default function MultiCancerDetectionSystem() {
                       aria-disabled={!available}
                       className={`transition-all duration-200 ${
                         !available
-                          ? 'opacity-60 cursor-not-allowed bg-gray-50'
+                          ? 'opacity-60 cursor-not-allowed bg-slate-50 dark:bg-slate-800'
                           : selectedCancerType === type.id
                             ? 'cursor-pointer ring-2 ring-blue-500 bg-blue-50'
-                            : 'cursor-pointer hover:shadow-lg hover:bg-gray-50'
+                            : 'cursor-pointer hover:shadow-lg hover:bg-slate-50 dark:bg-slate-800'
                       }`}
                       onClick={() => available && setSelectedCancerType(type.id)}
                     >
@@ -357,7 +357,7 @@ export default function MultiCancerDetectionSystem() {
                                   Model available
                                 </Badge>
                               ) : (
-                                <Badge variant="outline" className="text-muted-foreground border-gray-300">
+                                <Badge variant="outline" className="text-muted-foreground border-slate-300 dark:border-slate-600">
                                   Not available
                                 </Badge>
                               )}
@@ -420,7 +420,7 @@ export default function MultiCancerDetectionSystem() {
                 </Alert>
               ) : (
                 <>
-                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+                  <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-8 text-center">
                     {previewUrl ? (
                       <div className="space-y-4">
                         <img 

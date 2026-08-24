@@ -435,27 +435,27 @@ export default function RealTimeSkinScanner() {
               <div className="space-y-3">
                 <h4 className="font-semibold">ABCDE Analysis</h4>
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
-                  <div className="text-center p-2 bg-gray-50 rounded">
+                  <div className="text-center p-2 bg-slate-50 dark:bg-slate-800 rounded">
                     <div className="font-medium">A</div>
                     <div className="text-xs text-muted-foreground">Asymmetry</div>
                     <div className="font-bold">{scanResult.analysis.abcdeScore.asymmetry || 0}/2</div>
                   </div>
-                  <div className="text-center p-2 bg-gray-50 rounded">
+                  <div className="text-center p-2 bg-slate-50 dark:bg-slate-800 rounded">
                     <div className="font-medium">B</div>
                     <div className="text-xs text-muted-foreground">Border</div>
                     <div className="font-bold">{scanResult.analysis.abcdeScore.border || 0}/2</div>
                   </div>
-                  <div className="text-center p-2 bg-gray-50 rounded">
+                  <div className="text-center p-2 bg-slate-50 dark:bg-slate-800 rounded">
                     <div className="font-medium">C</div>
                     <div className="text-xs text-muted-foreground">Color</div>
                     <div className="font-bold">{scanResult.analysis.abcdeScore.color || 0}/2</div>
                   </div>
-                  <div className="text-center p-2 bg-gray-50 rounded">
+                  <div className="text-center p-2 bg-slate-50 dark:bg-slate-800 rounded">
                     <div className="font-medium">D</div>
                     <div className="text-xs text-muted-foreground">Diameter</div>
                     <div className="font-bold">{scanResult.analysis.abcdeScore.diameter || 0}/2</div>
                   </div>
-                  <div className="text-center p-2 bg-gray-50 rounded">
+                  <div className="text-center p-2 bg-slate-50 dark:bg-slate-800 rounded">
                     <div className="font-medium">E</div>
                     <div className="text-xs text-muted-foreground">Evolving</div>
                     <div className="font-bold">{scanResult.analysis.abcdeScore.evolving || 0}/2</div>

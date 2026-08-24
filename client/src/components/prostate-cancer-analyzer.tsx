@@ -163,7 +163,7 @@ export default function ProstateCancerAnalyzer() {
             </TabsList>
 
             <TabsContent value="upload" className="space-y-4">
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6">
+              <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-6">
                 <div className="text-center space-y-4">
                   <FileImage className="w-12 h-12 mx-auto text-gray-400" />
                   <div>
@@ -355,15 +355,15 @@ export default function ProstateCancerAnalyzer() {
                 <div>
                   <h4 className="font-semibold mb-2">Prostate Zones</h4>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
-                    <div className="p-2 bg-gray-50 rounded">
+                    <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded">
                       <span className="font-medium">Peripheral Zone:</span>
                       <p>{analysisResult.prostateAnalysis.zones.peripheralZone}</p>
                     </div>
-                    <div className="p-2 bg-gray-50 rounded">
+                    <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded">
                       <span className="font-medium">Transition Zone:</span>
                       <p>{analysisResult.prostateAnalysis.zones.transitionZone}</p>
                     </div>
-                    <div className="p-2 bg-gray-50 rounded">
+                    <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded">
                       <span className="font-medium">Central Zone:</span>
                       <p>{analysisResult.prostateAnalysis.zones.centralZone}</p>
                     </div>

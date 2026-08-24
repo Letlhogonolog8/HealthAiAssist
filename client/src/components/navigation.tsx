@@ -38,6 +38,16 @@ interface NavigationProps {
    * no second dialog is created.
    */
   onLoginClick?: () => void;
+  /**
+   * Keeps the bar opaque instead of fading in on scroll.
+   *
+   * The transparent-until-scrolled behaviour assumes a dark hero underneath —
+   * the bar's text is white and its links slate-400. On a page that follows the
+   * theme, that means white-on-white at the top of the light theme. Pages
+   * without a dark hero pass this and get a solid dark header bar, which reads
+   * as deliberate over either theme.
+   */
+  solid?: boolean;
 }
 
 const NAV_LINKS = [
@@ -48,7 +58,12 @@ const NAV_LINKS = [
   { href: "/about", label: "About", kind: "route" as const },
 ];
 
-export default function Navigation({ user, onLoginSuccess, onLoginClick }: NavigationProps) {
+export default function Navigation({
+  user,
+  onLoginSuccess,
+  onLoginClick,
+  solid = false,
+}: NavigationProps) {
   const [location] = useLocation();
   const [showLoginDialog, setShowLoginDialog] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -72,7 +87,7 @@ export default function Navigation({ user, onLoginSuccess, onLoginClick }: Navig
     <>
       <nav
         className={`sticky top-0 z-50 transition-colors duration-300 ${
-          scrolled
+          solid || scrolled
             ? "bg-slate-950/85 backdrop-blur-md border-b border-slate-800"
             : "bg-transparent border-b border-transparent"
         }`}

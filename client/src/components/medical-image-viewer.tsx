@@ -107,7 +107,7 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
       case 'high': return 'border-red-500 bg-red-50';
       case 'medium': return 'border-yellow-500 bg-yellow-50';
       case 'low': return 'border-green-500 bg-green-50';
-      default: return 'border-gray-300 bg-gray-50';
+      default: return 'border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800';
     }
   };
 
@@ -177,7 +177,7 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
               <Settings className="w-4 h-4 mr-1" />
               Enhance
             </Button>
-            <Button variant="outline" size="sm" onClick={handleReset} className="hover:bg-gray-50 hover:border-gray-300">
+            <Button variant="outline" size="sm" onClick={handleReset} className="hover:bg-slate-50 dark:bg-slate-800 hover:border-slate-300 dark:border-slate-600">
               Reset View
             </Button>
             <Button variant="outline" size="sm" onClick={handleDownload} className="hover:bg-indigo-50 hover:border-indigo-300">
@@ -188,7 +188,7 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
 
           {/* Enhancement Controls */}
           {showEnhancements && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-4 p-6 bg-gradient-to-r from-slate-50 to-gray-50 rounded-xl border border-gray-200 shadow-inner">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-4 p-6 bg-gradient-to-r from-slate-50 to-gray-50 rounded-xl border border-slate-200 dark:border-slate-700 shadow-inner">
               <div className="space-y-3">
                 <div className="flex items-center gap-2 mb-2">
                   <div className="p-1 bg-green-100 rounded">
@@ -247,7 +247,7 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
         <CardContent className="p-0">
           <div
             ref={containerRef}
-            className="relative w-full h-[500px] bg-gradient-to-br from-gray-900 to-black overflow-hidden cursor-move border-4 border-gray-200 rounded-lg"
+            className="relative w-full h-[500px] bg-gradient-to-br from-gray-900 to-black overflow-hidden cursor-move border-4 border-slate-200 dark:border-slate-700 rounded-lg"
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
@@ -327,28 +327,28 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="p-4 bg-white rounded-lg shadow-sm border border-gray-200">
+            <div className="p-4 bg-white rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
               <div className="flex items-center gap-2 mb-2">
                 <FileText className="w-4 h-4 text-blue-500" />
                 <span className="text-sm font-semibold text-muted-foreground">File Name</span>
               </div>
               <p className="font-bold text-foreground truncate" title={imageFile.name}>{imageFile.name}</p>
             </div>
-            <div className="p-4 bg-white rounded-lg shadow-sm border border-gray-200">
+            <div className="p-4 bg-white rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
               <div className="flex items-center gap-2 mb-2">
                 <Activity className="w-4 h-4 text-green-500" />
                 <span className="text-sm font-semibold text-muted-foreground">File Size</span>
               </div>
               <p className="font-bold text-foreground">{(imageFile.size / 1024 / 1024).toFixed(2)} MB</p>
             </div>
-            <div className="p-4 bg-white rounded-lg shadow-sm border border-gray-200">
+            <div className="p-4 bg-white rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
               <div className="flex items-center gap-2 mb-2">
                 <Settings className="w-4 h-4 text-purple-500" />
                 <span className="text-sm font-semibold text-muted-foreground">File Type</span>
               </div>
               <p className="font-bold text-foreground">{imageFile.type}</p>
             </div>
-            <div className="p-4 bg-white rounded-lg shadow-sm border border-gray-200">
+            <div className="p-4 bg-white rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
               <div className="flex items-center gap-2 mb-2">
                 <Clock className="w-4 h-4 text-orange-500" />
                 <span className="text-sm font-semibold text-muted-foreground">Last Modified</span>

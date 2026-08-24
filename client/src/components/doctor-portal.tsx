@@ -1138,7 +1138,7 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
                   variant="outline" 
                   onClick={() => setShowScheduleDialog(false)}
                   disabled={scheduleAppointmentMutation.isPending}
-                  className="flex-1 border-2 border-gray-300 hover:border-gray-400"
+                  className="flex-1 border-2 border-slate-300 dark:border-slate-600 hover:border-gray-400"
                 >
                   <XCircle className="w-4 h-4 mr-2" />
                   Cancel

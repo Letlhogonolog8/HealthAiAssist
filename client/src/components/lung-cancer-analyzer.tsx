@@ -327,7 +327,7 @@ export default function LungCancerAnalyzer() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+              <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-8 text-center">
                 {previewUrl ? (
                   <div className="space-y-4">
                     <img 

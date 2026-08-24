@@ -197,7 +197,7 @@ export default function MedicalProfessionalScheduler({ user, onAppointmentBooked
                     className={`cursor-pointer transition-all border-2 ${
                       selectedProfessional?.id === doctor.id 
                         ? 'border-blue-500 bg-blue-50' 
-                        : 'border-gray-200 hover:border-blue-300'
+                        : 'border-slate-200 dark:border-slate-700 hover:border-blue-300'
                     }`}
                     onClick={() => setSelectedProfessional(doctor)}
                   >
@@ -226,7 +226,7 @@ export default function MedicalProfessionalScheduler({ user, onAppointmentBooked
                     className={`cursor-pointer transition-all border-2 ${
                       selectedProfessional?.id === radiologist.id 
                         ? 'border-purple-500 bg-purple-50' 
-                        : 'border-gray-200 hover:border-purple-300'
+                        : 'border-slate-200 dark:border-slate-700 hover:border-purple-300'
                     }`}
                     onClick={() => setSelectedProfessional(radiologist)}
                   >

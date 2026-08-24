@@ -67,7 +67,7 @@ const prettyGroup = (group: string) =>
 const bandColour = (band: string) =>
   band === 'high' ? 'bg-red-600' :
   band === 'moderate' ? 'bg-amber-500' :
-  band === 'low' ? 'bg-green-600' : 'bg-gray-500';
+  band === 'low' ? 'bg-green-600' : 'bg-slate-50 dark:bg-slate-8000';
 
 export default function GenomicsPage({ user }: { user?: any }) {
   const { toast } = useToast();
