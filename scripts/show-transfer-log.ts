@@ -6,7 +6,17 @@
  * This is the record a POPIA impact assessment is written against: who, when,
  * what category of content, and what was stripped before it left.
  */
-import 'dotenv/config';
+/**
+ * `../server/load-env` rather than `dotenv/config`.
+ *
+ * dotenv's default is that an already-set variable wins, so on a machine
+ * carrying a Machine- or User-scope DATABASE_URL from another project this
+ * script silently talked to that database instead of the one in .env — or, when
+ * the credentials did not match, failed with "received invalid response: 4a"
+ * from the SCRAM handshake. load-env overrides from the file in development,
+ * which is what every other entry point in this project uses.
+ */
+import '../server/load-env';
 import { getDb } from '../server/db';
 import { auditEvents } from '@shared/schema';
 import { desc, eq } from 'drizzle-orm';

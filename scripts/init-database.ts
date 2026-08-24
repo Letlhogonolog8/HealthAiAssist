@@ -1,3 +1,16 @@
+/**
+ * Must be first. `../server/db` builds its pool from process.env.DATABASE_URL at
+ * module scope, and every import in a file is evaluated before the file's own
+ * statements — so anything that loads .env later has already lost.
+ *
+ * Without it this script read whatever DATABASE_URL the shell carried. On a
+ * machine with a Machine-scope DATABASE_URL left over from another project
+ * (which is the case here), `npm run db:init` failed with
+ * "received invalid response: 4a" — a SCRAM handshake against the wrong server —
+ * and there was no way to create the first admin account.
+ */
+import "../server/load-env";
+
 import { randomBytes } from "crypto";
 import { db, pool } from "../server/db";
 import { users, medicalScans, medicalTerms, appointments } from "@shared/schema";

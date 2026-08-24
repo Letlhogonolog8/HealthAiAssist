@@ -1,9 +1,18 @@
 #!/usr/bin/env tsx
 
-import * as dotenv from 'dotenv';
+/**
+ * `../server/load-env` rather than `dotenv/config`.
+ *
+ * dotenv's default is that an already-set variable wins, so on a machine
+ * carrying a Machine- or User-scope DATABASE_URL from another project this
+ * script silently talked to that database instead of the one in .env — or, when
+ * the credentials did not match, failed with "received invalid response: 4a"
+ * from the SCRAM handshake. load-env overrides from the file in development,
+ * which is what every other entry point in this project uses.
+ */
+import '../server/load-env';
 
 // Load environment variables first
-dotenv.config();
 
 import { GoogleCalendarService } from '../server/google-calendar-service';
 
