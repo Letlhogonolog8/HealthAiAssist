@@ -44,6 +44,7 @@ const PatientManagement = lazy(() => import("./patient-management"));
 const AdminDashboard = lazy(() => import("./admin-dashboard"));
 
 const RadiologistDashboard = lazy(() => import("./radiologist-dashboard"));
+const DoctorScheduleAppointment = lazy(() => import("./doctor-schedule-appointment"));
 const DoctorPortal = lazy(() => import("./doctor-portal"));
 import DoctorReports from "./doctor-reports";
 import DoctorPatients from "./doctor-patients";
@@ -120,7 +121,13 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
       icon: Stethoscope,
       title: "Doctor Portal",
       color: "bg-blue-600",
-      tabs: ["overview", "patients", "reports", "appointments", "schedule", "google-ai", "debug"]
+      /**
+       * "debug" is gone. It was listed, it rendered a tab with an icon and a
+       * label, and there was no <TabsContent value="debug"> anywhere — so a
+       * clinician clicking it got a blank page. A developer tab on a clinical
+       * portal is the wrong thing to ship even when it does work.
+       */
+      tabs: ["overview", "patients", "reports", "appointments", "schedule", "google-ai"]
     },
     patient: {
       icon: User,
@@ -565,7 +572,6 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                   'results': <FileText className="w-4 h-4" />,
                   'appointments': <Calendar className="w-4 h-4" />,
                   'schedule': <Clock className="w-4 h-4" />,
-                  'debug': <Settings className="w-4 h-4" />,
                   'questionnaire': <FileText className="w-4 h-4" />,
                   'lung-analyzer': <Activity className="w-4 h-4" />,
                   'image-viewer': <Eye className="w-4 h-4" />,
@@ -589,7 +595,6 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                   'results': 'Results',
                   'appointments': 'Appointments',
                   'schedule': 'Schedule',
-                  'debug': 'Debug',
                   'questionnaire': 'Risk Assessment',
                   'lung-analyzer': 'Lung Analysis',
                   'image-viewer': 'Image Viewer',
@@ -802,22 +807,21 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
               </TabsContent>
             )}
             
+            {/*
+              This tab rendered AppointmentScheduler, the patient-facing booking
+              wizard, under a header reading "Create and manage patient
+              appointments". A clinician opening it was asked to "Select
+              Professional Type — choose the type of medical professional you'd
+              like to see", and shown a list headed "Your appointments" that
+              queried /api/patient/appointments and so was empty for them however
+              full their diary was.
+
+              DoctorScheduleAppointment books for a patient on the clinician's own
+              panel, through POST /api/doctor/appointments/schedule.
+            */}
             {config.tabs.includes("schedule") && user.role === 'doctor' && (
               <TabsContent value="schedule">
-                <Card className="bg-slate-800 border-slate-600">
-                  <CardHeader>
-                    <CardTitle className="text-white flex items-center gap-2">
-                      <Clock className="w-5 h-5" />
-                      Schedule New Appointment
-                    </CardTitle>
-                    <p className="text-slate-300 text-sm">
-                      Create and manage patient appointments
-                    </p>
-                  </CardHeader>
-                  <CardContent>
-                    <AppointmentScheduler user={user} />
-                  </CardContent>
-                </Card>
+                <DoctorScheduleAppointment user={user} />
               </TabsContent>
             )}
 

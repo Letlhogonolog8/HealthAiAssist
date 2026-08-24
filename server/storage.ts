@@ -40,6 +40,8 @@ export interface ScanQuery {
   since?: Date;
   patientId?: number;
   radiologistId?: number;
+  /** The clinician the scan is assigned to. Indexed by idx_scans_doctor. */
+  doctorId?: number;
   limit?: number;
   /** Newest first by default; activity feeds and queues want opposite ends. */
   order?: 'newest' | 'oldest';
@@ -983,6 +985,7 @@ export class DatabaseStorage implements IStorage {
     if (query.status) conditions.push(eq(medicalScans.status, query.status));
     if (query.patientId) conditions.push(eq(medicalScans.patientId, query.patientId));
     if (query.radiologistId) conditions.push(eq(medicalScans.radiologistId, query.radiologistId));
+    if (query.doctorId) conditions.push(eq(medicalScans.doctorId, query.doctorId));
     if (query.since) conditions.push(gte(medicalScans.createdAt, query.since));
 
     let builder = (db as any)

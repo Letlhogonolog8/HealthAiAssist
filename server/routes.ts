@@ -1611,7 +1611,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // user in the database and running .find() once per appointment.
       const appointments = await storage.listDoctorAppointmentsWithPatient(doctorId);
 
-      const formattedAppointments = appointments.map(appointment => ({
+      /**
+       * Actually upcoming.
+       *
+       * This route is named `/upcoming` and the panel that consumes it is headed
+       * "Upcoming Appointments (n)", but it returned every appointment the
+       * clinician had ever had — so a visit completed nine days ago sat in the
+       * upcoming list with a "completed" badge, and the count above it was the
+       * lifetime total rather than what is still to come.
+       *
+       * Cancelled ones are dropped for the same reason: an appointment that is
+       * not going to happen is not upcoming.
+       *
+       * Today counts as upcoming — a 2pm slot is still ahead of a clinician
+       * reading this at 9am — so the comparison is against the start of today,
+       * not against now.
+       */
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+
+      const upcoming = appointments.filter((appointment) => {
+        if (!appointment.appointmentDate) return false;
+        if (appointment.status === 'cancelled' || appointment.status === 'completed') return false;
+        return new Date(appointment.appointmentDate) >= startOfToday;
+      });
+
+      const formattedAppointments = upcoming.map(appointment => ({
         id: appointment.id,
         patientName: appointment.patientName,
         patientEmail: appointment.patientEmail,
@@ -3112,27 +3137,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Doctor reports endpoint
   app.get("/api/doctor/reports", auditLog('READ_REPORT_LIST'), requireAuth, requireMedicalAccess, async (req, res) => {
     try {
-      // One indexed join, limited in the database. This was two full table
-      // reads plus a linear .find() per row to attach the patient name.
-      const scans = await storage.listScansWithPatient({ limit: 200 });
+      /**
+       * This clinician's reports.
+       *
+       * The query was unscoped — every scan in the database, for any patient,
+       * returned to any doctor or radiologist who opened the Reports tab. The
+       * patient panel had the same defect and was fixed; this endpoint was
+       * missed, and it carries the finding text as well as the name.
+       */
+      const doctorId = (req.session as any).user.id;
+      const scans = await storage.listScansWithPatient({ doctorId, limit: 200 });
 
-      const reports = scans.map(scan => ({
-        id: scan.id,
-        patientName: scan.patientName,
-        scanType: scan.scanType || null,
-        submittedAt: scan.createdAt,
-        // The stored workflow status, verbatim. This compared `status` against
-        // 'Processing' — a value that only ever appears in `result` — so the
-        // branch never matched and every report was labelled 'completed'.
-        status: scan.status ?? 'pending',
-        priority: scan.priority ?? 'medium',
-        findings: scan.result,
-        // Was the literal 'Dr. Johnson' on every row.
-        radiologistId: scan.radiologistId,
-        // Was `|| '85%'`, which invented a confidence for any scan that had
-        // none, including ones no model ever ran on.
-        aiConfidence: scan.aiConfidence ?? null
-      }));
+      const reports = scans.map(scan => {
+        /**
+         * Clinical risk, not the workflow column.
+         *
+         * `priority` defaults to 'medium' in the schema and nothing sets it, so
+         * every report displayed MEDIUM and the "High Priority" counter above
+         * the list read 0 — including for a scan whose risk_level was 'high'.
+         * The pending-reports endpoint was already reading risk_level; this one
+         * still trusted a column nobody writes.
+         */
+        const risk = (scan.riskLevel ?? '').toLowerCase();
+        const priority =
+          risk === 'critical' ? 'urgent'
+          : risk === 'high' ? 'high'
+          : risk === 'medium' ? 'medium'
+          : scan.priority ?? 'low';
+
+        return {
+          id: scan.id,
+          patientName: scan.patientName,
+          scanType: scan.scanType || null,
+          submittedAt: scan.createdAt,
+          // The stored workflow status, verbatim. This compared `status` against
+          // 'Processing' — a value that only ever appears in `result` — so the
+          // branch never matched and every report was labelled 'completed'.
+          status: scan.status ?? 'pending',
+          priority,
+          riskLevel: scan.riskLevel ?? null,
+          findings: scan.result,
+          // Was the literal 'Dr. Johnson' on every row.
+          radiologistId: scan.radiologistId,
+          // Was `|| '85%'`, which invented a confidence for any scan that had
+          // none, including ones no model ever ran on.
+          aiConfidence: scan.aiConfidence ?? null
+        };
+      });
 
       res.json(reports);
     } catch (error) {

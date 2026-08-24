@@ -128,17 +128,12 @@ export async function getPatientProfile(patientId: number) {
 }
 
 /**
- * The clinic's working-hours grid.
- *
- * One list, used by every availability path. It was previously written out three
- * times — twice as different literal arrays in route handlers and once here —
- * so the slots a patient could see and the slots the booking endpoint would
- * accept were not the same set.
+ * The clinic's working-hours grid, from shared/ so the client draws the same set
+ * the server will accept. Re-exported here because the availability functions
+ * below are the main consumer.
  */
-export const CLINIC_TIME_SLOTS = [
-  '9:00 AM', '9:30 AM', '10:00 AM', '10:30 AM', '11:00 AM', '11:30 AM',
-  '2:00 PM', '2:30 PM', '3:00 PM', '3:30 PM', '4:00 PM', '4:30 PM',
-];
+export { CLINIC_TIME_SLOTS } from '@shared/clinic-hours';
+import { CLINIC_TIME_SLOTS } from '@shared/clinic-hours';
 
 /** Clinicians who can take a dermatology referral, from their recorded specialisation. */
 export function isDermatology(specialization: string | null | undefined): boolean {

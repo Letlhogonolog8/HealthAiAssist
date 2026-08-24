@@ -212,34 +212,22 @@ export default function DoctorReports({ user }: { user: any }) {
       </Card>
 
       {/* Quick Actions */}
-      <Card className="bg-slate-800 border-slate-600">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-white">
-            <TrendingUp className="w-5 h-5" />
-            Quick Actions
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Button variant="outline" className="h-16 flex flex-col gap-2 text-slate-300 border-slate-500">
-              <FileText className="w-6 h-6" />
-              <span className="text-sm">Generate Report</span>
-            </Button>
-            <Button variant="outline" className="h-16 flex flex-col gap-2 text-slate-300 border-slate-500">
-              <CheckCircle className="w-6 h-6" />
-              <span className="text-sm">Bulk Approve</span>
-            </Button>
-            <Button variant="outline" className="h-16 flex flex-col gap-2 text-slate-300 border-slate-500">
-              <AlertTriangle className="w-6 h-6" />
-              <span className="text-sm">Flag Critical</span>
-            </Button>
-            <Button variant="outline" className="h-16 flex flex-col gap-2 text-slate-300 border-slate-500">
-              <TrendingUp className="w-6 h-6" />
-              <span className="text-sm">View Analytics</span>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      {/*
+        A "Quick Actions" card with four buttons stood here — Generate Report,
+        Bulk Approve, Flag Critical, View Analytics. None of them had an onClick.
+        They were four decorative rectangles on a clinical screen, and two of
+        them named actions with real consequences: "Bulk Approve" implies signing
+        off a batch of findings, "Flag Critical" implies escalating one.
+
+        They also rendered light-grey-on-white: variant="outline" resolves to
+        bg-background, which is white under the light theme, and the class set
+        text-slate-300 on top of it.
+
+        Approving a report is already possible, one at a time, from the row it
+        belongs to — which is where a decision about a specific patient's scan
+        should be made. Nothing here is replaced with a batch equivalent, because
+        signing off findings in bulk is not a shortcut worth building.
+      */}
     </div>
   );
 }
