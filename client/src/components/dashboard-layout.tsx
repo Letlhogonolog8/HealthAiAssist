@@ -754,105 +754,21 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
               </TabsContent>
             )}
 
-            {config.tabs.includes("analytics") && (
-              <TabsContent value="analytics">
-                <Card className="bg-slate-800 border-slate-600">
-                  <CardHeader>
-                    <CardTitle className="text-white flex items-center">
-                      <BarChart3 className="w-5 h-5 mr-2" />
-                      System Analytics & Performance
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <Card className="bg-slate-700 border-slate-600">
-                        <CardHeader>
-                          <CardTitle className="text-white text-lg flex items-center">
-                            <Brain className="w-4 h-4 mr-2 text-purple-400" />
-                            AI Detection Accuracy
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <ModelPerformancePanel variant="dark" />
-                        </CardContent>
-                      </Card>
-                      <Card className="bg-slate-700 border-slate-600">
-                        <CardHeader>
-                          <CardTitle className="text-white text-lg flex items-center">
-                            <Activity className="w-4 h-4 mr-2 text-green-400" />
-                            System Performance
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          {/* Every value in this card was a literal: 99.8%, 1.2s,
-                              98% and a green "Secure" badge, rendered identically
-                              whether the system was healthy, degraded or down.
-                              They come from /api/admin/stats now, and an unknown
-                              value renders as an em dash. */}
-                          <div className="space-y-3">
-                            <div className="flex justify-between items-center">
-                              <span className="text-slate-300">Process Uptime</span>
-                              <span className="text-green-400 font-medium">
-                                {statsData?.uptimeSec != null
-                                  ? formatProcessUptime(statsData.uptimeSec)
-                                  : '\u2014'}
-                              </span>
-                            </div>
-                            <div className="flex justify-between items-center">
-                              <span className="text-slate-300">Database Latency</span>
-                              <span className="text-blue-400 font-medium">
-                                {statsData?.database
-                                  ? statsData.database.reachable
-                                    ? `${statsData.database.latencyMs} ms`
-                                    : 'unreachable'
-                                  : '\u2014'}
-                              </span>
-                            </div>
+            {/*
+              A second analytics panel stood here and is removed.
 
-                          </div>
-                        </CardContent>
-                      </Card>
-                      
-                      <Card className="bg-slate-700 border-slate-600">
-                        <CardHeader>
-                          <CardTitle className="text-white text-lg flex items-center">
-                            <TrendingUp className="w-4 h-4 mr-2 text-cyan-400" />
-                            Usage Statistics
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="space-y-3">
-                            <div className="flex justify-between items-center">
-                              <span className="text-slate-300">Daily Scans</span>
-                              <span className="text-purple-400 font-medium">{statsData?.dailyScans ?? '\u2014'}</span>
-                            </div>
-                            <div className="flex justify-between items-center">
-                              <span className="text-slate-300">Active Users</span>
-                              <span className="text-blue-400 font-medium">{statsData?.totalUsers ?? '\u2014'}</span>
-                            </div>
-                            <div className="flex justify-between items-center">
-                              <span className="text-slate-300">Critical Alerts</span>
-                              <span className={`font-medium ${(statsData?.criticalAlerts || 0) > 0 ? 'text-red-400' : 'text-green-400'}`}>
-                                {statsData?.criticalAlerts || 0}
-                              </span>
-                            </div>
-                            <div className="flex justify-between items-center">
-                              <span className="text-slate-300">AI Accuracy</span>
-                              {/* `|| 94` here reported 94% whenever the real value was 0
-                                  or missing, which is every deployment with no scans yet.
-                                  It is also confidence, not accuracy. */}
-                              <span className="text-cyan-400 font-medium">
-                                {statsData?.aiAccuracy != null ? `${statsData.aiAccuracy}%` : '\u2014'}
-                              </span>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            )}
+              There were two <TabsContent value="analytics"> in this file: this
+              hand-rolled one, gated on config.tabs, and the AdminDashboard
+              section below, gated on the admin role. Only administrators have an
+              "analytics" tab at all — so for the one role that can reach it,
+              both matched and Radix rendered both. The tab showed the same three
+              cards twice, once in a dark panel and once in a light one, with two
+              different values labelled "Database Latency".
+
+              AdminDashboard's version is the maintained one: it carries the
+              model registry, the trend charts and the export. This one duplicated
+              a subset of it.
+            */}
 
             {/* Blood Test Analyzer */}
             {/* Cancer Risk Questionnaire */}

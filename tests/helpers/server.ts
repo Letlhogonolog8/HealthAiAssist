@@ -48,6 +48,20 @@ export function db(): Pool {
   return new Pool({
     connectionString: cs,
     ssl: cs.includes('localhost') ? false : { rejectUnauthorized: false },
+    /**
+     * Two, because this pool shares a budget with the server under test.
+     *
+     * pg defaults `max` to 10. The spawned server holds its own pool as well, so
+     * the suite was asking for up to twenty clients against a Supabase pooler
+     * that allows fifteen — and the runs that lost the race failed with
+     * `(EMAXCONNSESSION) max clients reached in session mode`, in whichever test
+     * happened to be querying at the time. It read as a flaky assertion about
+     * report persistence or scan ownership; it was the connection budget.
+     *
+     * Four here plus the five the spawned server is given below leaves ample
+     * room under the fifteen the pooler allows.
+     */
+    max: 4,
   });
 }
 
@@ -111,6 +125,15 @@ export async function startServer(timeoutMs = 90_000): Promise<void> {
       ...process.env,
       NODE_ENV: 'development',
       PORT: String(PORT),
+      /**
+       * The server under test shares the database's connection budget with this
+       * process's own pool. Supabase's pooler allows fifteen clients; the
+       * server's default of ten plus pg's default of ten here asks for twenty,
+       * and the runs that lost the race failed with
+       * `(EMAXCONNSESSION) max clients reached in session mode` — surfacing as a
+       * flaky assertion in whichever test happened to be querying.
+       */
+      DATABASE_POOL_MAX: '5',
     },
     stdio: 'ignore',
   });

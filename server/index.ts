@@ -155,7 +155,36 @@ installProcessHandlers();
     // session cookie; without this they would have to trust whatever identity the
     // client claimed, which is what they used to do.
     const sessionMiddleware = session(sessionConfig);
-    app.use(sessionMiddleware);
+
+    /**
+     * Paths that cannot act on a session, and so should not load one.
+     *
+     * connect-pg-simple issues a SELECT against the session table for every
+     * request carrying the cookie. Mounted globally, that meant a database round
+     * trip for each of the hundred-odd module requests Vite serves on a dev page
+     * load, and for every hashed asset in production — none of which can read or
+     * write a session.
+     *
+     * Against a pooler that allows 15 clients, that volume is what pushed the
+     * pool past its limit and produced EMAXCONNSESSION partway through a page.
+     *
+     * Deliberately a prefix allowlist of asset namespaces rather than an
+     * extension check: /api must always get a session, and so must the SPA
+     * document, so anything not matched here keeps the middleware.
+     */
+    const SESSIONLESS_PREFIXES = [
+      '/@',             // Vite internals: /@vite, /@fs, /@react-refresh
+      '/src/',          // dev source modules
+      '/node_modules/', // dev dependency modules
+      '/assets/',       // production build output
+    ];
+
+    app.use((req, res, next) => {
+      if (SESSIONLESS_PREFIXES.some((prefix) => req.path.startsWith(prefix))) {
+        return next();
+      }
+      return sessionMiddleware(req, res, next);
+    });
 
     // Rate limiting reads req.session to meter per account rather than per IP,
     // so it has to come after the session middleware and before the routes.

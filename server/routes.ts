@@ -3508,7 +3508,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isActive: isActive !== undefined ? isActive : true
       };
 
-      console.log('Updating staff with data:', updateData);
 
       const updatedStaff = await storage.updateUser(staffId, updateData);
 
@@ -3642,9 +3641,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isActive: isActive !== undefined ? isActive : true
       };
       
-      console.log('Updating user with data:', updateData);
-      
+      // The logged line here carried the username and email. The request
+      // logger in this project deliberately writes no identifiers to stdout;
+      // this went around it.
       const updatedUser = await storage.updateUser(userId, updateData);
+      if (!updatedUser) {
+        // updateUser returns undefined when the row vanished between the
+        // existence check above and the write — a concurrent delete. Previously
+        // this fell through and the response spread `undefined`.
+        return res.status(404).json({ error: 'User not found' });
+      }
 
       // A change of role or a deactivation has to take effect now, not when the
       // cookie expires. requireAdmin and requireMedicalAccess read the role out
@@ -3661,9 +3667,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
       }
 
+      /**
+       * Projected, because `updatedUser` is the raw row.
+       *
+       * .returning() gives every column, so this handler was sending the
+       * account's bcrypt hash — and its password-reset token, when one was
+       * live — back to the browser on every edit. From there it lands in the
+       * React Query cache, in devtools, and in anything that captures response
+       * bodies. Bcrypt is expensive to attack, but a hash that never leaves the
+       * database cannot be attacked at all, and the reset token is a live
+       * credential.
+       *
+       * Same column list the staff endpoint above already uses.
+       */
       res.json({
         success: true,
-        user: updatedUser,
+        user: {
+          id: updatedUser.id,
+          username: updatedUser.username,
+          fullName: updatedUser.fullName,
+          email: updatedUser.email,
+          role: updatedUser.role,
+          specialization: updatedUser.specialization,
+          isActive: updatedUser.isActive,
+        },
         sessionsRevoked: roleChanged || deactivated
       });
     } catch (error) {

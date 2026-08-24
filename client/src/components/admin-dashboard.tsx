@@ -31,6 +31,8 @@ import { LanguageCoverage } from "./language-switcher";
 import DeliveryReachPanel from "./delivery-reach-panel";
 
 interface DashboardData {
+  /** Browser-measured round trip for the six requests this view makes. */
+  fetchedInMs?: number;
   stats: {
     totalUsers: number;
     activeScans: number;
@@ -146,8 +148,15 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
     refetchInterval: 30000,
   });
 
-  /** Round trip the browser measured for the last /api/admin/stats call. */
-  const [statsResponseMs, setStatsResponseMs] = useState<number | null>(null);
+  /**
+   * The round trip for the dashboard fetch now travels on the query result.
+   *
+   * It was component state set inside the queryFn. AdminDashboard is remounted
+   * on every tab switch — Overview, Analytics, Users and System each render
+   * their own instance — so the state reset to null while React Query served
+   * /api/admin/dashboard from cache and never re-ran the queryFn that would set
+   * it again. The row read "—" on every visit after the first.
+   */
 
   // Consolidated dashboard data fetch with real-time updates
   const { data: dashboardData, isLoading, error, refetch } = useQuery<DashboardData>({
@@ -166,7 +175,7 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
           fetch('/api/system/ws-stats', { credentials: 'include' }).catch(() => ({ ok: false } as Response)),
           fetch('/api/admin/users/metrics', { credentials: 'include' }).catch(() => ({ ok: false } as Response)),
         ]);
-        setStatsResponseMs(Math.round(performance.now() - startedAt));
+        const fetchedInMs = Math.round(performance.now() - startedAt);
 
         const [stats, users, staff, activities, wsStats, metrics]: any[] = await Promise.all([
           statsRes.ok ? statsRes.json().catch(() => ({})) : {
@@ -225,7 +234,8 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
           stats: { ...stats, totalUsers: (metrics.totalUsers ?? userList.length) || userList.length, ws: wsStats },
           users: userMetrics,
           staff: staff.data || [],
-          activities: Array.isArray(activities) ? activities : []
+          activities: Array.isArray(activities) ? activities : [],
+          fetchedInMs
         };
       } catch (error) {
         console.error('Dashboard data fetch error:', error);
@@ -434,7 +444,19 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
   }));
 
   function AdvancedPerformanceSection() {
-    const { data, isLoading, error } = useQuery<{ ai: any; database: any; api: any; overall: any }>({
+    /**
+     * The response nests everything under `system`. The type here previously
+     * declared { ai, database, api, overall } at the top level, which typechecked
+     * fine against `any` and meant every read below silently missed.
+     */
+    const { data, isLoading, error } = useQuery<{
+      system?: {
+        ai?: any;
+        database?: { instrumented?: boolean; averageQueryTime: number | null; connectionCount: number | null; cachehitRate: number | null };
+        api?: { instrumented?: boolean; requestsPerMinute: number | null; averageResponseTime: number | null; throughput: number | null };
+        overall?: { healthScore: number | null; uptime: number | null };
+      };
+    }>({
       queryKey: ['/api/advanced/analytics/performance'],
       queryFn: async () => {
         const res = await fetch('/api/advanced/analytics/performance', { credentials: 'include' });
@@ -458,16 +480,50 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
       return null;
     }
 
-    const apiSeries = [
-      { name: 'Requests/min', value: data.api?.requestsPerMinute ?? 0 },
-      { name: 'Avg Response (ms)', value: Math.round(data.api?.averageResponseTime ?? 0) },
-      { name: 'Throughput', value: Math.round(data.api?.throughput ?? 0) },
-    ];
-    const dbSeries = [
-      { name: 'Avg Query (ms)', value: Math.round(data.database?.averageQueryTime ?? 0) },
-      { name: 'Connections', value: Math.round(data.database?.connectionCount ?? 0) },
-      { name: 'Cache Hit %', value: Math.round((data.database?.cachehitRate ?? 0) * 100) },
-    ];
+    const api = data.system?.api;
+    const database = data.system?.database;
+    const overall = data.system?.overall;
+
+    /**
+     * A metric the server reports as null is left out, not zeroed.
+     *
+     * Every one of these was `?? 0`, so an uninstrumented source drew a bar at
+     * the origin — indistinguishable from a real measurement of zero.
+     */
+    const seriesFrom = (rows: Array<{ name: string; value: number | null | undefined }>) =>
+      rows
+        .filter((row) => row.value !== null && row.value !== undefined)
+        .map((row) => ({ name: row.name, value: Math.round(row.value as number) }));
+
+    const apiInstrumented = api?.instrumented === true;
+    const dbInstrumented = database?.instrumented === true;
+
+    const apiSeries = seriesFrom([
+      { name: 'Requests/min', value: api?.requestsPerMinute },
+      { name: 'Avg Response (ms)', value: api?.averageResponseTime },
+      { name: 'Throughput', value: api?.throughput },
+    ]);
+    const dbSeries = seriesFrom([
+      { name: 'Avg Query (ms)', value: database?.averageQueryTime },
+      { name: 'Connections', value: database?.connectionCount },
+      {
+        name: 'Cache Hit %',
+        value: database?.cachehitRate == null ? null : database.cachehitRate * 100,
+      },
+    ]);
+
+    /** Shown in place of a chart whose source reports nothing. */
+    const NotInstrumented = ({ what }: { what: string }) => (
+      <div className="h-64 grid place-items-center text-center px-6">
+        <div>
+          <p className="text-sm font-medium text-foreground">Not instrumented</p>
+          <p className="mt-1.5 text-xs text-muted-foreground max-w-xs">
+            Nothing measures {what} on this deployment, so there is no series to
+            plot. The endpoint reports this as unmeasured rather than as zero.
+          </p>
+        </div>
+      </div>
+    );
 
     return (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -476,6 +532,9 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
             <CardTitle>API Performance</CardTitle>
           </CardHeader>
           <CardContent className="p-6 bg-white">
+            {!apiInstrumented || apiSeries.length === 0 ? (
+              <NotInstrumented what="API throughput or response time" />
+            ) : (
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={apiSeries}>
@@ -488,6 +547,7 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
                 </BarChart>
               </ResponsiveContainer>
             </div>
+            )}
           </CardContent>
         </Card>
         <Card className="shadow-lg border-2 border-slate-300">
@@ -495,6 +555,9 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
             <CardTitle>Database Performance</CardTitle>
           </CardHeader>
           <CardContent className="p-6 bg-white">
+            {!dbInstrumented || dbSeries.length === 0 ? (
+              <NotInstrumented what="query time, connection count or cache hit rate" />
+            ) : (
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={dbSeries}>
@@ -507,6 +570,7 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
                 </BarChart>
               </ResponsiveContainer>
             </div>
+            )}
           </CardContent>
         </Card>
         <Card className="shadow-lg border-2 border-slate-300">
@@ -516,7 +580,7 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
           <CardContent className="p-6 bg-white">
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={[{ name: 'Health Score', score: Math.round((data.overall?.healthScore ?? 0)) }]}> 
+                <LineChart data={[{ name: 'Health Score', score: Math.round(overall?.healthScore ?? 0) }]}> 
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis dataKey="name" stroke="#6b7280" />
                   <YAxis stroke="#6b7280" />
@@ -526,7 +590,12 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
                 </LineChart>
               </ResponsiveContainer>
             </div>
-            <div className="mt-4 text-sm text-slate-600">Uptime: {Math.round((data.overall?.uptime ?? 0) * 100)}%</div>
+            {/* Read `data.overall` — one level above where it lives — so it was
+                always undefined and this printed 0% against a server reporting 1. */}
+            <div className="mt-4 text-sm text-muted-foreground">
+              Uptime:{' '}
+              {overall?.uptime == null ? '—' : `${Math.round(overall.uptime * 100)}%`}
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -1303,16 +1372,33 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
                               <Button variant="outline" size="sm" onClick={() => handlePasswordReset(user)}>
                                 <Key className="w-4 h-4" />
                               </Button>
-                              <Button 
-                                variant="destructive" 
-                                size="sm" 
+                              {/*
+                                Disabled for administrators, because the server
+                                refuses them: DELETE /api/admin/users/:id returns
+                                403 for any account with role 'admin', which is
+                                what stops the last administrator deleting
+                                themselves and locking everyone out.
+
+                                The button was drawn as live on those rows, so
+                                the only way to discover the rule was to confirm
+                                a destructive dialog and get an error. A control
+                                that cannot succeed should say so before it is
+                                pressed.
+                              */}
+                              <Button
+                                variant="destructive"
+                                size="sm"
                                 onClick={() => {
                                   if (confirm(`Delete user ${user.fullName}? This cannot be undone.`)) {
                                     deleteUserMutation.mutate(user.id);
                                   }
                                 }}
-                                disabled={deleteUserMutation.isPending}
-                                title="Delete user"
+                                disabled={deleteUserMutation.isPending || user.role === 'admin'}
+                                title={
+                                  user.role === 'admin'
+                                    ? 'Administrator accounts cannot be deleted'
+                                    : 'Delete user'
+                                }
                               >
                                 {deleteUserMutation.isPending ? (
                                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -1433,7 +1519,14 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
                   <div>
                     <p className="text-orange-100 text-sm font-medium">Critical Alerts</p>
                     <p className="text-3xl font-bold">{dashboardData?.stats.criticalAlerts || 0}</p>
-                    <p className="text-orange-200 text-xs mt-1">All systems normal</p>
+                    {/* Counts scans flagged critical. It said "All systems
+                        normal", which is a claim about the platform, not about
+                        the queue this number comes from. */}
+                    <p className="text-orange-200 text-xs mt-1">
+                      {(dashboardData?.stats.criticalAlerts || 0) > 0
+                        ? 'Flagged scans awaiting review'
+                        : 'No scans flagged critical'}
+                    </p>
                   </div>
                   <AlertTriangle className="h-10 w-10 opacity-80" />
                 </div>
@@ -1480,11 +1573,18 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
                         time the browser measured for the stats request itself. */}
                     <span className="font-medium text-green-900">Stats Response</span>
                     <span className="font-bold text-green-800">
-                      {statsResponseMs != null ? `${statsResponseMs} ms` : '\u2014'}
+                      {dashboardData?.fetchedInMs != null
+                        ? `${dashboardData.fetchedInMs} ms`
+                        : '—'}
                     </span>
                   </div>
                   <div className="flex justify-between items-center p-3 bg-purple-100 rounded-lg border border-purple-200">
-                    <span className="font-medium text-purple-900">Database Latency</span>
+                    {/* Distinct from "Stats Response" above, which is the
+                        browser's round trip for the whole request. This is the
+                        server's own SELECT 1 probe. Both were labelled
+                        "Database Latency" on the same screen, showing 184 ms and
+                        1320 ms side by side. */}
+                    <span className="font-medium text-purple-900">DB probe (SELECT 1)</span>
                     <span className="font-bold text-purple-800">
                       {dashboardData?.stats.database
                         ? dashboardData.stats.database.reachable
@@ -1493,9 +1593,20 @@ export default function AdminDashboard({ user, section = 'overview', hideLocalTa
                         : '—'}
                     </span>
                   </div>
+                  {/* Was "Security Status: Secure" — a bare literal, and the
+                      last of the four. The field it echoed was removed from
+                      /api/admin/stats for being `dbProbe.reachable ? 'secure' :
+                      'degraded'`; this one did not even consult that. At-rest
+                      encryption is a security fact the system actually holds. */}
                   <div className="flex justify-between items-center p-3 bg-orange-100 rounded-lg border border-orange-200">
-                    <span className="font-medium text-orange-900">Security Status</span>
-                    <span className="font-bold text-orange-800">Secure</span>
+                    <span className="font-medium text-orange-900">At-rest encryption</span>
+                    <span className="font-bold text-orange-800">
+                      {ready?.encryption == null
+                        ? '—'
+                        : ready.encryption.configured
+                          ? 'Configured'
+                          : 'Not configured'}
+                    </span>
                   </div>
                 </div>
               </CardContent>
