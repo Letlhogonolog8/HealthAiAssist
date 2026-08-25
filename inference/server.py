@@ -53,6 +53,7 @@ request, so local development works with no extra process running.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import importlib.util
 import io
@@ -62,7 +63,7 @@ import threading
 import time
 from typing import Any
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -71,6 +72,12 @@ SERVER_DIR = os.path.join(REPO_ROOT, "server")
 # The server package is not importable as a package, and one of the two modules
 # has a hyphen in its filename, so neither can be reached with a plain import.
 sys.path.insert(0, SERVER_DIR)
+
+# And this directory, so `dicom_ingest` resolves however uvicorn was invoked.
+# Loaded as `inference.server` the sibling module is not on the path by default,
+# and the failure is at import time rather than on the first DICOM upload — which
+# is the better of the two, but only if it never happens in front of a clinic.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
 def _load_module(name: str, filename: str):
@@ -88,6 +95,9 @@ def _load_module(name: str, filename: str):
 # Importing the lung module constructs its module-level detector, which loads
 # the model. That is the behaviour we want here and the reason it is imported
 # eagerly rather than on first request.
+from dicom_ingest import DicomRejected, dicom_to_png_bytes, looks_like_dicom  # noqa: E402
+from gradcam import CAVEAT as GRADCAM_CAVEAT, heatmap_png  # noqa: E402
+
 skin_model = _load_module("skin_cancer_model", "skin_cancer_model.py")
 lung_service = _load_module("lung_cancer_service", "lung-cancer-service.py")
 
@@ -161,17 +171,69 @@ class _Admission:
         return False
 
 
-def _read_upload(image: UploadFile) -> bytes:
+def _read_upload(image: UploadFile) -> tuple[bytes, dict | None]:
+    """The image bytes, converted from DICOM first when that is what arrived.
+
+    Returns the acquisition metadata alongside, so the caller can record which
+    modality and manufacturer produced a scan — useful later for drift analysis,
+    since a model's behaviour is a property of the scanner as much as of the
+    patient.
+
+    De-identification happens inside dicom_to_png_bytes, before anything is
+    returned, so no code path here can hold an identified object even briefly.
+    """
     data = image.file.read(MAX_UPLOAD_BYTES + 1)
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="Image exceeds the size limit.")
     if not data:
         raise HTTPException(status_code=400, detail="Empty upload.")
-    return data
 
+    if looks_like_dicom(data):
+        try:
+            png, meta = dicom_to_png_bytes(data)
+        except DicomRejected as exc:
+            # 422, not 503: the service is fine and this object will fail the
+            # same way on retry. Same status the model's own input screening
+            # uses, so the client has one refusal shape to handle.
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return png, meta
+
+    return data, None
+
+
+
+def _wants_explanation(value: str) -> bool:
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _attach_explanation(
+    result: dict, model, img_array, class_index: int, modality: str
+) -> None:
+    """Adds a Grad-CAM overlay to a result, when one was asked for.
+
+    Only for a result that actually classified something. A refusal has no class
+    score to explain, and rendering a heatmap over an image the model declined
+    to assess would suggest it had an opinion about it.
+
+    Failure is non-fatal and reported in the payload. An explanation is an aid,
+    and losing it must not lose the prediction.
+    """
+    if result.get("prediction") in (None, "rejected_input", "unavailable", "Error"):
+        return
+
+    try:
+        result["explanation"] = {
+            "heatmapPng": "data:image/png;base64,"
+            + base64.b64encode(heatmap_png(model, img_array, class_index)).decode(),
+            "method": "Grad-CAM on the final ResNet50V2 feature map (7x7, upsampled)",
+            "caveat": GRADCAM_CAVEAT,
+        }
+    except Exception as exc:  # noqa: BLE001
+        print(f"grad-cam failed for {modality}: {exc}", file=sys.stderr)
+        result["explanationError"] = "The explanation could not be generated for this image."
 
 @app.post("/infer/skin")
-def infer_skin(image: UploadFile = File(...)) -> Any:
+def infer_skin(image: UploadFile = File(...), explain: str = Form(default="")) -> Any:
     """Classify a dermoscopic image.
 
     Returns exactly the JSON `server/skin_cancer_model.py` produces on the
@@ -179,27 +241,52 @@ def infer_skin(image: UploadFile = File(...)) -> Any:
     fails a quality or domain check, `unavailable` when the artifact is missing.
     Nothing downstream has to know which transport was used.
     """
-    data = _read_upload(image)
+    data, acquisition = _read_upload(image)
     started = time.perf_counter()
     with _Admission(), _inference_lock:
         result = skin_model.predict_skin_cancer(io.BytesIO(data), SKIN_MODEL_PATH)
+        if _wants_explanation(explain):
+            # Class index 1 is malignant, fixed by training and recorded in
+            # dataset/data/skin_model_training.json.
+            _attach_explanation(
+                result,
+                skin_model.get_model(SKIN_MODEL_PATH),
+                skin_model.preprocess_image(io.BytesIO(data)),
+                1,
+                "skin",
+            )
     result["inferenceMs"] = round((time.perf_counter() - started) * 1000, 1)
+    if acquisition:
+        result["acquisition"] = acquisition
     return JSONResponse(result)
 
 
 @app.post("/infer/lung")
-def infer_lung(image: UploadFile = File(...)) -> Any:
+def infer_lung(image: UploadFile = File(...), explain: str = Form(default="")) -> Any:
     """Classify a chest image.
 
     Same contract as the skin endpoint: the module's own output, unaltered. The
     lung module already takes raw bytes, so there is no temporary file anywhere
     in this path.
     """
-    data = _read_upload(image)
+    data, acquisition = _read_upload(image)
     started = time.perf_counter()
     with _Admission(), _inference_lock:
         result = lung_service.predict_lung_cancer(data)
+        if _wants_explanation(explain):
+            detector = lung_service.lung_cancer_detector
+            if detector.model is not None:
+                # Class index 0 is cancer, per lung_model_training.json.
+                _attach_explanation(
+                    result,
+                    detector.model,
+                    detector.preprocess_image(data),
+                    0,
+                    "lung",
+                )
     result["inferenceMs"] = round((time.perf_counter() - started) * 1000, 1)
+    if acquisition:
+        result["acquisition"] = acquisition
     return JSONResponse(result)
 
 

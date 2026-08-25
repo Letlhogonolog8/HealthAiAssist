@@ -95,6 +95,36 @@ measured on data the model had been tuned on and never meant what it said.
 - Demographic composition of the training data is unrecorded.
 - Not clinically validated. Not cleared by any regulator.
 
+### This model cannot currently read real clinical imaging
+
+Measured, not inferred. DICOM ingestion was added in August 2026, and the first
+thing it established is that **this model refuses genuine radiology objects**:
+
+| Input | OOD score | Threshold | Outcome |
+|---|---|---|---|
+| Held-out `Lung MRI (n).png` from its own training distribution | ~10.9 | 16.51 | classified |
+| Real CT DICOM (`pydicom` CT_small, GE RHAPSODE), windowed per its tags | **22.88** | 16.51 | **refused** |
+| Real MR DICOM (`pydicom` MR_small), windowed per its tags | **27.16** | 16.51 | **refused** |
+
+The refusal is the out-of-distribution detector working correctly — it is doing
+precisely what it exists to do, and the alternative (a confident verdict on an
+image type the model has never seen) would be far worse.
+
+But read what it means. The training set is small RGBA PNGs named
+`Lung MRI (n).png`, of unrecorded provenance, at inconsistent dimensions —
+consistent with web-scraped or screenshot material rather than DICOM exports.
+A properly windowed clinical acquisition does not resemble them. So:
+
+> **The lung modality cannot today be pointed at a hospital PACS.** The pipeline
+> around it works end to end — ingest, de-identify, window, screen, classify —
+> and the model at the end of it declines every real object it is shown.
+
+This is the concrete form of the provenance concern already recorded above, and
+it is the reason retraining on a documented CT dataset with patient-level splits
+(LIDC-IDRI, NLST) is the first item of clinical work, not a later refinement.
+Until that happens the lung modality is demonstrable only on data shaped like
+its own training set, and that should be stated plainly wherever it is shown.
+
 ---
 
 ## Skin cancer — ResNet50V2 — **ENABLED** (retrained 2026-08-13)

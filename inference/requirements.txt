@@ -5,3 +5,7 @@
 fastapi>=0.110
 uvicorn[standard]>=0.29
 python-multipart>=0.0.9
+
+# DICOM ingestion. Radiology hardware already emits this; accepting it is what
+# lets the triage queue sit behind existing equipment.
+pydicom>=2.4

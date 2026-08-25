@@ -93,6 +93,7 @@ const SCAN_IMAGE_EXTENSIONS: Record<string, string> = {
   'image/tif': 'tif',
   'image/webp': 'webp',
   'image/avif': 'avif',
+  'application/dicom': 'dcm',
 };
 
 /**
@@ -570,24 +571,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  // Configure multer for image uploads
-  const upload = multer({ 
+  /**
+   * Uploads.
+   *
+   * DICOM is accepted because radiology hardware already emits it: a CT or CR
+   * unit in a district hospital speaks this protocol today. Requiring someone to
+   * export a PNG first puts a manual step between the scanner and the triage
+   * queue, which is where a workflow quietly stops being used.
+   *
+   * The MIME allowlist is a first pass only. Content-Type is set by the client
+   * and a DICOM object arrives under half a dozen different values depending on
+   * the PACS — application/dicom, application/octet-stream, or nothing at all.
+   * What the file actually is gets decided from its bytes, in the inference
+   * service, which reads the DICM preamble rather than trusting a header.
+   */
+  const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
     fileFilter: (req, file, cb) => {
       const allowedTypes = [
-        'image/jpeg', 
-        'image/jpg', 
-        'image/png', 
-        'image/tiff', 
+        'image/jpeg',
+        'image/jpg',
+        'image/png',
+        'image/tiff',
         'image/tif',
         'image/webp',
-        'image/avif'
+        'image/avif',
+        // DICOM, under the several names it travels as.
+        'application/dicom',
+        'application/dicom+json',
+        'application/octet-stream',
       ];
       if (allowedTypes.includes(file.mimetype)) {
         cb(null, true);
       } else {
-        cb(new Error('Invalid file type. Only JPEG, JPG, PNG, TIFF, TIF, WEBP, and AVIF images are allowed.'));
+        cb(new Error(
+          'Invalid file type. JPEG, PNG, TIFF, WebP, AVIF images and DICOM objects are accepted.'
+        ));
       }
     }
   });

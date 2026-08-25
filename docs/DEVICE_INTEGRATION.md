@@ -152,6 +152,34 @@ De-identification happens **before** anything leaves the clinic network, and
 before the image is stored. The de-identified object is what persists; the
 original is never written to the platform's storage.
 
+### Built, and what it immediately revealed
+
+DICOM ingest is now implemented (`inference/dicom_ingest.py`): detection from
+the DICM preamble rather than a filename or Content-Type, de-identification
+before anything is stored, modality LUT then VOI LUT windowing in the order the
+standard fixes, MONOCHROME1 inversion, and multi-frame handling.
+
+Pointing it at real DICOM produced a finding worth more than the feature:
+
+**The lung model refuses real clinical objects.** A properly windowed CT scores
+22.88 against a 16.51 out-of-distribution threshold; an MR scores 27.16. Its own
+training images score around 10.9.
+
+That is the OOD detector working exactly as intended — the alternative, a
+confident verdict on an image type the model has never seen, is the failure this
+platform is built to prevent. But it means the lung modality cannot be pointed
+at a PACS today. The pipeline around the model is complete; the model is trained
+on the wrong thing.
+
+Two consequences for this plan:
+
+1. Track B is **unblocked on the engineering and blocked on the model**.
+   Retraining on a documented CT dataset with patient-level splits is a
+   prerequisite for a radiology pilot, not a later improvement.
+2. It is evidence that the input screening is not decorative. A system that
+   accepted the CT and returned a probability would have looked more capable in
+   a demonstration and been worthless in a clinic.
+
 ### Why this closes the §2 gap credibly
 
 The Challenge's own problem statement is about modernising *mechanical, analogue
@@ -169,6 +197,8 @@ device layer would connect to:
 
 | Capability | Where |
 |---|---|
+| DICOM ingest with de-identification and tag-driven windowing | `inference/dicom_ingest.py` |
+| Grad-CAM explanation overlays, refused where the model refused | `inference/gradcam.py` |
 | Resident-model inference, ~500 ms, bounded queue | `inference/server.py` |
 | Out-of-distribution refusal — wrong-modality images rejected, not classified | `server/skin_cancer_model.py`, `server/lung-cancer-service.py` |
 | Calibrated probabilities and a screening operating point | [MODEL_CARDS.md](../MODEL_CARDS.md) |
