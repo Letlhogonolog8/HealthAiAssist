@@ -1,0 +1,7 @@
+# Inference service. Installed on top of the model dependencies in the
+# repository-root requirements.txt (tensorflow, numpy, pillow), which this
+# service imports through server/skin_cancer_model.py and
+# server/lung-cancer-service.py.
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9

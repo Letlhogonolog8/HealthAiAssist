@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertUserSchema, insertScanSchema, insertTermSchema } from "@shared/schema";
-import { exec } from "child_process";
+import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
 import multer from "multer";
@@ -15,6 +15,7 @@ import {
 } from './services';
 import { medicalChatbotService } from "./chatbot-service";
 import { modelVersionFor } from "./model-fingerprint";
+import { infer, isInferenceServerConfigured, warnIfFallingBack, InferenceBusyError } from "./inference-client";
 import { 
   requireAuth, 
   requireRole,
@@ -161,56 +162,84 @@ async function performRealTimeAnalysis(imageBuffer: Buffer, scanType: string, pa
   }
 }
 
+/**
+ * The fallback lung transport: stage a file, spawn the CLI, parse its stdout.
+ *
+ * Extracted from performLungCancerAnalysis so the two transports sit side by
+ * side and neither is the "normal" one buried in the other's control flow.
+ * Retained because the CLI has to keep working regardless — it is what
+ * scripts/evaluate-model.py and the model-card reproduction commands invoke.
+ *
+ * spawn(), not exec(). exec() hands the whole string to a shell, so every
+ * argument in it is shell syntax until proven otherwise. Both arguments here
+ * happen to be safe — PYTHON_BIN is operator-set and the path ends in a
+ * generated UUID — but "happens to be safe" is a property of today's callers,
+ * not of the code, and the quoting that protected it (`"${tempImagePath}"`) is
+ * exactly the pattern that fails the moment a path contains a quote.
+ *
+ * PYTHON_BIN overrides the interpreter; otherwise the one on PATH is used. This
+ * previously preferred `venv/Scripts/python.exe` as a bare relative path, which
+ * the Windows shell does not resolve — every lung request failed with "'venv' is
+ * not recognized", and it went unnoticed because the model was not loading
+ * either, so the failure looked like an unavailable model rather than a wrong
+ * command.
+ */
+async function analyseLungBySpawningPython(imageBuffer: Buffer): Promise<any> {
+  warnIfFallingBack('lung');
+
+  const uploadsDir = path.join(process.cwd(), 'uploads');
+  await fs.promises.mkdir(uploadsDir, { recursive: true });
+  const tempImagePath = path.join(uploadsDir, `temp_lung_${randomUUID()}.jpg`);
+  await fs.promises.writeFile(tempImagePath, imageBuffer);
+
+  const pythonCmd = process.env.PYTHON_BIN || 'python';
+
+  try {
+    return await new Promise<any>((resolve, reject) => {
+      const child = spawn(pythonCmd, ['server/lung-cancer-service.py', tempImagePath]);
+
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+      child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+
+      child.on('error', (error) => {
+        reject(new ModelUnavailableError('lung', `Model process failed to start: ${error.message}`));
+      });
+
+      child.on('close', (code) => {
+        if (code !== 0) {
+          reject(new ModelUnavailableError('lung', `Model process failed: ${stderr.trim() || `exit ${code}`}`));
+          return;
+        }
+        try {
+          resolve(JSON.parse(stdout));
+        } catch {
+          reject(new ModelUnavailableError('lung', 'Model returned unparseable output'));
+        }
+      });
+    });
+  } finally {
+    try {
+      await fs.promises.unlink(tempImagePath);
+    } catch (cleanupError) {
+      console.warn('Failed to cleanup temp file:', cleanupError);
+    }
+  }
+}
+
 // ResNet50V2 model analysis for lung cancer
 async function performLungCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisResult> {
   const startedAt = Date.now();
   try {
-    // Ensure uploads directory exists
-    const uploadsDir = path.join(process.cwd(), 'uploads');
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
-    
-    // Save image temporarily for analysis
-    const tempImagePath = path.join(uploadsDir, `temp_lung_${randomUUID()}.jpg`);
-    fs.writeFileSync(tempImagePath, imageBuffer);
-    
-    // Analyze with Python lung cancer model (use venv if available)
-    // Interpreter selection. This previously preferred `venv/Scripts/python.exe`
-    // as a bare relative path, which the Windows shell does not resolve — every
-    // lung request failed with "'venv' is not recognized". It went unnoticed
-    // because the model was not loading either, so the failure looked like the
-    // model being unavailable rather than the command being wrong.
-    //
-    // PYTHON_BIN overrides; otherwise the interpreter on PATH is used, matching
-    // how the skin service already spawns Python. A venv is only used when it is
-    // pointed at explicitly, since a venv missing TensorFlow silently disables
-    // the modality.
-    const pythonCmd = process.env.PYTHON_BIN
-      ? `"${process.env.PYTHON_BIN}"`
-      : 'python';
     let result: any;
-    try {
-      result = await new Promise<any>((resolve, reject) => {
-        exec(`${pythonCmd} server/lung-cancer-service.py "${tempImagePath}"`, (error, stdout) => {
-          if (error) {
-            reject(new ModelUnavailableError('lung', `Model process failed: ${error.message}`));
-            return;
-          }
-          try {
-            resolve(JSON.parse(stdout));
-          } catch {
-            reject(new ModelUnavailableError('lung', 'Model returned unparseable output'));
-          }
-        });
-      });
-    } finally {
-      // Clean up temp file whether or not inference succeeded
-      try {
-        fs.unlinkSync(tempImagePath);
-      } catch (cleanupError) {
-        console.warn('Failed to cleanup temp file:', cleanupError);
-      }
+
+    if (isInferenceServerConfigured()) {
+      // Straight over the wire. No temporary file, no process, no TensorFlow
+      // import: the model is already resident in the inference service.
+      result = await infer('lung', imageBuffer, 'scan.jpg');
+    } else {
+      result = await analyseLungBySpawningPython(imageBuffer);
     }
 
     // The image failed a quality or domain check. The model is fine; the input is
@@ -285,6 +314,20 @@ async function performLungCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisR
     return analysisResult;
   } catch (error) {
     if (error instanceof ModelUnavailableError || error instanceof InputRejectedError) throw error;
+
+    // Saturation is still ModelUnavailableError, and deliberately so: the
+    // caller answers 503 and records the scan as pending_manual_review, which
+    // is the correct outcome for "no model produced an opinion" whatever the
+    // reason. Only the message differs, so an operator reading the logs can
+    // tell a queue that is full from a model that is broken — those need
+    // different responses, and one of them is "add capacity".
+    if (error instanceof InferenceBusyError) {
+      throw new ModelUnavailableError(
+        'lung',
+        'Inference service is at capacity; the scan was queued for manual review rather than delayed.'
+      );
+    }
+
     console.error('ResNet50V2 lung cancer analysis failed:', error);
     throw new ModelUnavailableError(
       'lung',
@@ -299,26 +342,11 @@ async function performSkinCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisR
   const startedAt = Date.now();
 
   try {
-    // Ensure uploads directory exists
-    const uploadsDir = path.join(process.cwd(), 'uploads');
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
-
-    // Save image temporarily for analysis
-    const tempImagePath = path.join(uploadsDir, `temp_skin_${randomUUID()}.jpg`);
-    fs.writeFileSync(tempImagePath, imageBuffer);
-
-    let result;
-    try {
-      result = await skinCancerService.analyzeSkinImage(tempImagePath);
-    } finally {
-      try {
-        fs.unlinkSync(tempImagePath);
-      } catch (cleanupError) {
-        console.warn('Failed to cleanup temp file:', cleanupError);
-      }
-    }
+    // The staging and cleanup that used to sit here has moved into the service,
+    // which now takes the buffer. With an inference service configured the bytes
+    // never touch the filesystem at all; without one it writes and removes the
+    // same temporary file this did.
+    const result = await skinCancerService.analyzeImage(imageBuffer);
 
     // The image failed a quality or domain check. The model is fine; the input is
     // not something it is competent to assess, so nothing is classified.
@@ -394,6 +422,20 @@ async function performSkinCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisR
     return analysisResult;
   } catch (error) {
     if (error instanceof ModelUnavailableError || error instanceof InputRejectedError) throw error;
+
+    // Saturation is still ModelUnavailableError, and deliberately so: the
+    // caller answers 503 and records the scan as pending_manual_review, which
+    // is the correct outcome for "no model produced an opinion" whatever the
+    // reason. Only the message differs, so an operator reading the logs can
+    // tell a queue that is full from a model that is broken — those need
+    // different responses, and one of them is "add capacity".
+    if (error instanceof InferenceBusyError) {
+      throw new ModelUnavailableError(
+        'skin',
+        'Inference service is at capacity; the scan was queued for manual review rather than delayed.'
+      );
+    }
+
     console.error('ResNet50V2 skin cancer analysis failed:', error);
     throw new ModelUnavailableError(
       'skin',

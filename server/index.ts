@@ -98,6 +98,57 @@ function resolveSessionSecret(): string {
   return randomBytes(64).toString('hex');
 }
 
+/**
+ * Refuses to start in production without durable storage for scan images.
+ *
+ * `persistScanImage` falls back to writing into the container's local
+ * `uploads/` directory when no object store is configured. That directory is
+ * ephemeral on Render, Railway and Cloud Run — the three deploy targets in this
+ * repository — so the fallback silently discards patient imaging on the next
+ * deploy, restart or autoscale event.
+ *
+ * The failure is invisible while it happens: the upload succeeds, the model
+ * runs, the finding is written, and the row keeps an `image_path` pointing at a
+ * file that no longer exists. It surfaces later, as a radiologist opening a scan
+ * flagged high-risk and finding no image behind it — which makes the human
+ * review step that every model card in this project insists on impossible to
+ * perform, for the scans where it matters most.
+ *
+ * Development keeps the fallback: losing images from local experiments costs
+ * nothing, and requiring a bucket to run the app would be a poor trade.
+ *
+ * Set GOOGLE_CLOUD_PROJECT_ID, GOOGLE_CLOUD_CLIENT_EMAIL,
+ * GOOGLE_CLOUD_PRIVATE_KEY and GOOGLE_CLOUD_SCAN_BUCKET, or set
+ * ALLOW_EPHEMERAL_SCAN_STORAGE=true to accept the loss deliberately.
+ */
+async function assertScanStorageConfigured(): Promise<void> {
+  if (process.env.NODE_ENV !== 'production') return;
+
+  if ((process.env.ALLOW_EPHEMERAL_SCAN_STORAGE || '').toLowerCase() === 'true') {
+    console.warn(
+      '⚠️  ALLOW_EPHEMERAL_SCAN_STORAGE is set. Scan images will be written to ' +
+      'container-local disk and lost on the next deploy. Every stored finding ' +
+      'will outlive the image it was made from.'
+    );
+    return;
+  }
+
+  const { isScanObjectStoreAvailable } = await import('./google-cloud-service');
+  if (!isScanObjectStoreAvailable()) {
+    console.error(
+      [
+        'FATAL: no durable object store is configured for scan images, and this is a production start.',
+        '  Scan images would be written to ephemeral container disk and lost on the next deploy,',
+        '  leaving findings with no image behind them.',
+        '  Set GOOGLE_CLOUD_PROJECT_ID, GOOGLE_CLOUD_CLIENT_EMAIL, GOOGLE_CLOUD_PRIVATE_KEY',
+        '  and GOOGLE_CLOUD_SCAN_BUCKET, or set ALLOW_EPHEMERAL_SCAN_STORAGE=true to accept',
+        '  that loss deliberately.',
+      ].join('\n')
+    );
+    process.exit(1);
+  }
+}
+
 let sessionConfig: any = {
   secret: resolveSessionSecret(),
   resave: false,
@@ -125,6 +176,9 @@ installProcessHandlers();
 
 (async () => {
   try {
+    // Before anything else that could accept a request.
+    await assertScanStorageConfigured();
+
     // Test database connection before starting server
     let dbConnected = false;
     try {
@@ -290,12 +344,23 @@ installProcessHandlers();
       // key is active before retiring the previous one.
       const { keyringStatus } = await import('./crypto/keyring');
 
+      // Which models are resident, and whether the service holding them is
+      // reachable. Not part of readiness either — the instance serves the rest
+      // of the application fine without it, and a scan submitted while it is
+      // down is refused with 503 and queued for a human, which is the designed
+      // behaviour rather than an outage. But an operator needs to see that
+      // automated analysis is currently unavailable, and to be able to confirm
+      // that the artifact hashes here match the model_version values being
+      // written to medical_scans.
+      const { inferenceHealth } = await import('./inference-client');
+
       res.status(readinessCache.ok ? 200 : 503).json({
         status: readinessCache.ok ? 'ready' : 'not_ready',
         uptimeSec: Math.round(process.uptime()),
         ...readinessCache.detail,
         notificationChannels: deliveryChannelStatus(),
         encryption: keyringStatus(),
+        inference: await inferenceHealth(),
       });
     });
 

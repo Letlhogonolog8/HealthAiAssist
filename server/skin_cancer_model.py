@@ -8,8 +8,12 @@ import tensorflow as tf
 IMG_SIZE = (224, 224)
 
 
-def preprocess_image(image_path):
+def preprocess_image(image_source):
     """Load an image as raw RGB 0-255, resized to the model's input size.
+
+    `image_source` is a filesystem path or any binary file-like object, so the
+    long-running inference server can hand over an uploaded buffer directly
+    rather than staging it through a temporary file on every request.
 
     Deliberately NO normalisation here. The served model begins with a Rescaling
     layer that applies resnet_v2's x/127.5-1 inside the graph, so training and
@@ -19,7 +23,7 @@ def preprocess_image(image_path):
     See scripts/train-skin-cancer-model.py and MODEL_CARDS.md.
     """
     try:
-        img = Image.open(image_path).convert('RGB').resize(IMG_SIZE)
+        img = Image.open(image_source).convert('RGB').resize(IMG_SIZE)
         img_array = np.array(img, dtype=np.float32)
         return np.expand_dims(img_array, axis=0)
     except Exception:
@@ -64,15 +68,45 @@ def check_image_quality(img_array):
     return reasons
 
 
+# Loaded artifacts, keyed by resolved model path.
+#
+# Both of these used to be rebuilt on every single prediction: the CLI entry
+# point calls predict_skin_cancer() once per process, so reloading a ~90 MB
+# Keras model and reconstructing the feature-extraction graph cost nothing that
+# the process start had not already spent. Under the long-running inference
+# server that assumption inverts — the same two objects would be rebuilt for
+# every request, which is most of the latency this module exists to remove.
+#
+# Cached by path rather than in a single slot so that pointing
+# SKIN_CANCER_MODEL_PATH somewhere else picks up the new artifact instead of
+# silently serving the old one.
+_MODEL_CACHE = {}
+_EXTRACTOR_CACHE = {}
+
+
+def get_model(model_path):
+    """The loaded Keras model for `model_path`, loading it once per process."""
+    model = _MODEL_CACHE.get(model_path)
+    if model is None:
+        model = tf.keras.models.load_model(model_path)
+        _MODEL_CACHE[model_path] = model
+    return model
+
+
 def _feature_extractor(model):
     """Raw 0-255 RGB to the 2048-d ResNet feature vector.
 
     The trunk is nested and applied to the rescaling output, so its `.output`
     belongs to a separate graph; the layers are re-applied to the outer input.
     """
+    cached = _EXTRACTOR_CACHE.get(id(model))
+    if cached is not None:
+        return cached
     inputs = model.input
     x = model.get_layer('resnet_v2_preprocess')(inputs)
-    return tf.keras.Model(inputs, model.get_layer('resnet50v2')(x))
+    extractor = tf.keras.Model(inputs, model.get_layer('resnet50v2')(x))
+    _EXTRACTOR_CACHE[id(model)] = extractor
+    return extractor
 
 
 def check_out_of_distribution(model, img_array, model_dir):
@@ -107,8 +141,18 @@ def check_out_of_distribution(model, img_array, model_dir):
         return None, None, f'OOD check failed to run: {exc}'
 
 
+_CALIBRATION_CACHE = {}
+
+
 def load_calibration(model_dir):
     """Temperature for the softmax output, if a fitted correction was deployed."""
+    if model_dir in _CALIBRATION_CACHE:
+        return _CALIBRATION_CACHE[model_dir]
+    _CALIBRATION_CACHE[model_dir] = _read_calibration(model_dir)
+    return _CALIBRATION_CACHE[model_dir]
+
+
+def _read_calibration(model_dir):
     path = os.path.join(model_dir, 'skin_model_calibration.json')
     if not os.path.exists(path):
         return 1.0
@@ -128,8 +172,8 @@ def apply_temperature(probs, temperature):
     return exp / exp.sum()
 
 
-def predict_skin_cancer(image_path, model_path=None):
-    """Predict skin cancer from image.
+def predict_skin_cancer(image_source, model_path=None):
+    """Predict skin cancer from an image path or binary file-like object.
 
     Returns a prediction ONLY when the trained model actually ran on an image it
     is competent to assess. Missing model, unusable image, or an input unlike the
@@ -137,7 +181,7 @@ def predict_skin_cancer(image_path, model_path=None):
     'benign', which is a false negative a clinician cannot tell from a real one.
     """
     try:
-        img_array = preprocess_image(image_path)
+        img_array = preprocess_image(image_source)
         if img_array is None:
             return {
                 'prediction': 'Error',
@@ -168,7 +212,7 @@ def predict_skin_cancer(image_path, model_path=None):
             }
 
         model_dir = os.path.dirname(model_path)
-        model = tf.keras.models.load_model(model_path)
+        model = get_model(model_path)
 
         is_ood, ood_detail, ood_note = check_out_of_distribution(model, img_array, model_dir)
         if is_ood:

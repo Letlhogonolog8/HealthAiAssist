@@ -116,7 +116,40 @@ export const createRateLimiters = () => {
     skip: shouldSkip,
   });
 
-  return { generalLimiter, authLimiter, medicalLimiter, chatLimiter };
+  /**
+   * Scan submission. Deliberately far tighter than the medical limiter.
+   *
+   * `/api/scans` was metered by medicalLimiter alone at 600 requests per five
+   * minutes per authenticated account. That ceiling is right for a dashboard
+   * polling a few endpoints on a timer, and badly wrong for the one endpoint in
+   * the system that runs a neural network: it permitted a single ordinary user
+   * to demand two inferences a second, indefinitely.
+   *
+   * Before the inference service existed that meant hundreds of concurrent
+   * TensorFlow processes and an out-of-memory kill. It is bounded now — the
+   * service queues and sheds — but the ceiling still belongs here, because
+   * "everyone else's scans wait behind one account's burst" is a denial of
+   * service even when nothing crashes.
+   *
+   * Twelve per five minutes is generous for the actual activity: a clinician
+   * uploading a scan, looking at the result, and uploading another. Radiology
+   * bulk import, when it exists, needs its own authenticated path with its own
+   * budget rather than a raised ceiling here.
+   */
+  const scanLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    max: (req: Request) => ((req as AuthenticatedRequest).session?.user ? 12 : 0),
+    keyGenerator: limitKey,
+    message: {
+      error: 'Scan submission rate limit exceeded. Please wait before submitting more scans.',
+      retryAfter: 5 * 60 * 1000
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: shouldSkip,
+  });
+
+  return { generalLimiter, authLimiter, medicalLimiter, chatLimiter, scanLimiter };
 };
 
 // CORS configuration for healthcare application

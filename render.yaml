@@ -106,7 +106,63 @@ services:
       - key: GOOGLE_CALENDAR_ID
         sync: false
 
-      # Private bucket for scan images. Without it, images are written to the
-      # container filesystem, which on Render does not survive a redeploy.
+      # Private bucket for scan images, and the service account that reaches it.
+      #
+      # These are now a hard requirement, not a nicety: the server exits 1 on a
+      # production start without a reachable object store, because the fallback
+      # writes patient imaging to the container filesystem, which on Render does
+      # not survive a redeploy. Set ALLOW_EPHEMERAL_SCAN_STORAGE=true only if
+      # you have decided to accept losing them.
       - key: GOOGLE_CLOUD_SCAN_BUCKET
         sync: false
+      - key: GOOGLE_CLOUD_PROJECT_ID
+        sync: false
+      - key: GOOGLE_CLOUD_CLIENT_EMAIL
+        sync: false
+      - key: GOOGLE_CLOUD_PRIVATE_KEY
+        sync: false
+
+      # Where the resident-model inference service is listening.
+      #
+      # Without it, every scan spawns a Python process that imports TensorFlow
+      # and loads a ~90 MB model from disk: 8-14 s per scan, and one process per
+      # concurrent request with no ceiling. With it, a scan is an HTTP call to
+      # a process that already holds both models — roughly 500 ms, behind a
+      # bounded queue.
+      #
+      # Points at the private service defined below.
+      - key: INFERENCE_URL
+        fromService:
+          type: pserv
+          name: healthai-inference
+          property: hostport
+
+  # The models, held in memory, on their own instance.
+  #
+  # A private service rather than a second web service: nothing outside the
+  # cluster should be able to submit an image for classification, and this has
+  # no authentication of its own by design — it is reached only by the web
+  # service, which has already authorised the request and checked consent.
+  #
+  # Sized for memory, not CPU. Two resident ResNet50V2 models plus TensorFlow is
+  # roughly 1.5 GB before any request arrives, and inference is serialised
+  # behind a lock, so a larger plan buys headroom rather than throughput. Scale
+  # this out only after measuring queue depth at /healthz.
+  - type: pserv
+    name: healthai-inference
+    env: python
+    plan: standard
+    buildCommand: pip install -r requirements.txt -r inference/requirements.txt
+    startCommand: uvicorn inference.server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      # The model artifacts are gitignored, so they have to be mounted or
+      # fetched onto this instance and these must point at wherever they land.
+      # /healthz reports the artifact hash it is actually serving; confirm it
+      # matches the model_version values appearing in medical_scans.
+      - key: SKIN_CANCER_MODEL_PATH
+        sync: false
+      - key: LUNG_CANCER_MODEL_PATH
+        sync: false
+      - key: INFERENCE_MAX_QUEUE_DEPTH
+        value: 16

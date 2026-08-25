@@ -1,6 +1,8 @@
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import { randomUUID } from 'crypto';
+import { infer, isInferenceServerConfigured, warnIfFallingBack } from './inference-client';
 
 export interface SkinCancerPrediction {
   // 'unavailable' means the model could not run; 'rejected_input' means it could
@@ -30,6 +32,47 @@ export class SkinCancerService {
     this.pythonScript = path.join(process.cwd(), 'server', 'skin_cancer_model.py');
   }
 
+  /**
+   * Classify an image held in memory.
+   *
+   * The buffer-first entry point, and the one the request path uses. When an
+   * inference service is configured the bytes go straight over the wire; there
+   * is no temporary file anywhere in that path.
+   *
+   * The fallback still stages a file, because the CLI takes a path. It writes
+   * to the uploads directory and removes it in a finally, exactly as the route
+   * handler used to do inline — moved here so both transports present the same
+   * interface and the caller stops caring which is in use.
+   */
+  async analyzeImage(imageBuffer: Buffer): Promise<SkinCancerPrediction> {
+    if (isInferenceServerConfigured()) {
+      return (await infer('skin', imageBuffer, 'scan.jpg')) as SkinCancerPrediction;
+    }
+
+    warnIfFallingBack('skin');
+
+    const uploadsDir = path.join(process.cwd(), 'uploads');
+    await fs.promises.mkdir(uploadsDir, { recursive: true });
+    const tempImagePath = path.join(uploadsDir, `temp_skin_${randomUUID()}.jpg`);
+    await fs.promises.writeFile(tempImagePath, imageBuffer);
+
+    try {
+      return await this.analyzeSkinImage(tempImagePath);
+    } finally {
+      try {
+        await fs.promises.unlink(tempImagePath);
+      } catch (cleanupError) {
+        console.warn('Failed to cleanup temp file:', cleanupError);
+      }
+    }
+  }
+
+  /**
+   * Classify an image already on disk, by spawning the CLI.
+   *
+   * Retained because it is the path `scripts/` and the model-card reproduction
+   * commands exercise. Prefer analyzeImage() from request handlers.
+   */
   async analyzeSkinImage(imagePath: string): Promise<SkinCancerPrediction> {
     return new Promise((resolve, reject) => {
       // Check if image file exists

@@ -53,7 +53,7 @@ export const applySecurityMiddleware = (app: express.Application) => {
  * anonymous IP budget.
  */
 export const applyRateLimiting = (app: express.Application) => {
-  const { generalLimiter, authLimiter, medicalLimiter, chatLimiter } = createRateLimiters();
+  const { generalLimiter, authLimiter, medicalLimiter, chatLimiter, scanLimiter } = createRateLimiters();
 
   // Most specific prefix first: Express runs them in registration order and each
   // one that passes calls next(), so a /api/patient request is metered by the
@@ -62,6 +62,11 @@ export const applyRateLimiting = (app: express.Application) => {
   app.use('/api/patient', medicalLimiter);
   app.use('/api/doctor', medicalLimiter);
   app.use('/api/radiologist', medicalLimiter);
+  // Scans get their own ceiling BEFORE the medical one. Registration order is
+  // evaluation order, and this is the expensive endpoint in the system — see
+  // scanLimiter in security-enhanced.ts.
+  app.use('/api/scans', scanLimiter);
+  app.use('/api/scan', scanLimiter);
   app.use('/api/scans', medicalLimiter);
   app.use('/api/appointments', medicalLimiter);
   // Both chat surfaces. `/api/chat` does not cover `/api/chatbot/...`: Express

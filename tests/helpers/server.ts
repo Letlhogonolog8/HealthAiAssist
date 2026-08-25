@@ -42,9 +42,94 @@ export const REQUEST_TIMEOUT_MS = Number(process.env.TEST_REQUEST_TIMEOUT_MS ?? 
 
 let child: ChildProcess | null = null;
 
+/**
+ * The database these tests are allowed to write to.
+ *
+ * This suite is destructive. It creates accounts, scans, appointments, consents
+ * and audit rows, and deletes them again in `after` hooks. That is fine against
+ * a database that exists to be thrown away, and it is not fine against the one
+ * serving an application — and until this function existed, there was nothing
+ * distinguishing the two. The repository's `.env` pointed development at a
+ * hosted Supabase instance, `npm test` read `DATABASE_URL` from it, and so the
+ * suite's inserts and deletes landed in the only database the project had.
+ *
+ * It nearly went wrong once already, in a way worth recording: an earlier
+ * cleanup used `LIKE 't\_%'` intending "starts with t-underscore". The
+ * backslash did not survive the trip to the server, Postgres received `t_%`
+ * where `_` is a single-character wildcard, and ten unrelated accounts were
+ * deleted. The cleanup is careful now. The point is that careful cleanup is the
+ * second line of defence, and pointing the suite somewhere disposable is the
+ * first.
+ *
+ * Resolution order:
+ *
+ *   1. TEST_DATABASE_URL  — a database that exists for this purpose. Preferred.
+ *   2. DATABASE_URL       — permitted only when it is local, or when the caller
+ *                           has explicitly said it is safe.
+ *
+ * A remote DATABASE_URL with no TEST_DATABASE_URL is refused, because that is
+ * precisely the shape of "the only database this project has".
+ */
+function resolveTestDatabaseUrl(): string {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'Refusing to run the test suite with NODE_ENV=production. This suite ' +
+        'creates and deletes rows.'
+    );
+  }
+
+  const explicit = process.env.TEST_DATABASE_URL;
+  if (explicit) return explicit;
+
+  const fallback = process.env.DATABASE_URL;
+  if (!fallback) {
+    throw new Error(
+      'TEST_DATABASE_URL or DATABASE_URL is required to run these tests.'
+    );
+  }
+
+  const isLocal = /(^|@|\/\/)(localhost|127\.0\.0\.1|\[::1\])(:|\/)/.test(fallback);
+  const optedIn =
+    (process.env.TEST_ALLOW_SHARED_DATABASE || '').toLowerCase() === 'true';
+
+  if (!isLocal && !optedIn) {
+    throw new Error(
+      [
+        'Refusing to run destructive tests against a remote DATABASE_URL.',
+        '',
+        'This suite creates and deletes users, scans, appointments and consents.',
+        'Point it at a database that exists to be thrown away:',
+        '',
+        '  TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/healthai_test',
+        '',
+        'A local one can be had with:',
+        '',
+        '  docker run --rm -d -p 5432:5432 -e POSTGRES_PASSWORD=postgres \\',
+        '    -e POSTGRES_DB=healthai_test --name healthai-test-db postgres:16',
+        '',
+        'If you have genuinely decided this remote database is disposable, set',
+        'TEST_ALLOW_SHARED_DATABASE=true.',
+      ].join('\n')
+    );
+  }
+
+  if (!explicit) {
+    console.warn(
+      isLocal
+        ? '⚠️  Tests are using DATABASE_URL (local). Set TEST_DATABASE_URL to be explicit.'
+        : '⚠️  Tests are running against a REMOTE DATABASE_URL because ' +
+            'TEST_ALLOW_SHARED_DATABASE=true. Rows will be created and deleted there.'
+    );
+  }
+
+  return fallback;
+}
+
+/** Resolved once, so the pool and the spawned server cannot disagree. */
+export const TEST_DATABASE_URL = resolveTestDatabaseUrl();
+
 export function db(): Pool {
-  const cs = process.env.DATABASE_URL;
-  if (!cs) throw new Error('DATABASE_URL is required to run these tests');
+  const cs = TEST_DATABASE_URL;
   return new Pool({
     connectionString: cs,
     ssl: cs.includes('localhost') ? false : { rejectUnauthorized: false },
@@ -125,6 +210,12 @@ export async function startServer(timeoutMs = 90_000): Promise<void> {
       ...process.env,
       NODE_ENV: 'development',
       PORT: String(PORT),
+      // The server under test reads DATABASE_URL. Handing it the resolved value
+      // means it cannot end up on a different database from the assertions —
+      // which has happened before, and presented as every suite failing on
+      // foreign key violations against ids that existed, just not where the
+      // test was looking.
+      DATABASE_URL: TEST_DATABASE_URL,
       /**
        * The server under test shares the database's connection budget with this
        * process's own pool. Supabase's pooler allows fifteen clients; the

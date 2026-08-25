@@ -35,6 +35,11 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/healthai_test
+      # Named explicitly as well as through DATABASE_URL. The suite refuses to
+      # run destructively against a remote database unless it is pointed at one
+      # deliberately; this is the ephemeral service container above, created and
+      # destroyed inside the job.
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/healthai_test
       # Test-only value. The app requires >= 64 characters and refuses to boot in
       # production without a real one; this database is created and destroyed
       # inside the job and never holds anything.
