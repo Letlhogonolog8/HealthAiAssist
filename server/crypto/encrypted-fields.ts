@@ -86,6 +86,16 @@ export const ENCRYPTED_FIELDS: EncryptedField[] = [
     why: 'A third party\'s name and number, held about someone who never used this system.',
   },
   {
+    table: 'users',
+    property: 'mfaSecret',
+    column: 'mfa_secret',
+    why:
+      'A base32 TOTP seed is a bearer credential: anyone holding it can generate ' +
+      'valid second factors indefinitely. A database dump of this column is a set ' +
+      'of working authenticators for every clinical account. Written once at ' +
+      'enrolment, read whole at every challenge, never queried.',
+  },
+  {
     table: 'genomic_risk_assessments',
     property: 'caveats',
     column: 'caveats',

@@ -247,6 +247,24 @@ installProcessHandlers();
     // Needs the session, so it goes after it — and ahead of the routes, so it
     // actually sees requests.
     app.use('/api', trackApiUsage);
+
+    /**
+     * MFA enrolment gate on the clinical surfaces.
+     *
+     * No-op unless MFA_ENFORCE=true. Mounted here rather than on each route so
+     * that a route added later is covered by default — the opposite of how
+     * requireAuth was once dropped from several /api/doctor/* handlers during a
+     * refactor, which is why tests/auth-matrix.test.ts exists.
+     *
+     * /api/auth is deliberately absent: an un-enrolled clinician has to be able
+     * to reach the enrolment endpoints.
+     */
+    const { requireMfaEnrolled } = await import('./security-config');
+    app.use('/api/patient', requireMfaEnrolled);
+    app.use('/api/doctor', requireMfaEnrolled);
+    app.use('/api/radiologist', requireMfaEnrolled);
+    app.use('/api/scans', requireMfaEnrolled);
+    app.use('/api/admin', requireMfaEnrolled);
     
     // Apply enhanced session security after session middleware
     try {

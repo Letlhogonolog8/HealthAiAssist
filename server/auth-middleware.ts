@@ -25,6 +25,17 @@ declare module 'express-session' {
       role: string;
       [key: string]: any;
     };
+    /**
+     * A password has been accepted, a second factor has not yet been.
+     *
+     * Deliberately NOT `userId` or `user`: every guard in the system keys off
+     * those two, so a half-authenticated session must not carry either. Holding
+     * the pending identity in the session rather than in a separately issued
+     * token means the challenge is bound to the same cookie that passed the
+     * password, and there is no second credential to store, expire or leak.
+     */
+    pendingMfaUserId?: number;
+    pendingMfaAt?: number;
   }
 }
 

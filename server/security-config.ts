@@ -137,6 +137,58 @@ export const requireAdmin = (req: AuthenticatedRequest, res: express.Response, n
   next();
 };
 
+/**
+ * Blocks a privileged account that has not enrolled a second factor.
+ *
+ * Only active when MFA_ENFORCE=true. See server/mfa.ts for why that is not the
+ * default: enabling enrolment and enforcement in the same deploy locks out every
+ * existing clinician simultaneously, including whoever would have to fix it.
+ *
+ * Deliberately mounted on clinical data access rather than on login. An
+ * un-enrolled clinician can still sign in and reach the enrolment screen —
+ * being unable to log in at all leaves no route to compliance except an
+ * administrator manually clearing the flag, which is a support process that
+ * bypasses the control.
+ */
+export const requireMfaEnrolled = async (
+  req: AuthenticatedRequest,
+  res: express.Response,
+  next: express.NextFunction
+) => {
+  const { mfaEnforced, roleRequiresMfa } = await import('./mfa');
+  if (!mfaEnforced()) return next();
+
+  const role = req.session?.user?.role;
+  if (!roleRequiresMfa(role)) return next();
+
+  if (req.session?.user?.mfaEnabled) return next();
+
+  try {
+    // Re-read rather than trusting the session copy: the session was populated
+    // at login and enrolment may have happened since, in this same session.
+    const { storage } = await import('./storage');
+    const user = await storage.getUser(req.session!.user!.id);
+    if (user?.mfaEnabled) {
+      req.session.user!.mfaEnabled = true;
+      return next();
+    }
+  } catch (error) {
+    // The lookup failed, which means the database is unreachable. Passing the
+    // request on is safe here and denying it is not useful: this is a
+    // defence-in-depth layer above requireAuth and requireMedicalAccess, and
+    // every handler behind it needs the same database to return anything at
+    // all. A 500 from the handler is a clearer signal than a 403 claiming an
+    // enrolment problem that may not exist.
+    console.error('MFA enrolment check failed; passing through:', error);
+    return next();
+  }
+
+  return res.status(403).json({
+    error: 'Two-factor authentication is required for this role before patient data can be accessed.',
+    code: 'MFA_ENROLLMENT_REQUIRED',
+  });
+};
+
 // Medical data access authorization
 export const requireMedicalAccess = (req: AuthenticatedRequest, res: express.Response, next: express.NextFunction) => {
   const medicalRoles = ['doctor', 'radiologist', 'admin'];

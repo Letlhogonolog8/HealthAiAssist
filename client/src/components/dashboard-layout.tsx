@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import AIScanSimulator from "./ai-scan-simulator-fixed";
+import SecuritySettingsDialog from "./security-settings-dialog";
 import ModelPerformancePanel from "./model-performance-panel";
 const GoogleAIScanner = lazy(() => import("./google-ai-scanner"));
 const PatientPortalFinal = lazy(() => import("./patient-portal-final"));
@@ -103,6 +104,7 @@ function formatRelative(value: unknown): string {
 
 export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps) {
   const [activeTab, setActiveTab] = useState("overview");
+  const [securityOpen, setSecurityOpen] = useState(false);
 
   const roleConfig = {
     admin: {
@@ -549,7 +551,15 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
             {(user.role === 'doctor' || user.role === 'radiologist') && (
               <ChatNotifications user={user} onChatOpen={() => window.location.href = '/chat'} />
             )}
-            <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white">
+            {/* This had no onClick. It rendered a cog, and pressing it did
+                nothing — the same defect as a tab with no panel behind it. */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setSecurityOpen(true)}
+              aria-label="Account security"
+              className="text-slate-400 hover:text-white"
+            >
               <Settings className="w-5 h-5" />
             </Button>
             <Button 
@@ -989,6 +999,8 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
           }
         }}
       />
+
+      <SecuritySettingsDialog open={securityOpen} onOpenChange={setSecurityOpen} />
     </div>
   );
 }

@@ -22,6 +22,33 @@ export const users = pgTable("users", {
   isActive: boolean("is_active").default(true),
   resetToken: text("reset_token"),
   resetTokenExpiry: timestamp("reset_token_expiry"),
+
+  /**
+   * Second factor. Off until the user has proved they can produce a code.
+   *
+   * `mfaSecret` is populated at enrolment but `mfaEnabled` stays false until a
+   * generated code verifies against it. Enabling on enrolment instead would
+   * lock out anyone whose authenticator app failed to scan the QR — the
+   * commonest way self-service MFA goes wrong, and the one that generates
+   * support calls from clinicians who cannot reach patient records.
+   *
+   * The secret is encrypted at rest: it is a bearer credential, and a database
+   * dump containing base32 TOTP seeds is a set of working second factors. See
+   * server/crypto/encrypted-fields.ts.
+   */
+  mfaEnabled: boolean("mfa_enabled").default(false).notNull(),
+  mfaSecret: text("mfa_secret"),
+  /**
+   * bcrypt hashes of single-use recovery codes, as a JSON array.
+   *
+   * Hashed for the same reason passwords are: they are equivalent to the second
+   * factor. Consumed on use — the matched hash is removed from the array —
+   * because a recovery code that still works after being used is a permanent
+   * bypass sitting in whatever the user wrote it down in.
+   */
+  mfaBackupCodes: text("mfa_backup_codes"),
+  mfaEnrolledAt: timestamp("mfa_enrolled_at"),
+
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   usernameIdx: index("idx_users_username").on(table.username),

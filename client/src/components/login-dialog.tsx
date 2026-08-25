@@ -69,6 +69,17 @@ export default function LoginDialog({ open, onOpenChange, onLoginSuccess }: Logi
     role: "patient",
   });
   const [showPassword, setShowPassword] = useState(false);
+
+  /**
+   * Set when the server answers a correct password with `mfaRequired`.
+   *
+   * The password is discarded at this point — the pending state lives in the
+   * session cookie, so nothing sensitive needs to be held in the component while
+   * the user reaches for their phone.
+   */
+  const [awaitingSecondFactor, setAwaitingSecondFactor] = useState(false);
+  const [secondFactor, setSecondFactor] = useState("");
+  const [useRecoveryCode, setUseRecoveryCode] = useState(false);
   const [showRegPassword, setShowRegPassword] = useState(false);
   // Lifted out of Tabs so the header can name whichever tab is open. It read
   // "Sign in to your account" over the registration form.
@@ -103,13 +114,74 @@ export default function LoginDialog({ open, onOpenChange, onLoginSuccess }: Logi
       return response.json();
     },
     onSuccess: (user) => {
+      // A correct password, and the account has a second factor. No identity
+      // has been issued yet — the server is holding a pending state on the
+      // session cookie, and only a valid code will convert it into a login.
+      if (user?.mfaRequired) {
+        setAwaitingSecondFactor(true);
+        setLoginData((current) => ({ ...current, password: "" }));
+        return;
+      }
+
       toast({ title: "Signed in", description: `Welcome back, ${user.fullName}.` });
+      if (user?.mfaEnrollmentRequired) {
+        toast({
+          title: "Two-factor authentication required",
+          description:
+            "Your role can read patient records. Set up an authenticator app in Security settings.",
+        });
+      }
       onLoginSuccess(user);
       onOpenChange(false);
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
     },
     onError: (error: Error) => {
       toast({ title: "Could not sign in", description: error.message, variant: "destructive" });
+    },
+  });
+
+  /** Second step of a two-factor login. */
+  const challengeMutation = useMutation({
+    mutationFn: async (payload: { token?: string; backupCode?: string }) => {
+      const response = await fetch("/api/auth/mfa/challenge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        credentials: "include",
+      });
+      if (!response.ok) {
+        throw new Error(await readError(response, "That code was not accepted."));
+      }
+      return response.json();
+    },
+    onSuccess: (user) => {
+      toast({ title: "Signed in", description: `Welcome back, ${user.fullName}.` });
+      if (user?.usedBackupCode) {
+        toast({
+          title: "Recovery code used",
+          description:
+            user.backupCodesRemaining > 0
+              ? `That code is now spent. ${user.backupCodesRemaining} remaining.`
+              : "That was your last recovery code. Generate new ones in Security settings.",
+        });
+      }
+      setAwaitingSecondFactor(false);
+      setSecondFactor("");
+      setUseRecoveryCode(false);
+      onLoginSuccess(user);
+      onOpenChange(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    },
+    onError: (error: Error) => {
+      setSecondFactor("");
+      toast({ title: "Could not sign in", description: error.message, variant: "destructive" });
+      // The server ends the attempt after five wrong codes. Returning to the
+      // password step is the honest reflection of that, rather than leaving a
+      // code box that can no longer succeed.
+      if (/sign in again/i.test(error.message)) {
+        setAwaitingSecondFactor(false);
+        setUseRecoveryCode(false);
+      }
     },
   });
 
@@ -199,6 +271,88 @@ export default function LoginDialog({ open, onOpenChange, onLoginSuccess }: Logi
 
           {/* ── Sign in ── */}
           <TabsContent value="login" className="mt-0">
+            {awaitingSecondFactor ? (
+              <form
+                className="px-6 pt-6 pb-7 space-y-4"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (challengeMutation.isPending || !secondFactor.trim()) return;
+                  challengeMutation.mutate(
+                    useRecoveryCode
+                      ? { backupCode: secondFactor.trim() }
+                      : { token: secondFactor.trim() }
+                  );
+                }}
+              >
+                <div className="rounded-lg border border-cyan-500/25 bg-cyan-500/5 px-4 py-3">
+                  <p className="text-sm text-slate-200 font-medium">
+                    Two-factor authentication
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {useRecoveryCode
+                      ? "Enter one of the recovery codes you saved when you set this up. Each code works once."
+                      : "Enter the 6-digit code from your authenticator app."}
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="login-second-factor" className="text-sm text-slate-300">
+                    {useRecoveryCode ? "Recovery code" : "Authentication code"}
+                  </Label>
+                  <Input
+                    id="login-second-factor"
+                    name={useRecoveryCode ? "recovery-code" : "one-time-code"}
+                    autoComplete={useRecoveryCode ? "off" : "one-time-code"}
+                    inputMode={useRecoveryCode ? "text" : "numeric"}
+                    autoFocus
+                    value={secondFactor}
+                    onChange={(e) => setSecondFactor(e.target.value)}
+                    className={`${fieldClass} tracking-[0.3em] text-center font-mono`}
+                    placeholder={useRecoveryCode ? "XXXXX-XXXXX" : "000000"}
+                    maxLength={useRecoveryCode ? 11 : 6}
+                  />
+                </div>
+
+                <Button
+                  type="submit"
+                  disabled={!secondFactor.trim() || challengeMutation.isPending}
+                  className="w-full h-11 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold disabled:opacity-40"
+                >
+                  {challengeMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Verifying…
+                    </>
+                  ) : (
+                    "Verify"
+                  )}
+                </Button>
+
+                <div className="flex items-center justify-between text-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUseRecoveryCode(!useRecoveryCode);
+                      setSecondFactor("");
+                    }}
+                    className="text-cyan-400 hover:text-cyan-300 transition-colors"
+                  >
+                    {useRecoveryCode ? "Use authenticator app" : "Use a recovery code"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAwaitingSecondFactor(false);
+                      setSecondFactor("");
+                      setUseRecoveryCode(false);
+                    }}
+                    className="text-slate-400 hover:text-slate-300 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            ) : (
             <form
               className="px-6 pt-6 pb-7 space-y-4"
               onSubmit={(event) => {
@@ -293,6 +447,7 @@ export default function LoginDialog({ open, onOpenChange, onLoginSuccess }: Logi
                 </button>
               </div>
             </form>
+            )}
           </TabsContent>
 
           {/* ── Register ── */}

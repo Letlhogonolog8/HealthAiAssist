@@ -15,6 +15,16 @@ import {
 } from './services';
 import { medicalChatbotService } from "./chatbot-service";
 import { modelVersionFor } from "./model-fingerprint";
+import {
+  createEnrolmentOffer,
+  verifyTotp,
+  consumeBackupCode,
+  parseBackupCodes,
+  serializeBackupCodes,
+  roleRequiresMfa,
+  mfaEnforced,
+  MFA_CHALLENGE_TTL_MS,
+} from "./mfa";
 import { infer, isInferenceServerConfigured, warnIfFallingBack, InferenceBusyError } from "./inference-client";
 import { 
   requireAuth, 
@@ -612,6 +622,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(500).json({ error: 'Session error' });
         }
 
+        // A correct password is half of the answer for an enrolled account.
+        //
+        // The session is deliberately left carrying neither `userId` nor `user`
+        // — every guard in the system keys off those, so this state is
+        // unauthenticated to all of them. Only /api/auth/mfa/challenge knows how
+        // to read it, and it expires.
+        if (user.mfaEnabled && user.mfaSecret) {
+          req.session.pendingMfaUserId = user.id;
+          req.session.pendingMfaAt = Date.now();
+          return req.session.save((saveErr) => {
+            if (saveErr) {
+              console.error('Session save error:', saveErr);
+              return res.status(500).json({ error: 'Session save error' });
+            }
+            // 200, not 401: the credentials were correct. The response carries
+            // no identity beyond the fact that a second factor is expected.
+            res.json({ mfaRequired: true });
+          });
+        }
+
         req.session.userId = user.id;
         req.session.user = {
           id: user.id,
@@ -631,13 +661,267 @@ export async function registerRoutes(app: Express): Promise<Server> {
             username: user.username,
             fullName: user.fullName,
             role: user.role,
-            email: user.email
+            email: user.email,
+            /**
+             * True for a privileged role that has not enrolled a second factor.
+             *
+             * Drives the enrolment prompt in the client. Reported rather than
+             * enforced by default: turning hard enforcement on in the same
+             * deploy that introduces enrolment locks out every existing
+             * clinician at once, including whoever would have to fix it. Set
+             * MFA_ENFORCE=true once staff have enrolled — see server/mfa.ts.
+             */
+            mfaEnrollmentRequired: roleRequiresMfa(user.role) && !user.mfaEnabled,
           });
         });
       });
     } catch (error) {
       console.error('Login error:', error);
       res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Multi-factor authentication
+  //
+  // Enrolment is self-service and authenticated. The challenge is the only
+  // endpoint that reads a half-authenticated session, and the only way out of
+  // one.
+  // ---------------------------------------------------------------------------
+
+  /** What this account's second factor looks like right now. */
+  app.get("/api/auth/mfa/status", requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const user = await storage.getUser(req.session!.user!.id);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+
+      res.json({
+        enabled: !!user.mfaEnabled,
+        required: roleRequiresMfa(user.role),
+        enforced: mfaEnforced(),
+        enrolledAt: user.mfaEnrolledAt ?? null,
+        backupCodesRemaining: parseBackupCodes(user.mfaBackupCodes).length,
+      });
+    } catch (error) {
+      console.error('MFA status error:', error);
+      res.status(500).json({ error: 'Failed to read MFA status' });
+    }
+  });
+
+  /**
+   * Begins enrolment: mints a secret and recovery codes, stores them, returns
+   * the QR once.
+   *
+   * The account is NOT protected yet. `mfaEnabled` stays false until /verify
+   * proves the user can produce a code from this secret. Calling this again
+   * before verifying replaces the pending secret, which is exactly what someone
+   * whose first QR scan failed will do.
+   *
+   * Refuses once enabled. Rotating a live second factor goes through /disable,
+   * which demands a current code; otherwise a hijacked session could silently
+   * swap the factor for one the attacker holds.
+   */
+  app.post("/api/auth/mfa/enroll", auditLog('MFA_ENROLL_BEGIN'), requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const userId = req.session!.user!.id;
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+
+      if (user.mfaEnabled) {
+        return res.status(409).json({
+          error: 'Two-factor authentication is already enabled. Disable it first to re-enrol.',
+        });
+      }
+
+      const offer = await createEnrolmentOffer(user.email);
+
+      await storage.updateUser(userId, {
+        mfaSecret: offer.secret,
+        mfaBackupCodes: serializeBackupCodes(offer.hashedBackupCodes),
+        mfaEnabled: false,
+      } as any);
+
+      // The only moment the plaintext recovery codes exist outside this
+      // response. They are stored as bcrypt hashes and cannot be recovered.
+      res.json({
+        otpauthUrl: offer.otpauthUrl,
+        qrDataUrl: offer.qrDataUrl,
+        backupCodes: offer.backupCodes,
+        note: 'Save the recovery codes now. They are shown once and cannot be retrieved later.',
+      });
+    } catch (error) {
+      console.error('MFA enrol error:', error);
+      res.status(500).json({ error: 'Failed to begin MFA enrolment' });
+    }
+  });
+
+  /** Confirms the authenticator works, and only then turns the factor on. */
+  app.post("/api/auth/mfa/verify", auditLog('MFA_ENROLL_COMPLETE'), requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const userId = req.session!.user!.id;
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+      if (user.mfaEnabled) return res.json({ enabled: true });
+
+      if (!user.mfaSecret) {
+        return res.status(400).json({ error: 'Start enrolment before verifying.' });
+      }
+
+      const { token } = req.body ?? {};
+      if (!verifyTotp(String(token ?? ''), user.mfaSecret)) {
+        return res.status(400).json({ error: 'That code is not valid. Check your authenticator and try again.' });
+      }
+
+      await storage.updateUser(userId, {
+        mfaEnabled: true,
+        mfaEnrolledAt: new Date(),
+      } as any);
+
+      res.json({ enabled: true });
+    } catch (error) {
+      console.error('MFA verify error:', error);
+      res.status(500).json({ error: 'Failed to verify MFA code' });
+    }
+  });
+
+  /**
+   * Turns the factor off. Requires a current code, not merely a session.
+   *
+   * A session alone would mean that stealing a session cookie is enough to
+   * remove the control that exists to make a stolen cookie insufficient.
+   */
+  app.post("/api/auth/mfa/disable", auditLog('MFA_DISABLE'), requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const userId = req.session!.user!.id;
+      const user = await storage.getUser(userId);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+      if (!user.mfaEnabled) return res.json({ enabled: false });
+
+      const { token } = req.body ?? {};
+      if (!user.mfaSecret || !verifyTotp(String(token ?? ''), user.mfaSecret)) {
+        return res.status(400).json({
+          error: 'A current authenticator code is required to disable two-factor authentication.',
+        });
+      }
+
+      await storage.updateUser(userId, {
+        mfaEnabled: false,
+        mfaSecret: null,
+        mfaBackupCodes: null,
+        mfaEnrolledAt: null,
+      } as any);
+
+      res.json({ enabled: false });
+    } catch (error) {
+      console.error('MFA disable error:', error);
+      res.status(500).json({ error: 'Failed to disable MFA' });
+    }
+  });
+
+  /**
+   * Completes a login that stopped at the password.
+   *
+   * Unauthenticated by design: the session it reads carries no identity, which
+   * is the point. Metered by authLimiter with the rest of /api/auth, and capped
+   * per session below — 50 attempts per IP per quarter hour is a reasonable
+   * ceiling for logins and a poor one for guessing a six-digit code, where three
+   * values are valid at any instant.
+   */
+  app.post("/api/auth/mfa/challenge", auditLog('MFA_CHALLENGE'), async (req: AuthenticatedRequest, res) => {
+    try {
+      const pendingId = req.session?.pendingMfaUserId;
+      const pendingAt = req.session?.pendingMfaAt ?? 0;
+
+      if (!pendingId) {
+        return res.status(401).json({ error: 'No login is awaiting a second factor. Sign in again.' });
+      }
+
+      if (Date.now() - pendingAt > MFA_CHALLENGE_TTL_MS) {
+        delete req.session.pendingMfaUserId;
+        delete req.session.pendingMfaAt;
+        return res.status(401).json({ error: 'This login attempt has expired. Sign in again.' });
+      }
+
+      // Five wrong answers ends the attempt rather than throttling it. The
+      // pending state is cheap to recreate with a correct password, so failing
+      // closed costs a legitimate user one extra login and costs a guesser the
+      // whole attempt.
+      const attempts = ((req.session as any).mfaAttempts ?? 0) + 1;
+      (req.session as any).mfaAttempts = attempts;
+      if (attempts > 5) {
+        delete req.session.pendingMfaUserId;
+        delete req.session.pendingMfaAt;
+        return res.status(401).json({ error: 'Too many incorrect codes. Sign in again.' });
+      }
+
+      const user = await storage.getUser(pendingId);
+      if (!user || !user.mfaEnabled || !user.mfaSecret) {
+        delete req.session.pendingMfaUserId;
+        return res.status(401).json({ error: 'No login is awaiting a second factor. Sign in again.' });
+      }
+
+      const { token, backupCode } = req.body ?? {};
+      let accepted = false;
+      let usedBackupCode = false;
+      let remainingCodes = parseBackupCodes(user.mfaBackupCodes).length;
+
+      if (backupCode) {
+        const result = await consumeBackupCode(String(backupCode), parseBackupCodes(user.mfaBackupCodes));
+        if (result.ok) {
+          accepted = true;
+          usedBackupCode = true;
+          remainingCodes = result.remaining.length;
+          // Consumed before the session is granted, so a code cannot be
+          // replayed by a request racing this one.
+          await storage.updateUser(user.id, {
+            mfaBackupCodes: serializeBackupCodes(result.remaining),
+          } as any);
+        }
+      } else if (token) {
+        accepted = verifyTotp(String(token), user.mfaSecret);
+      }
+
+      if (!accepted) {
+        return res.status(401).json({ error: 'That code is not valid.' });
+      }
+
+      // Privilege change: regenerate again. The pending session proved a
+      // password; the session about to be issued proves both factors, and the
+      // two should not share an identifier.
+      req.session.regenerate((regenErr) => {
+        if (regenErr) {
+          console.error('Session regeneration error:', regenErr);
+          return res.status(500).json({ error: 'Session error' });
+        }
+
+        req.session.userId = user.id;
+        req.session.user = {
+          id: user.id,
+          role: user.role,
+          username: user.username,
+          fullName: user.fullName,
+          email: user.email,
+        };
+
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error('Session save error:', saveErr);
+            return res.status(500).json({ error: 'Session save error' });
+          }
+          res.json({
+            id: user.id,
+            username: user.username,
+            fullName: user.fullName,
+            role: user.role,
+            email: user.email,
+            usedBackupCode,
+            backupCodesRemaining: remainingCodes,
+          });
+        });
+      });
+    } catch (error) {
+      console.error('MFA challenge error:', error);
+      res.status(500).json({ error: 'Failed to verify second factor' });
     }
   });
 
