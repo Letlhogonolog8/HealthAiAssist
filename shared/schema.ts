@@ -281,6 +281,107 @@ export const processingConsents = pgTable("processing_consents", {
   recordedAtIdx: index("idx_processing_consent_recorded").on(table.recordedAt),
 }));
 
+/**
+ * Who is entitled to open a given patient's record, and on what basis.
+ *
+ * Until this existed, `requireMedicalAccess` admitted any account holding the
+ * doctor, radiologist or admin role to any patient in the system. Access was
+ * audited afterwards, which is necessary and not sufficient: POPIA section 19
+ * expects minimality at the point of access, not only accountability once the
+ * record has already been read.
+ *
+ * -- Most relationships are not rows in this table --------------------------
+ *
+ * They are derived from work that already exists. A clinician with an
+ * appointment booked with a patient has a care relationship; so does the
+ * radiologist or doctor assigned to one of their scans. Deriving those means no
+ * backfill, no parallel bookkeeping that can drift from the appointments it
+ * describes, and no clinician locked out of a patient they are demonstrably
+ * treating.
+ *
+ * This table holds the two cases that cannot be derived:
+ *
+ *   "assigned"    - an explicit grant, made by an administrator, for care that
+ *                   has not produced an appointment or a scan yet.
+ *   "break_glass" - a clinician asserting an urgent need, in writing, and
+ *                   accepting that the assertion is recorded against their name.
+ *
+ * -- Why break-glass rather than a stricter rule ----------------------------
+ *
+ * Because emergencies are real, and a system that cannot be overridden in one
+ * gets overridden around: shared logins, a colleague's session left open, the
+ * record read on someone else's account. An override that is easy to invoke and
+ * impossible to invoke quietly is safer than one that is hard to invoke.
+ *
+ * Hence: a justification is required, it is time-boxed, and it writes a
+ * high-severity audit event naming the clinician, the patient and the reason.
+ */
+export const careRelationships = pgTable("care_relationships", {
+  id: serial("id").primaryKey(),
+  patientId: integer("patient_id").references(() => users.id).notNull(),
+  clinicianId: integer("clinician_id").references(() => users.id).notNull(),
+  /** "assigned" | "break_glass" */
+  basis: text("basis").notNull(),
+  /** Required for break_glass. Free text, written by the clinician. */
+  justification: text("justification"),
+  establishedBy: integer("established_by").references(() => users.id),
+  establishedAt: timestamp("established_at").defaultNow().notNull(),
+  /**
+   * When the grant lapses. Null for an assigned relationship, which ends when
+   * someone ends it; set for break-glass, which ends on its own.
+   *
+   * A break-glass grant that never expired would be a permanent bypass acquired
+   * by typing a sentence once.
+   */
+  expiresAt: timestamp("expires_at"),
+  endedAt: timestamp("ended_at"),
+}, (table) => ({
+  lookupIdx: index("idx_care_rel_lookup").on(table.clinicianId, table.patientId),
+  patientIdx: index("idx_care_rel_patient").on(table.patientId),
+}));
+
+export type CareRelationship = typeof careRelationships.$inferSelect;
+export type InsertCareRelationship = typeof careRelationships.$inferInsert;
+
+/** How long a break-glass grant lasts before it has to be re-justified. */
+export const BREAK_GLASS_TTL_MS = 4 * 60 * 60 * 1000;
+
+/**
+ * A request to erase personal information, and what happened to it.
+ *
+ * POPIA section 24 gives a data subject the right to request deletion. South
+ * African health records law substantially constrains it: the National Health
+ * Act and the HPCSA's guidance require patient records to be retained for at
+ * least six years from the last entry, and longer for minors. Those two
+ * obligations do not conflict so much as apply to different things, and the
+ * honest system is one that says which is which rather than promising a
+ * deletion it will not perform.
+ *
+ * So a request is recorded, adjudicated per category, and the outcome explains
+ * what was erased, what was retained, and under what basis it was retained. A
+ * refusal with a citation is a better answer than silence, and a far better
+ * answer than a deletion that quietly did not happen.
+ */
+export const erasureRequests = pgTable("erasure_requests", {
+  id: serial("id").primaryKey(),
+  patientId: integer("patient_id").references(() => users.id).notNull(),
+  requestedAt: timestamp("requested_at").defaultNow().notNull(),
+  /** "pending" | "partially_completed" | "refused" | "completed" */
+  status: text("status").notNull().default("pending"),
+  /** What the data subject asked for, in their words. */
+  requestNotes: text("request_notes").default(""),
+  reviewedBy: integer("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  /** Machine-readable record of what was erased and what was held back. */
+  outcome: text("outcome"),
+}, (table) => ({
+  patientIdx: index("idx_erasure_patient").on(table.patientId),
+  statusIdx: index("idx_erasure_status").on(table.status),
+}));
+
+export type ErasureRequest = typeof erasureRequests.$inferSelect;
+export type InsertErasureRequest = typeof erasureRequests.$inferInsert;
+
 export type ProcessingConsent = typeof processingConsents.$inferSelect;
 export type InsertProcessingConsent = typeof processingConsents.$inferInsert;
 

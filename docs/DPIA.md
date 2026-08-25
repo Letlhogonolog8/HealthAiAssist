@@ -204,12 +204,12 @@ Severity reflects the risk to the **data subject**, not to the project.
 | ID | Risk | Severity | Status | Mitigation |
 |---|---|---|---|---|
 | **R-01** | No Information Officer registered with the Information Regulator | High | Open | Appoint and register. Non-discretionary under §55. |
-| **R-02** | Any clinician can read any patient record; no care-relationship check, no break-glass justification | **High** | Open | Care relationships plus an audited break-glass path — build plan P2.5 |
-| **R-03** | No retention schedule; no deletion mechanism | High | Open | Retention schedule and erasure flow — build plan P2.6 |
+| **R-02** | Any clinician could read any patient record; no care-relationship check, no break-glass justification | **High** | **Mitigated, shadow mode** | `server/care-relationship.ts`. Relationships derived from appointments and scan assignments; explicit grants and time-boxed break-glass in `care_relationships`; every override audited and notified to administrators. Enforcement is behind `CARE_RELATIONSHIP_ENFORCE` and currently **off** — denials are recorded as `CARE_RELATIONSHIP_WOULD_BLOCK` so the derivation can be measured before it starts refusing clinicians. **Not closed until that flag is on.** |
+| **R-03** | No retention schedule; no deletion mechanism | High | **Partially mitigated** | [RETENTION.md](RETENTION.md) and `server/erasure.ts`. Schedule published, erasure implemented and adjudicated per category. **No automatic expiry job**, so §14 is only partly met: records outlive their period until someone requests erasure. |
 | **R-04** | Consent for image processing is not as granular as genomic consent | Medium | Open | Extend the `processing_consents` scope model to imaging |
-| **R-05** | No data subject access, correction or erasure request flow; no general privacy notice | High | Open | Build plan P2.6, plus a published privacy notice |
+| **R-05** | No data subject access, correction or erasure request flow; no general privacy notice | High | **Partially mitigated** | Erasure implemented end to end, with an assessment endpoint that states what would be kept and why *before* a request is made. §23 access (a machine-readable export) and a general privacy notice are still absent. |
 | **R-06** | Emergency contact details held about a third party who never consented | Medium | Partially mitigated | Encrypted at rest. Needs a retention rule and a notice at capture. |
-| **R-07** | No MFA on accounts that can read any patient record | **High** | Open | TOTP code already exists in `server/advanced-security.ts`; routes missing — build plan P2.4 |
+| **R-07** | No MFA on accounts that can read any patient record | **High** | **Mitigated, shadow mode** | `server/mfa.ts`. Enrolment, challenge, single-use recovery codes, secret encrypted at rest. Enforcement is behind `MFA_ENFORCE` and currently **off** so existing clinicians are not locked out mid-deploy. **Not closed until that flag is on.** |
 | **R-08** | No written operator agreement with OpenAI under §20 | Medium | Open | Execute a data processing agreement, or remove the dependency |
 | **R-09** | No incident response or §22 breach notification procedure | High | Open | Written plan with a named responsible person and a defined timeline |
 | **R-10** | `medical_scans.result` holds clinical text and is not encrypted | Medium | Open | Move status queries to `status` / `risk_level` / `predicted_positive`, then encrypt |
@@ -239,9 +239,16 @@ rather than code. The two highest-severity items that *are* code — R-02
 (clinician access breadth) and R-07 (no MFA) — are both scheduled in the build
 plan.
 
+Since this assessment was first written, R-02 and R-07 have been implemented and
+R-03 and R-05 partly so. Three of those four remain **shadow-mode or partial**,
+and the distinction matters: code that can enforce a control is not the same as a
+control being enforced. R-02 and R-07 close when `CARE_RELATIONSHIP_ENFORCE` and
+`MFA_ENFORCE` are set, which is a deployment decision that should follow a period
+of measurement, not precede it.
+
 **No processing described here should extend to identifiable patients outside a
-consented research or pilot setting until R-01, R-02, R-03, R-05, R-07 and R-09
-are closed.**
+consented research or pilot setting until R-01, R-03, R-09 are closed and R-02
+and R-07 are actually enforced.**
 
 ---
 

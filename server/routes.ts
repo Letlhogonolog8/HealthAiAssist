@@ -1,7 +1,9 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertUserSchema, insertScanSchema, insertTermSchema } from "@shared/schema";
+import { insertUserSchema, insertScanSchema, insertTermSchema, erasureRequests } from "@shared/schema";
+import { and, eq } from "drizzle-orm";
+import { db } from "./db";
 import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
@@ -31,6 +33,7 @@ import {
   requireRole,
   requireMedicalAccess,
   requirePatientDataAccess,
+  requireCareRelationship,
   AuthenticatedRequest
 } from "./security-config";
 import {
@@ -698,6 +701,278 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Login error:', error);
       res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Data subject rights — POPIA sections 23 to 25
+  // ---------------------------------------------------------------------------
+
+  /**
+   * What erasing this account would and would not remove.
+   *
+   * Deliberately available before requesting, and deliberately specific.
+   * "Delete my account" buttons that report success while a statutory retention
+   * duty silently prevents most of the deletion are worse than no button: the
+   * person believes their record is gone.
+   */
+  app.get("/api/patient/me/erasure-assessment", auditLog('READ_ERASURE_ASSESSMENT'), requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { assessErasure } = await import('./erasure');
+      res.json(await assessErasure(req.session!.user!.id));
+    } catch (error) {
+      console.error('Erasure assessment error:', error);
+      res.status(500).json({ error: 'Failed to assess erasure' });
+    }
+  });
+
+  /**
+   * Lodges an erasure request.
+   *
+   * Recorded rather than executed. Erasure is irreversible, interacts with a
+   * legal retention duty, and the assessment can change between the request and
+   * the execution — so it goes through a person. The request itself is the
+   * durable evidence that the right was exercised and when, which matters
+   * whether or not the erasure is ultimately granted in full.
+   */
+  app.post("/api/patient/me/erasure-request", auditLog('ERASURE_REQUESTED'), requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const patientId = req.session!.user!.id;
+      const notes = String(req.body?.notes ?? '').slice(0, 2000);
+
+      const existing = await (db as any)
+        .select({ id: erasureRequests.id })
+        .from(erasureRequests)
+        .where(and(eq(erasureRequests.patientId, patientId), eq(erasureRequests.status, 'pending')))
+        .limit(1);
+
+      if (existing.length) {
+        return res.status(409).json({
+          error: 'You already have an erasure request awaiting review.',
+          requestId: existing[0].id,
+        });
+      }
+
+      const [created] = await (db as any)
+        .insert(erasureRequests)
+        .values({ patientId, requestNotes: notes })
+        .returning();
+
+      const { assessErasure } = await import('./erasure');
+      const assessment = await assessErasure(patientId);
+
+      try {
+        const admins = await storage.listDirectory(['admin']);
+        for (const admin of admins) {
+          await storage.createNotification({
+            recipientId: admin.id,
+            actorId: patientId,
+            type: 'report',
+            title: 'Erasure request received',
+            body: 'A data subject has requested erasure of their personal information. It needs review.',
+            link: '/',
+          });
+        }
+      } catch (notifyError) {
+        console.error('Failed to notify administrators of erasure request:', notifyError);
+      }
+
+      res.json({
+        requestId: created.id,
+        status: created.status,
+        assessment,
+        note:
+          'Your request has been recorded and will be reviewed. The assessment above ' +
+          'shows what can be erased now and what must be retained, with the reason.',
+      });
+    } catch (error) {
+      console.error('Erasure request error:', error);
+      res.status(500).json({ error: 'Failed to record erasure request' });
+    }
+  });
+
+  /** Outstanding erasure requests, for an administrator. */
+  app.get("/api/admin/erasure-requests", auditLog('READ_ERASURE_REQUESTS'), requireAuth, requireAdmin, async (_req, res) => {
+    try {
+      const rows = await (db as any)
+        .select()
+        .from(erasureRequests)
+        .orderBy(erasureRequests.requestedAt);
+      res.json(rows);
+    } catch (error) {
+      console.error('Failed to list erasure requests:', error);
+      res.status(500).json({ error: 'Failed to list erasure requests' });
+    }
+  });
+
+  /**
+   * Carries out an erasure request, to the extent the law permits.
+   *
+   * Re-assesses at execution rather than trusting the assessment shown at
+   * request time: a scan added since would extend the clinical retention hold,
+   * and acting on a stale adjudication would erase something now protected.
+   */
+  app.post("/api/admin/erasure-requests/:id/execute", auditLog('ERASURE_EXECUTED'), requireAuth, requireAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const requestId = parseInt(req.params.id, 10);
+      if (!Number.isInteger(requestId)) {
+        return res.status(400).json({ error: 'Invalid request id' });
+      }
+
+      const [request] = await (db as any)
+        .select()
+        .from(erasureRequests)
+        .where(eq(erasureRequests.id, requestId))
+        .limit(1);
+
+      if (!request) return res.status(404).json({ error: 'No such erasure request' });
+      if (request.status !== 'pending') {
+        return res.status(409).json({ error: `This request is already ${request.status}.` });
+      }
+
+      const { executeErasure } = await import('./erasure');
+      const outcome = await executeErasure(request.patientId);
+
+      const anythingRetained = outcome.categories.some((c) => c.disposition === 'retained');
+      const anythingErased = outcome.categories.some((c) => c.disposition === 'erased');
+      const status = anythingErased
+        ? anythingRetained
+          ? 'partially_completed'
+          : 'completed'
+        : 'refused';
+
+      await (db as any)
+        .update(erasureRequests)
+        .set({
+          status,
+          reviewedBy: req.session!.user!.id,
+          reviewedAt: new Date(),
+          outcome: JSON.stringify(outcome),
+        })
+        .where(eq(erasureRequests.id, requestId));
+
+      const { recordAuditEvent } = await import('./security-middleware');
+      await recordAuditEvent({
+        action: 'ERASURE_COMPLETED',
+        actorUserId: req.session!.user!.id,
+        actorUsername: req.session!.user!.username,
+        actorRole: req.session!.user!.role,
+        method: 'POST',
+        path: `/api/admin/erasure-requests/${requestId}/execute`,
+        statusCode: 200,
+        // Categories and dispositions, never the erased values themselves.
+        detail: `request ${requestId} -> ${status}: ` +
+          outcome.categories.map((c) => `${c.category}=${c.disposition}`).join('; '),
+      });
+
+      res.json({ status, outcome });
+    } catch (error) {
+      console.error('Erasure execution error:', error);
+      res.status(500).json({ error: 'Failed to execute erasure' });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Emergency access to a patient outside a recorded care relationship
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Break-glass: assert an urgent clinical need, in writing, and be recorded.
+   *
+   * The alternative to having this is not tighter security. It is a clinician in
+   * an emergency finding a way around the control — a shared login, a
+   * colleague's open session, the record read under someone else's name — which
+   * leaves the access unattributed and the patient no better protected. An
+   * override that is easy to invoke and impossible to invoke quietly is safer
+   * than one that is hard to invoke.
+   *
+   * Time-boxed. A grant that never lapsed would be a permanent bypass acquired
+   * by typing one sentence.
+   */
+  app.post("/api/clinical/break-glass", auditLog('BREAK_GLASS_REQUEST'), requireAuth, requireMedicalAccess, async (req: AuthenticatedRequest, res) => {
+    try {
+      const clinicianId = req.session!.user!.id;
+      const { patientId, justification } = req.body ?? {};
+
+      const targetId = parseInt(String(patientId), 10);
+      if (!Number.isInteger(targetId)) {
+        return res.status(400).json({ error: 'A patient id is required.' });
+      }
+
+      const reason = String(justification ?? '').trim();
+      // A length floor, not a judgement of the reason. Whether a stated reason is
+      // good enough is a governance decision made by a person reading the audit
+      // trail; a regular expression should not be attempting it during an
+      // emergency. The floor exists so that "." does not satisfy the field.
+      if (reason.length < 20) {
+        return res.status(400).json({
+          error:
+            'Describe why this access is clinically necessary — at least a sentence. ' +
+            'It is recorded against your name and reviewed.',
+        });
+      }
+
+      const patient = await storage.getUser(targetId);
+      if (!patient || patient.role !== 'patient') {
+        return res.status(404).json({ error: 'No such patient.' });
+      }
+
+      const { openBreakGlass } = await import('./care-relationship');
+      const { expiresAt } = await openBreakGlass(clinicianId, targetId, reason);
+
+      const { recordAuditEvent } = await import('./security-middleware');
+      await recordAuditEvent({
+        action: 'BREAK_GLASS_OPENED',
+        actorUserId: clinicianId,
+        actorUsername: req.session!.user!.username,
+        actorRole: req.session!.user!.role,
+        method: 'POST',
+        path: '/api/clinical/break-glass',
+        statusCode: 200,
+        // The patient is referenced by id and the reason is the clinician's own
+        // words about their own action. Neither is a disclosure of the patient's
+        // information into the audit log.
+        detail: `emergency access to patient ${targetId} until ${expiresAt.toISOString()}: ${reason.slice(0, 300)}`,
+      });
+
+      // Administrators are told while it is open, not at the next review.
+      try {
+        const admins = await storage.listDirectory(['admin']);
+        for (const admin of admins) {
+          await storage.createNotification({
+            recipientId: admin.id,
+            actorId: clinicianId,
+            type: 'report',
+            title: 'Emergency patient access used',
+            body: `${req.session!.user!.fullName ?? 'A clinician'} opened emergency access to a patient record. Reason: ${reason.slice(0, 200)}`,
+            link: '/',
+          });
+        }
+      } catch (notifyError) {
+        // Never fail the access on a notification problem: the audit row is the
+        // durable record and it is already written.
+        console.error('Failed to notify administrators of break-glass:', notifyError);
+      }
+
+      res.json({
+        granted: true,
+        expiresAt: expiresAt.toISOString(),
+        note: 'This access is time-limited, recorded against your name, and reviewed by an administrator.',
+      });
+    } catch (error) {
+      console.error('Break-glass error:', error);
+      res.status(500).json({ error: 'Failed to open emergency access' });
+    }
+  });
+
+  /** Open emergency grants, for an administrator's review. */
+  app.get("/api/admin/break-glass/active", auditLog('READ_BREAK_GLASS'), requireAuth, requireAdmin, async (_req, res) => {
+    try {
+      const { listActiveBreakGlass } = await import('./care-relationship');
+      res.json(await listActiveBreakGlass());
+    } catch (error) {
+      console.error('Failed to list break-glass grants:', error);
+      res.status(500).json({ error: 'Failed to list emergency access grants' });
     }
   });
 
@@ -2305,7 +2580,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Patient dashboard API endpoints
   // Unified, authenticated patient profile route with comprehensive response shape
-  app.get("/api/patient/profile/:id", auditLog('READ_PATIENT_PROFILE'), requireAuth, requirePatientDataAccess, async (req, res) => {
+  app.get("/api/patient/profile/:id", auditLog('READ_PATIENT_PROFILE'), requireAuth, requirePatientDataAccess, requireCareRelationship((req) => parseInt(req.params.id, 10)), async (req, res) => {
     try {
       const patientId = parseInt(req.params.id);
       if (isNaN(patientId)) {
@@ -2352,7 +2627,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // `:id` here is a *patient* id, not an appointment id, so the caller was able
   // to read any patient's appointment list by changing the number.
-  app.get("/api/patient/appointments/:id", auditLog('READ_PATIENT_APPOINTMENTS'), requireAuth, requirePatientDataAccess, async (req, res) => {
+  app.get("/api/patient/appointments/:id", auditLog('READ_PATIENT_APPOINTMENTS'), requireAuth, requirePatientDataAccess, requireCareRelationship((req) => parseInt(req.params.id, 10)), async (req, res) => {
     try {
       const patientId = parseInt(req.params.id);
       if (isNaN(patientId)) {
@@ -3169,7 +3444,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
    * read one. Patients may see their own; clinical staff may see any, which is
    * what reviewing requires. Every read is audited.
    */
-  app.get("/api/scans/:id/image", auditLog('READ_SCAN_IMAGE'), requireAuth, async (req: AuthenticatedRequest, res) => {
+  app.get(
+    "/api/scans/:id/image",
+    auditLog('READ_SCAN_IMAGE'),
+    requireAuth,
+    // The patient is the scan's owner, not a path parameter, so the resolver
+    // reads the row. A scan id that does not resolve yields null and the handler
+    // answers 404, which is a clearer response than a 403 implying the scan
+    // exists and is merely out of reach.
+    requireCareRelationship(async (req) => {
+      const scanId = parseInt(req.params.id, 10);
+      if (!Number.isInteger(scanId)) return null;
+      const scan = await storage.getScanById(scanId);
+      return scan?.patientId ?? null;
+    }),
+    async (req: AuthenticatedRequest, res) => {
     try {
       const scanId = parseInt(req.params.id, 10);
       if (!Number.isInteger(scanId)) {

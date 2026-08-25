@@ -195,6 +195,55 @@ export const validateInput = (req: Request, res: Response, next: NextFunction) =
  * audit row is bad; refusing clinical work because the audit table is briefly
  * unreachable is worse.
  */
+/**
+ * Writes one audit row directly, outside the request/response cycle.
+ *
+ * `auditLog` covers the common case — an action defined by the route, recorded
+ * when the response finishes. Some decisions need recording at the moment they
+ * are made rather than when the response lands, and need to carry a `detail`
+ * the route name cannot express: which patient an access check refused, and on
+ * what basis. This is for those.
+ *
+ * Same failure posture as auditLog: a lost audit row is bad, and refusing
+ * clinical work because the audit table is briefly unreachable is worse.
+ *
+ * `detail` must stay non-identifying. An audit log that contains the personal
+ * information it is auditing has multiplied the exposure rather than controlled
+ * it — a patient id is a reference, a patient name is a disclosure.
+ */
+export async function recordAuditEvent(event: {
+  action: string;
+  actorUserId?: number | null;
+  actorUsername?: string | null;
+  actorRole?: string | null;
+  method?: string | null;
+  path?: string | null;
+  statusCode?: number | null;
+  ipAddress?: string | null;
+  detail?: string | null;
+}): Promise<void> {
+  try {
+    const { getDb } = await import('./db');
+    const { auditEvents } = await import('@shared/schema');
+    const db = getDb() as any;
+    if (!db) return;
+
+    await db.insert(auditEvents).values({
+      action: event.action,
+      actorUserId: event.actorUserId ?? null,
+      actorUsername: event.actorUsername ?? null,
+      actorRole: event.actorRole ?? null,
+      method: event.method ?? null,
+      path: event.path ?? null,
+      statusCode: event.statusCode ?? null,
+      ipAddress: event.ipAddress ?? null,
+      detail: event.detail ?? null,
+    });
+  } catch (error) {
+    console.error(`[AUDIT] FAILED TO PERSIST "${event.action}":`, error);
+  }
+}
+
 export const auditLog = (action: string) => {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     const actorUserId = req.session?.user?.id ?? null;

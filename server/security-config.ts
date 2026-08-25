@@ -204,6 +204,103 @@ export const requireMedicalAccess = (req: AuthenticatedRequest, res: express.Res
   next();
 };
 
+/**
+ * Gates a patient-scoped route on an actual care relationship.
+ *
+ * `resolvePatientId` is passed in because the patient is identified differently
+ * on different routes: a path parameter on /api/patient/profile/:id, the owner
+ * of a scan on /api/scans/:id/image. Resolving it inside each route handler and
+ * checking there would put the decision in twenty places; passing a resolver
+ * keeps it in one.
+ *
+ * Returns 403 with code NO_CARE_RELATIONSHIP and the break-glass path, so a
+ * clinician who genuinely needs the record is told how to get it rather than
+ * being left to find a way around the control.
+ *
+ * In shadow mode (the default) the denial is recorded and the request proceeds.
+ * See server/care-relationship.ts for why that is the right default for a
+ * rollout and the wrong one to leave in place indefinitely.
+ */
+export const requireCareRelationship = (
+  resolvePatientId: (req: AuthenticatedRequest) => Promise<number | null> | number | null
+) => {
+  return async (
+    req: AuthenticatedRequest,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    const actorId = req.session?.user?.id;
+    const actorRole = req.session?.user?.role;
+    if (!actorId || !actorRole) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    let patientId: number | null = null;
+    try {
+      patientId = await resolvePatientId(req);
+    } catch {
+      patientId = null;
+    }
+
+    // Nothing to gate on. Let the handler answer — it will 404 on an id that
+    // does not resolve, which is a clearer response than a 403 implying the
+    // record exists and is merely out of reach.
+    if (patientId === null || Number.isNaN(patientId)) return next();
+
+    try {
+      const { evaluateAccess, careRelationshipEnforced } = await import('./care-relationship');
+      const decision = await evaluateAccess(actorId, actorRole, patientId);
+
+      if (decision.allowed) {
+        // Recorded on the request so the audit middleware can name the basis.
+        // "allowed" tells an access review nothing; "allowed, break_glass" tells
+        // it where to look.
+        (req as any).accessBasis = decision.basis;
+        return next();
+      }
+
+      const { recordAuditEvent } = await import('./security-middleware');
+      if (!careRelationshipEnforced()) {
+        await recordAuditEvent({
+          action: 'CARE_RELATIONSHIP_WOULD_BLOCK',
+          actorUserId: actorId,
+          actorRole,
+          method: req.method,
+          path: req.path,
+          statusCode: 200,
+          detail: `shadow mode: no care relationship with patient ${patientId}`,
+        });
+        (req as any).accessBasis = 'none';
+        return next();
+      }
+
+      await recordAuditEvent({
+        action: 'CARE_RELATIONSHIP_BLOCKED',
+        actorUserId: actorId,
+        actorRole,
+        method: req.method,
+        path: req.path,
+        statusCode: 403,
+        detail: `no care relationship with patient ${patientId}`,
+      });
+
+      return res.status(403).json({
+        error:
+          'You do not have a recorded care relationship with this patient. If this ' +
+          'is clinically urgent, request emergency access.',
+        code: 'NO_CARE_RELATIONSHIP',
+        breakGlass: '/api/clinical/break-glass',
+      });
+    } catch (error) {
+      // The lookup needs the database, and so does every handler behind this.
+      // A 500 from the handler is a clearer signal than a 403 asserting an
+      // access problem that may not exist.
+      console.error('Care relationship check failed; passing through:', error);
+      return next();
+    }
+  };
+};
+
 // Patient data access - ensure users can only access their own data
 export const requirePatientDataAccess = (req: AuthenticatedRequest, res: express.Response, next: express.NextFunction) => {
   const userId = req.session?.user?.id || req.session?.userId;
