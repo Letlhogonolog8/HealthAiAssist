@@ -17,4 +17,26 @@ if (translationRuntimeNeeded()) {
   void import("./i18n");
 }
 
+/**
+ * Offline support, started before the first render.
+ *
+ * Two separate mechanisms, and they are separate on purpose:
+ *
+ *   - The service worker serves the app shell with no network, so the interface
+ *     loads at all. Registered lazily so it never delays first paint.
+ *   - The reconnect flush drains scans captured while offline. It listens on
+ *     `window`, not inside a component, because it has to keep working on a
+ *     route with no queue UI mounted — a scan queued on the upload screen must
+ *     still upload if the clinician has since navigated to their worklist.
+ */
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  void import("virtual:pwa-register").then(({ registerSW }) => {
+    registerSW({ immediate: true });
+  });
+}
+
+void import("./lib/scan-queue").then(({ installQueueFlushOnReconnect }) => {
+  installQueueFlushOnReconnect();
+});
+
 createRoot(document.getElementById("root")!).render(<App />);

@@ -28,6 +28,7 @@ import {
 import { ThemeToggle } from "@/components/theme-toggle";
 import AIScanSimulator from "./ai-scan-simulator-fixed";
 import SecuritySettingsDialog from "./security-settings-dialog";
+import OfflineScanQueue from "./offline-scan-queue";
 import ModelPerformancePanel from "./model-performance-panel";
 const GoogleAIScanner = lazy(() => import("./google-ai-scanner"));
 const PatientPortalFinal = lazy(() => import("./patient-portal-final"));
@@ -711,6 +712,12 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
               
               {config.tabs.includes("scan") && (
                 <TabsContent value="scan">
+                  {/* Shown only when something is queued or the connection is
+                      down. Placed above the uploader so a clinician sees what is
+                      still waiting before capturing more. */}
+                  <div className="mb-4">
+                    <OfflineScanQueue />
+                  </div>
                   <Card className="bg-slate-800 border-slate-600">
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2 text-white">

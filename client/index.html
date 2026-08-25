@@ -15,8 +15,11 @@
     <meta property="og:title" content="MedAI - Comprehensive Cancer Detection Platform" />
     <meta property="og:description" content="Advanced AI-powered cancer detection platform with 97% accuracy rate and 30% earlier detection capabilities." />
     <meta property="og:type" content="website" />
-    <link rel="manifest" href="/manifest.json" />
-    <link rel="apple-touch-icon" href="/icon-192x192.png" />
+    <!-- The manifest link is injected by vite-plugin-pwa. This used to point at
+         a hand-written /manifest.json whose "icons" array was empty, which makes
+         a PWA silently non-installable, and at /icon-192x192.png, which has
+         never existed in this repository. -->
+    <link rel="apple-touch-icon" href="/icon-192.png" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   </head>
   <body>

@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { submitScan, describeRejection } from '@/lib/submit-scan';
 import { 
   Upload, 
   Eye, 
@@ -126,42 +127,49 @@ export default function MultiCancerDetectionSystem() {
   const [analysisProgress, setAnalysisProgress] = useState(0);
 
   const cancerAnalysisMutation = useMutation({
+    /**
+     * Submission goes through submitScan, which decides between uploading now
+     * and holding the scan on the device.
+     *
+     * The refusal handling that used to live here — distinguishing 422 from 503,
+     * and surfacing the server's wording rather than a generic failure — moved
+     * into describeRejection() so that all six upload surfaces say the same
+     * thing. The 503 wording matters most and is the easiest to get wrong: it is
+     * not a negative result.
+     */
     mutationFn: async (data: { file: File; cancerType: string }) => {
-      const formData = new FormData();
-      formData.append('image', data.file);
-      formData.append('scanType', data.cancerType);
-      
-      const response = await fetch('/api/scan/upload', {
-        method: 'POST',
-        body: formData
+      const outcome = await submitScan({
+        image: data.file,
+        fileName: data.file.name,
+        scanType: data.cancerType,
       });
 
-      const payload = await response.json().catch(() => null);
+      if (outcome.kind === 'queued') return outcome;
 
-      // 422 means the image itself was refused — wrong subject, blank, blurred.
-      // Distinct from 503: retrying the same file will fail the same way.
-      if (response.status === 422) {
-        const reasons = Array.isArray(payload?.reasons) ? payload.reasons.join(' ') : '';
-        throw new Error(`${payload?.message ?? 'Image rejected.'} ${reasons}`.trim());
+      if (outcome.kind === 'rejected') {
+        const { title, description } = describeRejection(outcome.status, outcome.body);
+        throw new Error(`${title}. ${description}`);
       }
 
-      // 503 means no validated model could analyse the scan. It is emphatically
-      // not a negative result, and the message says so — surface the server's
-      // wording rather than a generic failure.
-      if (response.status === 503) {
-        throw new Error(
-          payload?.message ||
-          'No validated model could analyse this scan. This is not a negative result.'
-        );
-      }
-
-      if (!response.ok) {
-        throw new Error(payload?.error || 'Cancer analysis failed');
-      }
-
-      return payload;
+      return outcome;
     },
-    onSuccess: (data) => {
+    onSuccess: (outcome: any) => {
+      // Held on the device. Nothing has been analysed, and the UI must not
+      // imply otherwise — no result panel, no progress completion, no
+      // confidence figure.
+      if (outcome.kind === 'queued') {
+        setIsAnalyzing(false);
+        setAnalysisProgress(0);
+        setAnalysisResult(null);
+        toast({
+          title: 'Saved on this device',
+          description:
+            'You are offline, so nothing has been analysed yet. This scan will upload automatically when you have a connection.',
+        });
+        return;
+      }
+
+      const data = outcome.body;
       const result = toViewModel(data.analysis, selectedCancerType);
       setAnalysisResult(result);
       setIsAnalyzing(false);
