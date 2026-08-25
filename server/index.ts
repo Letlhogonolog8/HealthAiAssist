@@ -13,6 +13,7 @@ import { setupVite, serveStatic, log } from "./vite";
 
 import { applySecurityMiddleware, applyRateLimiting } from "./security-config";
 import { setupMonitoring } from "./monitoring";
+import { registerMetrics } from "./metrics";
 import { createCompressionMiddleware, ResponseOptimizer, PerformanceMonitor } from "./performance-optimizer";
 import { trackApiUsage } from "./analytics-engine";
 import { requestLogger, installProcessHandlers } from "./request-log";
@@ -26,6 +27,10 @@ applySecurityMiddleware(app);
 
 // Setup monitoring middleware and routes
 setupMonitoring(app);
+
+// Operational metrics. Ahead of the session middleware because a scraper does
+// not carry a cookie and should not be issued a session row for each scrape.
+registerMetrics(app);
 
 // Performance middleware, ahead of every router.
 //

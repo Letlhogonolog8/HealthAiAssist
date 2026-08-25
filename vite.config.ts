@@ -144,6 +144,21 @@ export default defineConfig({
         manualChunks: {
           react: ['react', 'react-dom'],
           query: ['@tanstack/react-query'],
+          /**
+           * recharts is deliberately NOT listed here.
+           *
+           * Adding `charts: ['recharts']` was tried and reverted. It did shrink
+           * the admin dashboard chunk from 550 kB to 144 kB — and produced a
+           * 696 kB `charts` chunk beside it, because a manual chunk pulls the
+           * whole package in where the tree-shaken subset had been 550 kB. The
+           * administrator's download went from 550 kB to 840 kB, so the change
+           * that looked like a code-splitting win was a 53% regression.
+           *
+           * Same lesson as the `vendor` chunk described above. Rollup places a
+           * dependency in the async chunk that imports it and shakes out what is
+           * unused; naming a chunk overrides both. Measure the total, not the
+           * chunk you were looking at.
+           */
         }
       }
     },

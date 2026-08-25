@@ -260,7 +260,10 @@ export const requireCareRelationship = (
       }
 
       const { recordAuditEvent } = await import('./security-middleware');
+      const { careRelationshipDenials } = await import('./metrics');
+
       if (!careRelationshipEnforced()) {
+        careRelationshipDenials.inc({ mode: 'shadow' });
         await recordAuditEvent({
           action: 'CARE_RELATIONSHIP_WOULD_BLOCK',
           actorUserId: actorId,
@@ -274,6 +277,7 @@ export const requireCareRelationship = (
         return next();
       }
 
+      careRelationshipDenials.inc({ mode: 'enforced' });
       await recordAuditEvent({
         action: 'CARE_RELATIONSHIP_BLOCKED',
         actorUserId: actorId,

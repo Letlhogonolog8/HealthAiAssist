@@ -4,6 +4,8 @@ import { storage } from "./storage";
 import { insertUserSchema, insertScanSchema, insertTermSchema, erasureRequests } from "@shared/schema";
 import { and, eq } from "drizzle-orm";
 import { db } from "./db";
+import { verifyUpload } from "./upload-validation";
+import { scanOutcomes, inferenceDuration, oodRejections, breakGlassUses, careRelationshipDenials } from "./metrics";
 import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
@@ -158,6 +160,13 @@ async function persistScanImage(
     console.error('Failed to store scan image; the result is kept without it:', error);
     return null;
   }
+}
+
+/** Parses an optional numeric questionnaire field, tolerating '' and null. */
+function numberOrUndefined(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 async function performRealTimeAnalysis(imageBuffer: Buffer, scanType: string, patientData?: any): Promise<AnalysisResult> {
@@ -953,6 +962,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // durable record and it is already written.
         console.error('Failed to notify administrators of break-glass:', notifyError);
       }
+
+      breakGlassUses.inc();
 
       res.json({
         granted: true,
@@ -3291,6 +3302,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { scanType } = req.body;
       const imageBuffer = file.buffer;
 
+      // What the bytes are, not what the Content-Type claimed. multer's filter
+      // trusts a client-supplied header, and that header now has to permit
+      // application/octet-stream so DICOM can arrive at all — which means the
+      // header permits nearly anything and cannot be the control.
+      const verdict = await verifyUpload(imageBuffer);
+      if (!verdict.ok) {
+        scanOutcomes.inc({ modality: String(scanType ?? 'unknown'), outcome: 'rejected_upload' });
+        return res.status(415).json({
+          error: verdict.reason ?? 'Unsupported file type.',
+          detected: verdict.detected,
+        });
+      }
+
       const sessionUserId = req.session!.user!.id;
       const sessionRole = req.session!.user!.role;
       const isStaff = ['admin', 'doctor', 'radiologist'].includes(sessionRole);
@@ -3313,7 +3337,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       console.log(`Performing real-time analysis for ${scanType} scan...`);
+      const analysisStartedAt = Date.now();
       const analysisResult = await performRealTimeAnalysis(imageBuffer, scanType);
+      inferenceDuration.observe(
+        { modality: String(scanType ?? 'unknown') },
+        (Date.now() - analysisStartedAt) / 1000
+      );
+      scanOutcomes.inc({ modality: String(scanType ?? 'unknown'), outcome: 'analysed' });
 
       const imagePath = await persistScanImage(imageBuffer, file, patientId, scanType);
 
@@ -3424,9 +3454,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     } catch (error) {
       if (error instanceof InputRejectedError) {
+        // Counted separately from other refusals: a rising OOD rate is the
+        // earliest signal that the deployed input distribution has moved away
+        // from the one the published figures describe.
+        oodRejections.inc({ modality: error.scanType });
+        scanOutcomes.inc({ modality: error.scanType, outcome: 'rejected_input' });
         return respondInputRejected(error, res);
       }
       if (error instanceof ModelUnavailableError) {
+        scanOutcomes.inc({ modality: error.scanType, outcome: 'refused_no_model' });
         return respondModelUnavailable(error, req, res);
       }
       console.error("Error processing image analysis:", error);
@@ -4908,116 +4944,130 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Patient cancer risk questionnaire endpoint
-  app.post("/api/patient/questionnaire", requireAuth, async (req, res) => {
+  /**
+   * Screening eligibility, not a risk score.
+   *
+   * This endpoint used to compute a cancer risk level. An additive tally over
+   * self-reported answers with hand-picked weights — age >=50 adds 3, current
+   * smoker adds 3, poor diet adds 2 — bucketed into low / moderate / high, and
+   * used to set appointment urgency.
+   *
+   * It was labelled honestly in the code and in the response, and it was still a
+   * cancer risk level shown to a patient, produced by a formula nobody had
+   * fitted to or evaluated against any outcome. Two people with the same score
+   * had no established relationship to each other's actual risk. Honest
+   * labelling is the right interim step and it is not a substitute for not doing
+   * it.
+   *
+   * What replaces it is a published, citable rule about who benefits from
+   * screening — USPSTF 2021 and the NLST enrolment criteria. Applying a
+   * threshold correctly is checkable. Estimating a probability is not, unless
+   * you hold the data to check it against, and this platform does not.
+   *
+   * It is also the more actionable question. Someone who meets USPSTF criteria
+   * has a concrete next step; someone told they are "moderate risk" has nothing.
+   *
+   * The lifestyle answers are still collected and still returned, as factors to
+   * discuss with a clinician. They carry no score and no urgency.
+   */
+  app.post("/api/patient/questionnaire", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
-      const { responses, patientId } = req.body;
+      const { responses } = req.body ?? {};
+      // From the session. The previous handler took patientId from the body and
+      // required it, which on an authenticated endpoint is both redundant and a
+      // way to attribute a questionnaire to someone else.
+      const patientId = req.session!.user!.id;
 
-      if (!responses || !patientId) {
-        return res.status(400).json({ error: "Missing questionnaire responses or patient ID" });
+      if (!responses || typeof responses !== 'object') {
+        return res.status(400).json({ error: "Missing questionnaire responses" });
       }
 
-      /*
-       * An additive tally over self-reported answers.
-       *
-       * It is labelled honestly in the response below and is NOT a validated
-       * risk model. It is not Gail, Tyrer-Cuzick, PLCOm2012 or any other
-       * instrument with published discrimination and calibration; the weights
-       * below were chosen by hand and have never been fitted to or evaluated
-       * against outcome data. Two people with the same score have no established
-       * relationship to each other's actual risk.
-       *
-       * The comment here previously read "Simple mock risk assessment logic",
-       * while the response called the output a `riskAssessment` with a `level` of
-       * low/moderate/high and drove an appointment urgency from it. Whatever the
-       * source called it, the patient was shown a cancer risk level. The
-       * calculation is unchanged; what it claims about itself is not.
-       */
-      let riskScore = 0;
+      const { assessScreeningEligibility, plcoAvailable } = await import('./screening-eligibility');
 
-      // Age factor
-      if (responses.age >= 50) riskScore += 3;
-      else if (responses.age >= 40) riskScore += 2;
-      else if (responses.age >= 30) riskScore += 1;
-
-      // Family history
-      if (responses.familyHistory === 'yes') riskScore += 3;
-      else if (responses.familyHistory === 'unknown') riskScore += 1;
-
-      // Smoking
-      if (responses.smoking === 'current') riskScore += 3;
-      else if (responses.smoking === 'former') riskScore += 2;
-
-      // Symptoms count
-      if (responses.symptoms && Array.isArray(responses.symptoms)) {
-        riskScore += Math.min(responses.symptoms.length, 3);
+      const age = Number.parseInt(String(responses.age ?? ''), 10);
+      if (!Number.isFinite(age) || age < 0 || age > 120) {
+        return res.status(400).json({ error: "A valid age is required" });
       }
 
-      // Exercise factor
-      if (responses.exercise === 'rarely') riskScore += 2;
-      else if (responses.exercise === 'occasionally') riskScore += 1;
+      const rawStatus = String(responses.smoking ?? 'never').toLowerCase();
+      const status: 'never' | 'former' | 'current' =
+        rawStatus === 'current' ? 'current' : rawStatus === 'former' ? 'former' : 'never';
 
-      // Diet factor
-      if (responses.diet === 'poor') riskScore += 2;
-      else if (responses.diet === 'fair') riskScore += 1;
-
-      // Alcohol consumption
-      if (responses.alcohol === 'heavy') riskScore += 2;
-      else if (responses.alcohol === 'moderate') riskScore += 1;
-
-      // Medical history count
-      if (responses.medicalHistory && Array.isArray(responses.medicalHistory)) {
-        riskScore += Math.min(responses.medicalHistory.length, 3);
-      }
-
-      // Determine risk level
-      let riskLevel = 'low';
-      if (riskScore >= 10) riskLevel = 'high';
-      else if (riskScore >= 5) riskLevel = 'moderate';
-
-      const recommendations: string[] = [];
-      if (riskLevel === 'high') {
-        recommendations.push("Consult a specialist immediately.");
-        recommendations.push("Schedule regular screenings.");
-      } else if (riskLevel === 'moderate') {
-        recommendations.push("Maintain a healthy lifestyle.");
-        recommendations.push("Consider periodic checkups.");
-      } else {
-        recommendations.push("Continue regular health monitoring.");
-      }
-
-      const appointmentSuggestion = {
-        recommended: riskLevel !== 'low',
-        urgency: riskLevel === 'high' ? 'urgent' : 'routine',
-        message: riskLevel === 'high' ? 
-          "Based on your responses, an urgent appointment is recommended." : 
-          "A routine appointment is suggested for further evaluation.",
-        specialization: "Oncology"
-      };
-
-      // The maximum reachable score, so a bare number has a scale attached.
-      const MAX_SCORE = 18;
-
-      res.json({
-        riskAssessment: {
-          score: riskScore,
-          maxScore: MAX_SCORE,
-          level: riskLevel,
-          recommendations,
-
-          // Travels with the result so no consumer can present it as a clinical
-          // risk estimate by accident.
-          method: 'unvalidated_additive_questionnaire',
-          validated: false,
-          disclaimer:
-            'This is a simple tally of self-reported answers, not a validated ' +
-            'cancer risk model. It has not been fitted to or evaluated against ' +
-            'outcome data, and it does not estimate your probability of having ' +
-            'or developing cancer. Discuss screening with a clinician.',
-        },
-        appointmentSuggestion
+      const eligibility = assessScreeningEligibility({
+        age,
+        status,
+        cigarettesPerDay: numberOrUndefined(responses.cigarettesPerDay),
+        yearsSmoked: numberOrUndefined(responses.yearsSmoked),
+        yearsSinceQuit: numberOrUndefined(responses.yearsSinceQuit),
       });
 
+      /**
+       * Lifestyle answers, returned as themselves.
+       *
+       * Not summed, not weighted, not ranked. Each is a recognised risk factor
+       * in the epidemiological literature and none of them supports an
+       * individual risk estimate from a questionnaire, so they are listed for a
+       * conversation rather than scored into a verdict.
+       */
+      const factors: string[] = [];
+      if (responses.familyHistory === 'yes') {
+        factors.push('Family history of cancer — worth telling your clinician which relative and which cancer.');
+      }
+      if (status === 'current') {
+        factors.push('You currently smoke. Stopping reduces risk at any age, and support is available.');
+      } else if (status === 'former') {
+        factors.push('You have stopped smoking. Risk falls with time since quitting.');
+      }
+      if (responses.alcohol === 'heavy') {
+        factors.push('Heavy alcohol use is associated with several cancers.');
+      }
+      if (responses.exercise === 'rarely') {
+        factors.push('Low physical activity is associated with higher risk of some cancers.');
+      }
+      if (Array.isArray(responses.symptoms) && responses.symptoms.length > 0) {
+        factors.push(
+          'You reported symptoms. Symptoms are assessed by a clinician, not by a ' +
+          'questionnaire, and persistent ones should be seen promptly.'
+        );
+      }
+
+      /**
+       * An appointment is offered when a published criterion is met, or when
+       * symptoms were reported.
+       *
+       * Urgency was previously derived from the invented score. It is now
+       * derived from a citable rule or from the presence of symptoms, and where
+       * neither applies no urgency is asserted at all rather than a reassuring
+       * "routine" being manufactured.
+       */
+      const reportedSymptoms =
+        Array.isArray(responses.symptoms) && responses.symptoms.length > 0;
+
+      const appointmentSuggestion = {
+        recommended: eligibility.eligibleForScreening || reportedSymptoms,
+        reason: eligibility.eligibleForScreening
+          ? 'You meet published criteria for lung cancer screening.'
+          : reportedSymptoms
+            ? 'You reported symptoms that a clinician should assess.'
+            : null,
+      };
+
+      res.json({
+        screening: eligibility,
+        factorsToDiscuss: factors,
+        appointmentSuggestion,
+
+        // Travels with the result so no consumer can render it as a risk
+        // estimate by accident.
+        method: 'published_screening_criteria',
+        riskEstimate: null,
+        riskEstimateNote: plcoAvailable()
+          ? undefined
+          : 'This platform does not estimate your probability of having or developing ' +
+            'cancer. A validated risk model (PLCOm2012) is scaffolded but its ' +
+            'coefficients have not been verified against the publication, so it is ' +
+            'disabled. See server/screening-eligibility.ts.',
+      });
     } catch (error) {
       console.error("Error processing questionnaire:", error);
       res.status(500).json({ error: "Failed to process questionnaire" });

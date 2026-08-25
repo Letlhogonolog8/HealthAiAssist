@@ -65,7 +65,9 @@ export default function CancerRiskQuestionnaire({ user, onAppointmentRecommended
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           responses: data,
-          patientId: user?.id
+          // patientId is no longer sent. The endpoint is authenticated and takes
+          // the patient from the session; accepting it from the body let a
+          // questionnaire be attributed to someone else.
         })
       });
       
@@ -88,7 +90,9 @@ export default function CancerRiskQuestionnaire({ user, onAppointmentRecommended
       // in the payload; the wording here matches.
       toast({
         title: "Questionnaire complete",
-        description: `Screening questionnaire scored: ${data.riskAssessment.level}. ${data.appointmentSuggestion?.recommended ? 'Speaking to a clinician is suggested.' : 'Continue with regular checkups.'}`,
+        description: data.screening?.eligibleForScreening
+          ? 'You meet published criteria for lung cancer screening. Speaking to a clinician is suggested.'
+          : 'You do not currently meet published screening criteria. See the detail for what that does and does not mean.',
       });
     },
     onError: (error: any) => {
@@ -143,23 +147,10 @@ export default function CancerRiskQuestionnaire({ user, onAppointmentRecommended
     }
   };
 
-  const getRiskColor = (level: string) => {
-    switch (level) {
-      case 'low': return 'text-green-900 bg-green-200 border-green-600';
-      case 'moderate': return 'text-yellow-900 bg-yellow-200 border-yellow-600';
-      case 'high': return 'text-red-900 bg-red-300 border-red-700';
-      default: return 'text-foreground bg-slate-100 dark:bg-slate-700 border-gray-400';
-    }
-  };
-
-  const getRiskIcon = (level: string) => {
-    switch (level) {
-      case 'low': return <CheckCircle className="w-5 h-5 text-green-700" />;
-      case 'moderate': return <AlertCircle className="w-5 h-5 text-yellow-700" />;
-      case 'high': return <AlertTriangle className="w-5 h-5 text-red-700" />;
-      default: return <AlertCircle className="w-5 h-5 text-foreground" />;
-    }
-  };
+  // getRiskColor and getRiskIcon are gone with the risk level they coloured.
+  // Traffic-lighting an unvalidated tally is what made it read as a clinical
+  // finding: a red badge saying HIGH is a verdict whatever the caption under it
+  // says.
 
   return (
     <Card className="w-full max-w-2xl mx-auto">
@@ -470,62 +461,102 @@ export default function CancerRiskQuestionnaire({ user, onAppointmentRecommended
         <DialogContent aria-describedby={undefined} className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              {results && getRiskIcon(results.riskAssessment.level)}
-              Screening Questionnaire Result
+              <AlertCircle className="w-5 h-5 text-slate-500" />
+              Screening criteria result
             </DialogTitle>
           </DialogHeader>
           
           {results && (
             <div className="space-y-6">
-              {/* The disclaimer sits above the score, not in a footnote. A
-                  patient reading "HIGH" needs to know in the same glance that
-                  this is not a validated risk model. */}
-              <Alert className="border-2 border-amber-400 bg-amber-50 text-amber-900">
+              {/* No score, no band, no risk level.
+                  This dialog used to open with a coloured HIGH / MODERATE / LOW
+                  badge and "Score: 11/18", produced by an additive tally with
+                  hand-picked weights that had never been fitted to any outcome.
+                  It now reports whether published criteria are met, and cites
+                  them. */}
+              <Alert className="border-2 border-slate-300 bg-slate-50 text-slate-900">
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription className="text-sm">
-                  {results.riskAssessment.disclaimer ??
-                    'This is a tally of self-reported answers, not a validated cancer ' +
-                      'risk model. Discuss screening with a clinician.'}
+                  This does not estimate your chance of having or developing cancer.
+                  It checks your answers against published criteria for who benefits
+                  from lung cancer screening.
                 </AlertDescription>
               </Alert>
 
-              <div className={`p-4 rounded-lg border ${getRiskColor(results.riskAssessment.level)}`}>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-semibold">Questionnaire band</span>
-                  <Badge className={getRiskColor(results.riskAssessment.level)}>
-                    {results.riskAssessment.level.toUpperCase()}
-                  </Badge>
-                </div>
-                <p className="text-sm">
-                  {/* The denominator was hardcoded to 15 while the maximum
-                      reachable score is 18, so a maximal answer set displayed as
-                      "18/15". It comes from the server now. */}
-                  Score: {results.riskAssessment.score}/{results.riskAssessment.maxScore ?? 18}
+              <div
+                className={`p-4 rounded-lg border-2 ${
+                  results.screening?.eligibleForScreening
+                    ? 'border-amber-400 bg-amber-50 text-amber-900'
+                    : 'border-slate-300 bg-slate-50 text-slate-800'
+                }`}
+              >
+                <p className="font-semibold mb-1">
+                  {results.screening?.eligibleForScreening
+                    ? 'You meet published screening criteria'
+                    : 'You do not currently meet published screening criteria'}
                 </p>
+                <p className="text-sm">{results.screening?.guidance}</p>
+                {typeof results.screening?.packYears === 'number' && (
+                  <p className="text-xs mt-2 opacity-80">
+                    Smoking history: {results.screening.packYears.toFixed(1)} pack-years
+                  </p>
+                )}
               </div>
 
-              <div className="space-y-3">
-                <h4 className="font-semibold">Recommendations:</h4>
-                <ul className="space-y-2">
-                  {results.riskAssessment.recommendations.map((rec: string, index: number) => (
-                    <li key={index} className="flex items-start gap-2 text-sm">
-                      <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-                      {rec}
-                    </li>
-                  ))}
-                </ul>
+              {/* Each criterion, met or not, with the source. A rule the patient
+                  can look up is the difference between a finding and an
+                  assertion. */}
+              <div className="space-y-2">
+                <h4 className="font-semibold text-sm">Criteria checked</h4>
+                {(results.screening?.criteria ?? []).map((criterion: any) => (
+                  <div key={criterion.name} className="rounded border p-3 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium">{criterion.name}</span>
+                      <Badge variant={criterion.meets ? 'default' : 'outline'}>
+                        {criterion.meets ? 'Met' : 'Not met'}
+                      </Badge>
+                    </div>
+                    {criterion.unmet?.length > 0 && (
+                      <ul className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
+                        {criterion.unmet.map((reason: string, i: number) => (
+                          <li key={i}>&middot; {reason}</li>
+                        ))}
+                      </ul>
+                    )}
+                    <p className="mt-1.5 text-[11px] text-muted-foreground italic">
+                      {criterion.citation}
+                    </p>
+                  </div>
+                ))}
               </div>
+
+              {(results.factorsToDiscuss ?? []).length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="font-semibold text-sm">Worth raising with a clinician</h4>
+                  <ul className="space-y-2">
+                    {results.factorsToDiscuss.map((factor: string, index: number) => (
+                      <li key={index} className="flex items-start gap-2 text-sm">
+                        <CheckCircle className="w-4 h-4 text-slate-500 mt-0.5 flex-shrink-0" />
+                        {factor}
+                      </li>
+                    ))}
+                  </ul>
+                  {/* Listed, not ranked. Ordering these would imply a weighting
+                      that nothing here supports. */}
+                  <p className="text-xs text-muted-foreground">
+                    These are listed, not ranked. They are recognised risk factors in
+                    populations; none of them supports an individual estimate.
+                  </p>
+                </div>
+              )}
 
               {results.appointmentSuggestion?.recommended && (
-                <Alert className={`border-2 ${results.appointmentSuggestion.urgency === 'urgent' ? 'border-red-400 bg-red-100 text-red-900' : 'border-yellow-400 bg-yellow-100 text-yellow-900'}`}>
+                <Alert className="border-2 border-amber-400 bg-amber-50 text-amber-900">
                   <AlertTriangle className="h-4 w-4" />
                   <AlertDescription>
-                    <div className="space-y-2">
-                      <p className="font-semibold">Appointment Recommended</p>
-                      <p>{results.appointmentSuggestion.message}</p>
-                      <p className="text-sm">
-                        Suggested specialization: {results.appointmentSuggestion.specialization}
-                      </p>
+                    <div className="space-y-1">
+                      <p className="font-semibold">Speaking to a clinician is suggested</p>
+                      <p className="text-sm">{results.appointmentSuggestion.reason}</p>
                     </div>
                   </AlertDescription>
                 </Alert>

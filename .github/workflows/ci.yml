@@ -102,3 +102,24 @@ jobs:
 
       - name: Test
         run: npm test
+
+      # Advisory, not blocking. A transitive advisory with no available fix
+      # should be visible in the log without holding up an unrelated change;
+      # a blocking audit on a tree this size becomes a step people disable.
+      - name: Dependency audit
+        run: npm audit --audit-level=high || true
+        continue-on-error: true
+
+      # The published figures in MODEL_CARDS.md are only checkable while the
+      # evaluation script runs. This does not re-evaluate the models — that
+      # needs the artifacts, which are gitignored — but it does catch the script
+      # itself breaking, which is how a reproduction command silently stops
+      # working.
+      - name: Model evaluation script is runnable
+        run: |
+          python -m py_compile scripts/evaluate-model.py \
+            server/skin_cancer_model.py \
+            server/lung-cancer-service.py \
+            inference/server.py \
+            inference/dicom_ingest.py \
+            inference/gradcam.py
