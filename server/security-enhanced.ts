@@ -225,7 +225,21 @@ const cspDirectives: Record<string, string[] | null> = {
   // Scripts stay strict in production. Vite injects an inline bootstrap in dev
   // only.
   scriptSrc: isDevEnv ? ["'self'", "'unsafe-inline'"] : ["'self'"],
-  connectSrc: ["'self'", "https://api.openai.com", "wss:", "ws:", "https:"],
+  /**
+   * Where the page may send data.
+   *
+   * `https:` was in this list, which permits a fetch to any host on the
+   * internet and makes the rest of the directive decorative — the point of
+   * connect-src on a page holding clinical data is that injected script cannot
+   * post it somewhere. The enumerated entries are what the application actually
+   * talks to: its own origin, its WebSocket, and the assistant's upstream.
+   *
+   * Note that the browser never contacts api.openai.com directly — the server
+   * proxies it, so that consent and redaction run first. The entry stays only
+   * because removing it is a separate change from removing the wildcard, and
+   * one of those is a security fix.
+   */
+  connectSrc: ["'self'", "https://api.openai.com", "wss:", "ws:"],
   mediaSrc: ["'self'", "blob:"],
   // Additional security directives
   objectSrc: ["'none'"],

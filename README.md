@@ -1,6 +1,14 @@
-# HealthAI Assistant - Advanced Cancer Detection Platform
+# HealthAI Assistant
 
-A comprehensive AI-powered healthcare platform for multi-modal cancer detection across breast, lung, skin, colon, and prostate cancers.
+A cancer **screening triage** platform. Two image classifiers — skin and lung —
+produce a calibrated probability and route every result to a clinician. Nothing
+here produces a diagnosis.
+
+This line used to read "multi-modal cancer detection across breast, lung, skin,
+colon, and prostate cancers". Breast, colon and prostate have no trained
+classifier: requests for them return HTTP 503 and queue the scan for manual
+review. Measured performance, and the limits of what was measured, are in
+[MODEL_CARDS.md](MODEL_CARDS.md).
 
 ## 🚀 Quick Start
 
@@ -94,20 +102,44 @@ Seeding refuses to run when `NODE_ENV=production` unless `ALLOW_PROD_SEED=true`.
 ## 🔧 Features
 
 ### Core Functionality
-- **Multi-Cancer Detection**: Breast, lung, skin, colon, prostate
-- **Real-time AI Analysis**: TensorFlow-powered image analysis
-- **Role-based Dashboards**: Admin, Doctor, Radiologist, Patient
-- **Appointment Management**: Scheduling and tracking
-- **Medical Translation**: Multi-language support
-- **Ambient Therapy**: Stress reduction features
+- **Two screening modalities**: skin and lung. ResNet50V2 classifiers, evaluated
+  on held-out splits, with calibration and out-of-distribution screening measured
+  and recorded in [MODEL_CARDS.md](MODEL_CARDS.md)
+- **Refusal by design**: inputs unlike the training distribution are rejected
+  rather than classified, and a modality with no validated model returns 503
+  with no diagnostic content — never a fabricated negative
+- **Mandatory clinician review**: no path through the system bypasses it
+- **Outcome recording**: confirmed diagnoses are stored against scans, so
+  production performance is measurable at `GET /api/models/performance`
+- **Role-based dashboards**: admin, doctor, radiologist, patient
+- **Appointment management**: scheduling, conflict checking, notifications
+- **Genomics**: PGS Catalog polygenic scores with ancestry-aware reporting that
+  withholds a percentile where the score does not transfer — see
+  [GENOMICS.md](GENOMICS.md)
+
+Inference currently takes **8–14 seconds** per scan: a Python process is spawned
+per request and loads TensorFlow from cold. It is not real-time, and the README
+should not have called it that.
 
 ### Technical Features
-- **Database Flexibility**: PostgreSQL with SQLite fallback
-- **Error Handling**: Comprehensive error boundaries
-- **Security**: Session-based authentication
-- **Real-time Updates**: WebSocket support
-- **Responsive Design**: Mobile-friendly interface
-- **Calendar Integration**: Google Calendar conflict checking
+- **PostgreSQL** via Drizzle. There is no SQLite fallback — `DATABASE_URL` is
+  required and the server refuses to start without it. When the database is
+  unreachable the in-memory store holds **no accounts**, so logins fail rather
+  than falling back to built-in credentials
+- **Encryption at rest** for clinical free text, under a rotatable keyring
+- **Append-only audit trail** for sensitive operations, and for genomic access
+- **POPIA §72 handling** for the cross-border transfer the AI assistant performs
+- **Authorisation matrix enforced in CI** on every push
+- **WebSocket** presence and notifications (single instance — state is
+  process-local)
+- **Responsive design**, light and dark
+- **Calendar integration**: Google Calendar conflict checking
+
+### Not implemented
+Named here because they have been claimed before: no DICOM, HL7 or FHIR
+interoperability; no offline mode; no MFA; English is the only language the
+translation gate currently passes; no ambient therapy module; no clinical
+validation and no regulatory clearance in any jurisdiction.
 
 ## 🛠️ Troubleshooting
 

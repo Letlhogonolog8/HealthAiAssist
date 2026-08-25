@@ -1,171 +1,76 @@
-import { ImageAnnotatorClient } from '@google-cloud/vision';
+/**
+ * Cloud Storage for scan images. Nothing else.
+ *
+ * This module used to carry a second, unrelated job: a Vision API client and
+ * `analyzeImageWithGoogleCloud`, which ran generic label detection over a
+ * medical image, keyword-matched the returned labels against lists like
+ * `['tumor', 'mass', 'lesion', 'abnormal']`, and assembled `medicalFindings`
+ * and a low/medium/high `riskAssessment` from the matches.
+ *
+ * Nothing called it. That is the only reason it never reached a patient — it is
+ * exactly the pattern the rest of this codebase was cleaned of: a clinical
+ * verdict produced by a formula nobody measured, in this case string matching
+ * over a general-purpose image labeller that has no medical training whatsoever.
+ * It is deleted rather than left dormant, because dormant code gets called.
+ *
+ * The deletion also fixes a live bug. Scan image storage is gated on the
+ * availability check at the bottom of this file, which required BOTH the Vision
+ * client and the Storage client to have initialised:
+ *
+ *     return visionClient !== null && storageClient !== null;   // was
+ *
+ * The two clients are constructed from the same credentials, so they usually
+ * failed together — but not always, and any Vision-specific failure (API not
+ * enabled on the project, Vision quota, a scope the service account lacks) made
+ * this function return false while Cloud Storage was perfectly healthy.
+ * `persistScanImage` then fell through to writing patient imaging into the
+ * container's local `uploads/` directory, which is ephemeral on Render, Railway
+ * and Cloud Run alike. A correctly configured bucket did not save you; the
+ * images were quietly discarded on the next deploy.
+ *
+ * The check is now about the object store, and is named for what it gates.
+ */
 import { Storage } from '@google-cloud/storage';
 
-// Initialize Google Cloud clients using environment variables
-let visionClient: ImageAnnotatorClient | null = null;
 let storageClient: Storage | null = null;
 
 try {
   const projectId = process.env.GOOGLE_CLOUD_PROJECT_ID;
   const clientEmail = process.env.GOOGLE_CLOUD_CLIENT_EMAIL;
   const privateKey = process.env.GOOGLE_CLOUD_PRIVATE_KEY;
-  
+
   if (projectId && clientEmail && privateKey) {
     // Clean and format the private key properly
     const cleanPrivateKey = privateKey
       .replace(/\\n/g, '\n')
       .replace(/"/g, '')
       .trim();
-    
+
     const credentials = {
       type: 'service_account',
       project_id: projectId,
       client_email: clientEmail,
       private_key: cleanPrivateKey,
     };
-    
-    // Test credentials format before initializing clients
+
+    // Test credentials format before initializing the client
     if (cleanPrivateKey.includes('BEGIN PRIVATE KEY') && cleanPrivateKey.includes('END PRIVATE KEY')) {
-      visionClient = new ImageAnnotatorClient({ credentials });
-      storageClient = new Storage({ 
+      storageClient = new Storage({
         projectId: projectId,
-        credentials 
+        credentials
       });
-      console.log('Google Cloud services initialized successfully');
+      console.log('Google Cloud Storage initialized successfully');
     } else {
-      console.log('Invalid private key format, using fallback analysis');
+      console.warn(
+        'GOOGLE_CLOUD_PRIVATE_KEY is not in PEM format; Cloud Storage is disabled ' +
+        'and scan images will be written to local disk.'
+      );
     }
   } else {
-    console.log('Google Cloud credentials not found, using fallback analysis');
+    console.log('Google Cloud credentials not set; scan images will be written to local disk.');
   }
 } catch (error) {
-  console.error('Failed to initialize Google Cloud services:', error);
-  console.log('Using fallback analysis instead');
-}
-
-export interface GoogleCloudAnalysisResult {
-  labels: Array<{ description: string; score: number }>;
-  text?: string;
-  faces?: Array<{ confidence: number }>;
-  objects?: Array<{ name: string; score: number }>;
-  medicalFindings?: Array<{ finding: string; confidence: number }>;
-  riskAssessment?: {
-    level: 'low' | 'medium' | 'high';
-    confidence: number;
-    reasoning: string[];
-  };
-}
-
-export async function analyzeImageWithGoogleCloud(imageBuffer: Buffer): Promise<GoogleCloudAnalysisResult> {
-  if (!visionClient) {
-    throw new Error('Google Cloud Vision client not initialized');
-  }
-
-  try {
-    // Perform label detection only to avoid authentication issues
-    const [labelResult] = await visionClient.labelDetection({
-      image: { content: imageBuffer }
-    });
-
-    const labels = labelResult.labelAnnotations?.map(label => ({
-      description: label.description || '',
-      score: label.score || 0
-    })) || [];
-
-    // Medical analysis based on detected labels
-    const medicalFindings = analyzeMedicalContent(labels, []);
-    const riskAssessment = assessMedicalRisk(labels, [], medicalFindings);
-
-    return {
-      labels,
-      text: '',
-      objects: [],
-      medicalFindings,
-      riskAssessment
-    };
-  } catch (error) {
-    console.error('Google Cloud Vision API error:', error);
-    // Don't throw error, let fallback handle it
-    throw new Error('Failed to analyze image with Google Cloud Vision');
-  }
-}
-
-function analyzeMedicalContent(
-  labels: Array<{ description: string; score: number }>,
-  objects: Array<{ name: string; score: number }>
-): Array<{ finding: string; confidence: number }> {
-  const medicalFindings: Array<{ finding: string; confidence: number }> = [];
-  
-  // Medical keywords to look for
-  const medicalKeywords = {
-    'abnormal': ['tumor', 'mass', 'lesion', 'growth', 'abnormal', 'irregular'],
-    'normal': ['healthy', 'normal', 'clear', 'regular'],
-    'anatomical': ['lung', 'breast', 'skin', 'tissue', 'organ', 'bone', 'muscle']
-  };
-
-  // Analyze labels for medical content
-  labels.forEach(label => {
-    const desc = label.description.toLowerCase();
-    
-    if (medicalKeywords.abnormal.some(keyword => desc.includes(keyword))) {
-      medicalFindings.push({
-        finding: `Potential abnormality detected: ${label.description}`,
-        confidence: label.score
-      });
-    }
-    
-    if (medicalKeywords.anatomical.some(keyword => desc.includes(keyword))) {
-      medicalFindings.push({
-        finding: `Anatomical structure identified: ${label.description}`,
-        confidence: label.score
-      });
-    }
-  });
-
-  return medicalFindings;
-}
-
-function assessMedicalRisk(
-  labels: Array<{ description: string; score: number }>,
-  objects: Array<{ name: string; score: number }>,
-  findings: Array<{ finding: string; confidence: number }>
-): { level: 'low' | 'medium' | 'high'; confidence: number; reasoning: string[] } {
-  let riskScore = 0;
-  const reasoning: string[] = [];
-
-  // Check for high-risk indicators
-  const highRiskTerms = ['tumor', 'mass', 'lesion', 'abnormal', 'irregular', 'suspicious'];
-  const mediumRiskTerms = ['density', 'shadow', 'opacity', 'calcification'];
-  
-  labels.forEach(label => {
-    const desc = label.description.toLowerCase();
-    
-    if (highRiskTerms.some(term => desc.includes(term))) {
-      riskScore += label.score * 3;
-      reasoning.push(`High-risk indicator detected: ${label.description}`);
-    } else if (mediumRiskTerms.some(term => desc.includes(term))) {
-      riskScore += label.score * 2;
-      reasoning.push(`Medium-risk indicator detected: ${label.description}`);
-    }
-  });
-
-  // Assess overall risk level
-  let level: 'low' | 'medium' | 'high' = 'low';
-  if (riskScore > 0.7) {
-    level = 'high';
-  } else if (riskScore > 0.3) {
-    level = 'medium';
-  }
-
-  if (reasoning.length === 0) {
-    reasoning.push('No significant abnormalities detected in initial analysis');
-  }
-
-  return {
-    level,
-    confidence: Math.min(riskScore, 1.0),
-    reasoning
-  };
+  console.error('Failed to initialize Google Cloud Storage:', error);
 }
 
 /**
@@ -245,6 +150,13 @@ export async function getSignedScanUrl(objectUri: string, ttlMinutes = 10): Prom
   return url;
 }
 
-export function isGoogleCloudAvailable(): boolean {
-  return visionClient !== null && storageClient !== null;
+/**
+ * Whether scan images can be written to durable object storage.
+ *
+ * Named for what it gates. The previous name — `isGoogleCloudAvailable` —
+ * described a vendor rather than a capability, which is how it came to be
+ * ANDed with an unrelated client and silently disabled image persistence.
+ */
+export function isScanObjectStoreAvailable(): boolean {
+  return storageClient !== null;
 }

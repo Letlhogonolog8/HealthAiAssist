@@ -152,13 +152,19 @@ export const requirePatientDataAccess = (req: AuthenticatedRequest, res: express
   const userId = req.session?.user?.id || req.session?.userId;
   const userRole = req.session?.user?.role;
   const requestedPatientId = parseInt(req.params.patientId || req.params.id || req.query.patientId as string);
-  
-  console.log('PatientDataAccess - Debug info:', {
-    userId,
-    userRole,
-    requestedPatientId
-  });
-  
+
+  // No debug log here.
+  //
+  // This unconditionally wrote { userId, userRole, requestedPatientId } to
+  // stdout on every patient-scoped request, in production as well as
+  // development, where it was collected by whatever aggregates logs on the
+  // host. That is a record of which account looked at which patient, sitting
+  // outside the audit table that is supposed to be the sole home for exactly
+  // that fact — retained on a different schedule, readable by anyone with log
+  // access, and invisible to the access review the audit table supports.
+  //
+  // Denials are recorded by auditMedicalAccess, which writes to audit_events.
+
   // Check authentication first
   if (!userId) {
     return res.status(401).json({ 
@@ -176,11 +182,15 @@ export const requirePatientDataAccess = (req: AuthenticatedRequest, res: express
     return next();
   }
   
-  return res.status(403).json({ 
-    error: 'Access denied: Cannot access other patient data',
-    userId,
-    userRole,
-    requestedPatientId
+  // The body carries no identifiers.
+  //
+  // It used to echo userId, userRole and requestedPatientId. The caller already
+  // knows its own id and role, so those add nothing — but requestedPatientId is
+  // the server confirming that a given patient id was recognised and reached the
+  // authorisation check, which turns a 403 into an oracle: walk the id space and
+  // the differences between responses enumerate the patient table.
+  return res.status(403).json({
+    error: 'Access denied: Cannot access other patient data'
   });
 };
 

@@ -14,6 +14,7 @@ import {
   getClinicianSlotsForDate,
 } from './services';
 import { medicalChatbotService } from "./chatbot-service";
+import { modelVersionFor } from "./model-fingerprint";
 import { 
   requireAuth, 
   requireRole,
@@ -50,7 +51,6 @@ interface AnalysisResult {
   findings: string[];
   recommendations: string[];
   clinicalGrade: string;
-  accuracyLevel: number;
   analysis: Record<string, any>;
   malignancyIndicators: any[];
   advancedMetrics: Record<string, any>;
@@ -61,7 +61,7 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
 import { randomUUID } from 'crypto';
-import { uploadToGoogleCloudStorage, getSignedScanUrl, isGoogleCloudAvailable } from './google-cloud-service';
+import { uploadToGoogleCloudStorage, getSignedScanUrl, isScanObjectStoreAvailable } from './google-cloud-service';
 import { ModelUnavailableError, InputRejectedError, assertModelEnabled, MODEL_REGISTRY } from './model-availability';
 import { summarise, type ProductionPerformance } from './production-performance';
 import { deliverInBackground } from './notification-delivery';
@@ -122,7 +122,7 @@ async function persistScanImage(
   // discarded medical images while every other part of the request succeeded.
   // A wrong storage location is a deployment mistake; losing the image is a
   // clinical one.
-  if (isGoogleCloudAvailable()) {
+  if (isScanObjectStoreAvailable()) {
     try {
       return await uploadToGoogleCloudStorage(imageBuffer, objectName, file.mimetype);
     } catch (error) {
@@ -260,7 +260,6 @@ async function performLungCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisR
       // "screening" not "diagnostic": this model has not been clinically validated
       // or regulator-cleared, and no held-out accuracy has been recorded for it.
       clinicalGrade: 'screening',
-      accuracyLevel: Math.round(confidence),
       analysis: {
         method: 'resnet50v2_lung_cancer',
         probabilities: result.probabilities,
@@ -273,9 +272,12 @@ async function performLungCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisR
         processingTimeMs: Date.now() - startedAt,
         analysisDepth: 'ResNet50V2 binary classifier',
         confidenceThreshold: 70.0,
-        // Bumped on retrain: v2 is the model with a genuine held-out test set and
-        // a threshold of 0.28. A stored result must name the artifact that made it.
-        modelVersion: 'resnet50v2-lung-v2',
+        // Derived from a hash of the artifact, not a hand-maintained literal.
+        // This read 'resnet50v2-lung-v2' with a comment saying the threshold was
+        // 0.28; the deployed threshold is 0.30. Both the label and the comment
+        // beside it had drifted from the model they described, which is the
+        // failure mode server/model-fingerprint.ts exists to remove.
+        modelVersion: await modelVersionFor('lung'),
         inputResolution: '224x224'
       }
     };
@@ -371,7 +373,6 @@ async function performSkinCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisR
       // "screening" not "diagnostic": no clinical validation or regulatory
       // clearance, and no held-out accuracy has been recorded for this model.
       clinicalGrade: 'screening',
-      accuracyLevel: Math.round(confidence),
       analysis: {
         method: 'resnet50v2_deep_learning',
         probabilities: result.probabilities,
@@ -384,7 +385,8 @@ async function performSkinCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisR
         processingTimeMs: Date.now() - startedAt,
         analysisDepth: 'ResNet50V2 binary classifier',
         confidenceThreshold: 70.0,
-        modelVersion: 'resnet50v2-skin-v1',
+        // Derived from a hash of the artifact. See server/model-fingerprint.ts.
+        modelVersion: await modelVersionFor('skin'),
         inputResolution: '224x224'
       }
     };
@@ -2747,7 +2749,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Primary Results
           type: scanType.charAt(0).toUpperCase() + scanType.slice(1),
           confidence: Math.round(analysisResult.confidence),
-          accuracyLevel: Math.round(analysisResult.accuracyLevel),
+          /**
+           * `accuracyLevel` used to sit here, and was assigned
+           * `Math.round(confidence)` — byte for byte the value on the line
+           * above, under a name that means something else entirely.
+           *
+           * Confidence is this model's probability for this one image.
+           * Accuracy is how often the model is right across a labelled set.
+           * A 99% confident wrong answer is ordinary; reporting it as "99%
+           * accuracy" is the precise claim MODEL_CARDS.md exists to prevent,
+           * and it was being made on every single scan response.
+           *
+           * The measured figures live at GET /api/models/cards, and what this
+           * deployment has actually achieved against confirmed outcomes lives
+           * at GET /api/models/performance. Neither is a per-scan property.
+           */
           clinicalGrade: analysisResult.clinicalGrade,
           status: analysisResult.hasCancer ? "abnormal" : "normal",
 

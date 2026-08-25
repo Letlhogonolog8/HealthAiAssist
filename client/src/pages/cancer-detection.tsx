@@ -34,8 +34,10 @@
  * determination produced by a formula nobody measured, which is a more direct
  * version of the defect removed from the clinical dashboards.
  *
- * The component is left in the tree rather than deleted, because deleting it is
- * a separate decision, but nothing routes to it.
+ * The component has since been deleted outright. It sat unrouted for a while on
+ * the reasoning that removing it was a separate decision; leaving code like that
+ * in the tree only means the next person to go looking for a blood-test feature
+ * finds a working-looking implementation of one.
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';

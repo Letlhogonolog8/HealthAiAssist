@@ -1,52 +1,61 @@
-import { isGoogleCloudAvailable } from '../server/google-cloud-service';
+/**
+ * Reports whether scan images will be written to durable object storage.
+ *
+ * This script previously ended by printing, whenever credentials happened to be
+ * present:
+ *
+ *   - Breast cancer scans will use Google Cloud Vision API
+ *   - Lung cancer scans will use Google Cloud Vision API
+ *   - Colon cancer scans will use Google Cloud Vision API
+ *   - Prostate cancer scans will use Google Cloud Vision API
+ *
+ * None of that was ever true. Breast, colon and prostate have no classifier at
+ * all and return 503; lung uses the local ResNet50V2; and the Vision code path
+ * was never wired to a caller before it was deleted. Google Cloud's only role
+ * here is holding scan images.
+ */
+import '../server/load-env';
+import { isScanObjectStoreAvailable } from '../server/google-cloud-service';
 
-async function testGoogleCloudSetup() {
-  console.log('Testing Google Cloud setup...');
-  
-  // Check environment variables
+async function testScanStorageSetup() {
+  console.log('Checking scan image storage...');
+
   const requiredVars = [
     'GOOGLE_CLOUD_PROJECT_ID',
-    'GOOGLE_CLOUD_CLIENT_EMAIL', 
-    'GOOGLE_CLOUD_PRIVATE_KEY'
+    'GOOGLE_CLOUD_CLIENT_EMAIL',
+    'GOOGLE_CLOUD_PRIVATE_KEY',
   ];
-  
+
   console.log('\n=== Environment Variables ===');
-  requiredVars.forEach(varName => {
+  requiredVars.forEach((varName) => {
     const value = process.env[varName];
     if (value) {
-      console.log(`✓ ${varName}: ${varName === 'GOOGLE_CLOUD_PRIVATE_KEY' ? '[PRIVATE KEY SET]' : value}`);
+      console.log(
+        `✓ ${varName}: ${varName === 'GOOGLE_CLOUD_PRIVATE_KEY' ? '[PRIVATE KEY SET]' : value}`
+      );
     } else {
       console.log(`✗ ${varName}: NOT SET`);
     }
   });
-  
-  // Test Google Cloud availability
-  console.log('\n=== Google Cloud Services ===');
-  try {
-    const isAvailable = isGoogleCloudAvailable();
-    if (isAvailable) {
-      console.log('✓ Google Cloud Vision API: INITIALIZED');
-      console.log('✓ Google Cloud Storage: INITIALIZED');
-      console.log('✓ Medical imaging analysis will use Google Cloud');
-    } else {
-      console.log('✗ Google Cloud services: NOT AVAILABLE');
-      console.log('  Medical imaging analysis will use fallback');
-    }
-  } catch (error) {
-    console.log('✗ Google Cloud initialization error:', error);
-  }
-  
+
+  const bucket = process.env.GOOGLE_CLOUD_SCAN_BUCKET;
+  console.log(
+    bucket
+      ? `✓ GOOGLE_CLOUD_SCAN_BUCKET: ${bucket}`
+      : '✗ GOOGLE_CLOUD_SCAN_BUCKET: NOT SET (defaults to healthai-medical-scans)'
+  );
+
   console.log('\n=== Summary ===');
-  if (isGoogleCloudAvailable()) {
-    console.log('🎉 Google Cloud integration is ready!');
-    console.log('   - Breast cancer scans will use Google Cloud Vision API');
-    console.log('   - Lung cancer scans will use Google Cloud Vision API'); 
-    console.log('   - Colon cancer scans will use Google Cloud Vision API');
-    console.log('   - Prostate cancer scans will use Google Cloud Vision API');
-    console.log('   - Skin cancer scans will use TensorFlow model');
+  if (isScanObjectStoreAvailable()) {
+    console.log('✓ Cloud Storage is configured. Scan images persist to gs:// objects.');
+    console.log('  Objects are private; reads go through GET /api/scans/:id/image,');
+    console.log('  which authorises the caller and mints a short-lived signed URL.');
   } else {
-    console.log('⚠️  Google Cloud not available, using fallback analysis');
+    console.log('⚠️  Cloud Storage is NOT configured.');
+    console.log('   Scan images will be written to the local uploads/ directory,');
+    console.log('   which is ephemeral on Render, Railway and Cloud Run — images are');
+    console.log('   lost on the next deploy. Acceptable in development only.');
   }
 }
 
-testGoogleCloudSetup().catch(console.error);
+testScanStorageSetup().catch(console.error);

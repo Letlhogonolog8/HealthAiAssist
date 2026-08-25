@@ -264,16 +264,28 @@ The chatbot can analyze health concerns and provide:
 ## Security Considerations
 
 ### Data Protection
-- No storage of sensitive medical information
+- Conversations are stored, and the message body is encrypted at rest
+  (`chat_messages.message`, see `server/crypto/encrypted-fields.ts`)
 - Session-based user identification
-- Encrypted API communications
-- Audit logging for all interactions
+- TLS in transit
+- Sensitive operations recorded in `audit_events`
 
 ### Privacy Compliance
-- HIPAA-compliant data handling
-- User consent for data processing
-- Anonymized conversation logs
-- Secure data transmission
+- **South African law applies: POPIA, not HIPAA.** No HIPAA claim is made, and
+  none would be meaningful here — it is a United States statute governing
+  covered entities under US healthcare law.
+- Messages sent to the assistant are forwarded to OpenAI in the United States.
+  That is a POPIA §72 cross-border transfer and is handled as one: text is
+  redacted before it leaves, consent is checked on every message rather than
+  once at signup, the disclosure version the patient saw is recorded, and each
+  transfer is logged with data categories but never the values. See
+  `server/privacy/external-processing.ts`.
+- Consent is revocable, and revocation takes effect on the next message.
+
+> This section previously read "No storage of sensitive medical information" and
+> "HIPAA-compliant data handling". The first was untrue — conversations are
+> persisted — and the second was a regulatory assertion the project does not
+> hold, about a jurisdiction it does not operate in.
 
 ## Monitoring and Analytics
 

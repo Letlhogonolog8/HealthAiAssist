@@ -12,6 +12,23 @@ import { useToast } from '@/hooks/use-toast';
 import MedicalImageViewer from './medical-image-viewer';
 import { AnalysisResultsDisplay } from './AnalysisResultsDisplay';
 
+/**
+ * The response shape /api/scans/analyze actually returns.
+ *
+ * This interface used to declare four more fields: `metastasisDetected`,
+ * `metastasisStage` ('early' | 'intermediate' | 'advanced' | 'none'), a
+ * `bloodMarkersAnalysis` object of tumour markers and suggested blood tests, and
+ * a `cancerType` union covering breast, prostate and cervical.
+ *
+ * The server returns none of them, and could not: the pipeline runs a binary
+ * image classifier per modality, and only skin and lung have one. Staging a
+ * metastasis, reading a tumour marker panel and classifying a cervical or
+ * prostate lesion are four separate capabilities that do not exist here.
+ *
+ * A type that describes a richer response than the server sends is not
+ * harmless. It is the shape the next person writing UI will render against, and
+ * every optional field reads as "sometimes present" rather than "never".
+ */
 interface AnalysisResult {
   scan: {
     id: number;
@@ -27,14 +44,8 @@ interface AnalysisResult {
     riskLevel: 'low' | 'medium' | 'high';
     findings: string[];
     recommendations: string[];
-    cancerType?: 'breast' | 'prostate' | 'lung' | 'cervical' | 'skin' | 'unknown';
-    metastasisDetected?: boolean;
-    metastasisStage?: 'early' | 'intermediate' | 'advanced' | 'none';
-    bloodMarkersAnalysis?: {
-      tumorMarkers: string[];
-      abnormalValues: number;
-      suggestedBloodTests: string[];
-    };
+    /** Only the modalities with a trained classifier. */
+    cancerType?: 'lung' | 'skin' | 'unknown';
   };
 }
 

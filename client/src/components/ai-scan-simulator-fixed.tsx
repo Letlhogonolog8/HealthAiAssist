@@ -242,8 +242,12 @@ export default function AIScanSimulator({ userId }: { userId?: number }) {
               >
                 <Upload className="w-12 h-12 text-slate-400 mx-auto mb-4" />
                 <p className="text-white font-medium mb-2">Click to upload medical image</p>
+                {/* Kept in step with the server allowlist in server/routes.ts.
+                    This read "Supports DICOM, JPG, PNG" — the pipeline has never
+                    accepted DICOM, so the one format a radiology department
+                    would actually have was the one that would be rejected. */}
                 <p className="text-slate-400 text-sm mb-4">
-                  Supports DICOM, JPG, PNG formats up to 10MB
+                  JPEG, PNG, TIFF, WebP or AVIF, up to 10 MB
                 </p>
                 <Button
                   type="button"
