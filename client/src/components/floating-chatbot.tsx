@@ -925,9 +925,17 @@ export default function FloatingChatbot({ user, onActionClick }: FloatingChatbot
           >
             <Button
               onClick={toggleChat}
+              /* Icon-only, so it carries no text node and a screen reader
+                 announced "button" and nothing more. The unread count goes in
+                 the name too — a badge is a visual signal only. */
+              aria-label={
+                unreadCount > 0
+                  ? `Open health assistant, ${unreadCount} unread message${unreadCount === 1 ? '' : 's'}`
+                  : 'Open health assistant'
+              }
               className="relative w-16 h-16 rounded-full bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 shadow-xl hover:shadow-2xl transform hover:scale-110 transition-all duration-300"
             >
-              <MessageCircle className="w-8 h-8 text-white" />
+              <MessageCircle className="w-8 h-8 text-white" aria-hidden="true" />
               {unreadCount > 0 && (
                 <Badge className="absolute -top-2 -right-2 bg-red-500 text-white min-w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">
                   {unreadCount > 9 ? '9+' : unreadCount}

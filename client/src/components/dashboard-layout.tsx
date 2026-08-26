@@ -448,7 +448,7 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                       View System Analytics
                     </Button>
                     <Button 
-                      className="w-full justify-start bg-green-600 hover:bg-green-700"
+                      className="w-full justify-start bg-green-700 hover:bg-green-800"
                       onClick={() => setActiveTab('users')}
                     >
                       <Users className="w-4 h-4 mr-2" />
@@ -484,7 +484,7 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                       View Patients
                     </Button>
                     <Button 
-                      className="w-full justify-start bg-green-600 hover:bg-green-700"
+                      className="w-full justify-start bg-green-700 hover:bg-green-800"
                       onClick={() => setActiveTab('google-ai')}
                     >
                       <Brain className="w-4 h-4 mr-2" />
@@ -509,7 +509,7 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                       Book Appointment
                     </Button>
                     <Button
-                      className="w-full justify-start bg-green-600 hover:bg-green-700"
+                      className="w-full justify-start bg-green-700 hover:bg-green-800"
                       onClick={() => setActiveTab('results')}
                     >
                       <FileText className="w-4 h-4 mr-2" />
@@ -567,7 +567,12 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
               onClick={onLogout}
               variant="outline" 
               size="sm"
-              className="border-slate-600 text-slate-300 hover:bg-slate-700"
+              /* Was text-slate-300, which the outline variant renders on its
+                 own light background: measured 1.48:1 against a required 4.5:1,
+                 which is invisible rather than merely low. The header around it
+                 is dark, so the class looked right in context and the variant
+                 supplied a ground nobody checked it against. */
+              className="border-slate-600 bg-slate-800 text-slate-100 hover:bg-slate-700 hover:text-white"
             >
               <LogOut className="w-4 h-4 mr-2" />
               Logout

@@ -139,7 +139,7 @@ export default function EnhancedHeroSection({ onLoginClick }: EnhancedHeroSectio
             </div>
 
             {/* Honest counterparts to the old trust badges. */}
-            <div className="mt-9 flex flex-wrap gap-x-6 gap-y-2.5 text-[13px] text-slate-500">
+            <div className="mt-9 flex flex-wrap gap-x-6 gap-y-2.5 text-[13px] text-slate-400">
               <span className="inline-flex items-center gap-2">
                 <UserCheck className="w-3.5 h-3.5" />
                 Clinician sign-off required
@@ -167,7 +167,7 @@ export default function EnhancedHeroSection({ onLoginClick }: EnhancedHeroSectio
                   )}
                 </dt>
                 <dd className="mt-2 text-sm text-slate-300">{fact.label}</dd>
-                <dd className="mt-0.5 text-xs text-slate-500">{fact.detail}</dd>
+                <dd className="mt-0.5 text-xs text-slate-400">{fact.detail}</dd>
               </div>
             ))}
           </dl>

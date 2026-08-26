@@ -59,13 +59,13 @@ export default function ModelPerformancePanel({
 
   return (
     <div className="space-y-3">
-      <p className={`text-xs ${dark ? "text-slate-400" : "text-slate-600"}`}>
+      <p className={`text-xs ${dark ? "text-slate-400" : "text-slate-400"}`}>
         Balanced accuracy on a held-out test set. Screening triage only — every
         result requires clinician review.
       </p>
 
       {isLoading && (
-        <p className={`text-sm ${dark ? "text-slate-400" : "text-slate-500"}`}>
+        <p className={`text-sm ${dark ? "text-slate-400" : "text-slate-400"}`}>
           Loading measured performance…
         </p>
       )}
@@ -90,7 +90,7 @@ export default function ModelPerformancePanel({
                     className={`w-4 h-4 ${dark ? "text-purple-400" : "text-purple-700"}`}
                   />
                 ) : (
-                  <CircleSlash className="w-4 h-4 text-slate-500" />
+                  <CircleSlash className="w-4 h-4 text-slate-400" />
                 )}
                 <span
                   className={
@@ -98,7 +98,7 @@ export default function ModelPerformancePanel({
                       ? dark
                         ? "text-slate-200"
                         : "font-medium text-slate-900"
-                      : "text-slate-500"
+                      : "text-slate-400"
                   }
                 >
                   {LABELS[id]}
@@ -108,7 +108,7 @@ export default function ModelPerformancePanel({
               {measured ? (
                 <div className="flex items-center gap-3 tabular-nums">
                   <span
-                    className={`text-xs ${dark ? "text-slate-400" : "text-slate-600"}`}
+                    className={`text-xs ${dark ? "text-slate-400" : "text-slate-400"}`}
                   >
                     sens {(card!.evaluation!.sensitivity * 100).toFixed(1)}% · spec{" "}
                     {(card!.evaluation!.specificity * 100).toFixed(1)}%
@@ -120,7 +120,7 @@ export default function ModelPerformancePanel({
                   </span>
                 </div>
               ) : (
-                <span className="text-xs text-slate-500">
+                <span className="text-xs text-slate-400">
                   {card?.disabledReason ? "Disabled — failed evaluation" : "No model"}
                 </span>
               )}

@@ -78,7 +78,7 @@ function MetricBar({ value }: { value: number }) {
       <div className="relative h-3">
         <div className="absolute top-0 h-2 w-px bg-slate-600" style={{ left: "50%" }} />
         <span
-          className="absolute top-2 -translate-x-1/2 text-[10px] text-slate-600 whitespace-nowrap"
+          className="absolute top-2 -translate-x-1/2 text-[10px] text-slate-400 whitespace-nowrap"
           style={{ left: "50%" }}
         >
           chance
@@ -170,7 +170,7 @@ export default function AIFeaturesSection() {
                           <div className="text-[1.6rem] leading-none font-semibold text-white tabular-nums">
                             {pct(metric.value)}
                           </div>
-                          <div className="mt-1.5 text-[11px] uppercase tracking-wide text-slate-500">
+                          <div className="mt-1.5 text-[11px] uppercase tracking-wide text-slate-400">
                             {metric.label}
                           </div>
                         </div>
@@ -184,9 +184,9 @@ export default function AIFeaturesSection() {
                     {/* ── What it was measured on ── */}
                     <div className="px-6 pt-4">
                       <div className="flex gap-2.5 rounded-lg border border-slate-800 bg-slate-950/50 p-3.5">
-                        <Database className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+                        <Database className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
                         <div>
-                          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                             Evaluated on
                           </div>
                           <p className="mt-1 text-[13px] text-slate-300 leading-relaxed">
@@ -202,10 +202,10 @@ export default function AIFeaturesSection() {
                         <summary className="flex items-center gap-2 cursor-pointer list-none select-none text-[11px] font-semibold uppercase tracking-wide text-amber-400/90 hover:text-amber-300 transition-colors">
                           <AlertTriangle className="w-3.5 h-3.5" />
                           Limitations
-                          <span className="text-slate-600 font-normal normal-case tracking-normal">
+                          <span className="text-slate-400 font-normal normal-case tracking-normal">
                             ({sentences.length})
                           </span>
-                          <ChevronDown className="w-3.5 h-3.5 ml-auto text-slate-600 transition-transform group-open:rotate-180" />
+                          <ChevronDown className="w-3.5 h-3.5 ml-auto text-slate-400 transition-transform group-open:rotate-180" />
                         </summary>
 
                         <ul className="mt-3 space-y-2.5">
@@ -254,7 +254,7 @@ export default function AIFeaturesSection() {
 
         {data?.reproduce && (
           <div className="mt-8 flex flex-wrap items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/60 px-5 py-4">
-            <Terminal className="w-4 h-4 text-slate-500 shrink-0" />
+            <Terminal className="w-4 h-4 text-slate-400 shrink-0" />
             <span className="text-sm text-slate-400">Reproduce these figures:</span>
             <code className="min-w-0 flex-1 overflow-x-auto rounded-md bg-slate-950 border border-slate-800 px-3 py-1.5 text-[12.5px] text-cyan-300 whitespace-nowrap">
               {data.reproduce}

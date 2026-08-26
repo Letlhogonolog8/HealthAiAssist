@@ -1,10 +1,6 @@
 {
   "welcome": "Bienvenido de nuevo, {{name}}",
   "manage_health": "Administre su viaje de salud con conocimientos impulsados por IA",
-  "blood_pressure": "Presión arterial",
-  "heart_rate": "Frecuencia cardíaca",
-  "bmi": "IMC",
-  "health_score": "Puntuación de salud",
   "overview": "Resumen",
   "appointments": "Citas",
   "scans": "Escaneos",
@@ -17,7 +13,6 @@
   "no_upcoming_appointments": "No hay próximas citas",
   "schedule_appointment": "Programar cita",
   "medical_imaging_analysis": "Análisis de imágenes médicas",
-  "blood_based_cancer_screening": "Detección de cáncer basada en sangre",
   "skin_cancer_detection": "Detección de cáncer de piel",
   "live_skin_scan": "Escaneo de piel en vivo",
   "personal_information": "Información personal",

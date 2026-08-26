@@ -64,7 +64,7 @@ export default function CancerDetectionSection() {
           </div>
 
           {!isLoading && (
-            <div className="text-sm text-slate-500 tabular-nums">
+            <div className="text-sm text-slate-400 tabular-nums">
               <span className="text-white font-semibold text-base">{availableCount}</span>
               {" of "}
               {MODALITIES.length} available
@@ -106,7 +106,7 @@ export default function CancerDetectionSection() {
                       }`}
                     >
                       <Icon
-                        className={`w-4 h-4 ${available ? "text-cyan-400" : "text-slate-500"}`}
+                        className={`w-4 h-4 ${available ? "text-cyan-400" : "text-slate-400"}`}
                       />
                     </span>
                     <span className="font-semibold text-white truncate">{modality.name}</span>
@@ -128,7 +128,7 @@ export default function CancerDetectionSection() {
                   </span>
                 </div>
 
-                <p className="mt-3.5 text-xs text-slate-500">{modality.input}</p>
+                <p className="mt-3.5 text-xs text-slate-400">{modality.input}</p>
 
                 {available && card?.evaluation ? (
                   <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm tabular-nums">
@@ -136,13 +136,13 @@ export default function CancerDetectionSection() {
                       <span className="text-white font-semibold">
                         {(card.evaluation.sensitivity * 100).toFixed(1)}%
                       </span>{" "}
-                      <span className="text-slate-500">sensitivity</span>
+                      <span className="text-slate-400">sensitivity</span>
                     </span>
                     <span className="text-slate-300">
                       <span className="text-white font-semibold">
                         {(card.evaluation.specificity * 100).toFixed(1)}%
                       </span>{" "}
-                      <span className="text-slate-500">specificity</span>
+                      <span className="text-slate-400">specificity</span>
                     </span>
                   </div>
                 ) : (

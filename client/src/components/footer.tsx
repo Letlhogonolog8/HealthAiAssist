@@ -63,7 +63,7 @@ export default function Footer() {
           {/* ── Navigation ── */}
           {SECTIONS.map((section) => (
             <div key={section.title}>
-              <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+              <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
                 {section.title}
               </h4>
               <ul className="mt-4 space-y-2.5">
@@ -92,18 +92,18 @@ export default function Footer() {
 
           {/* ── Reproducing the work ── */}
           <div>
-            <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+            <h4 className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
               Evaluation
             </h4>
             <ul className="mt-4 space-y-2.5 text-sm text-slate-400">
               <li className="flex items-start gap-2">
-                <Github className="w-3.5 h-3.5 mt-1 shrink-0 text-slate-600" />
+                <Github className="w-3.5 h-3.5 mt-1 shrink-0 text-slate-400" />
                 <span>
                   Model cards, evaluation scripts and thresholds are in the repository.
                 </span>
               </li>
               <li className="flex items-start gap-2">
-                <ShieldAlert className="w-3.5 h-3.5 mt-1 shrink-0 text-slate-600" />
+                <ShieldAlert className="w-3.5 h-3.5 mt-1 shrink-0 text-slate-400" />
                 <span>
                   Contact runs through the operating institution. No support channel is
                   published here.
@@ -114,10 +114,10 @@ export default function Footer() {
         </div>
 
         <div className="mt-12 pt-6 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <p className="text-xs text-slate-600">
+          <p className="text-xs text-slate-400">
             © {new Date().getFullYear()} HealthAI. A research prototype.
           </p>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-400">
             Not a registered medical device · No regulatory clearance · Not for clinical
             decisions
           </p>

@@ -1,10 +1,6 @@
 {
   "welcome": "Welcome back, {{name}}",
   "manage_health": "Manage your health journey with AI-powered insights",
-  "blood_pressure": "Blood Pressure",
-  "heart_rate": "Heart Rate",
-  "bmi": "BMI",
-  "health_score": "Health Score",
   "overview": "Overview",
   "appointments": "Appointments",
   "scans": "Scans",
@@ -17,7 +13,6 @@
   "no_upcoming_appointments": "No upcoming appointments",
   "schedule_appointment": "Schedule Appointment",
   "medical_imaging_analysis": "Medical Imaging Analysis",
-  "blood_based_cancer_screening": "Blood-Based Cancer Screening",
   "skin_cancer_detection": "Skin Cancer Detection",
   "live_skin_scan": "Live Skin Scan",
   "personal_information": "Personal Information",

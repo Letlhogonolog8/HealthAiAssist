@@ -119,7 +119,7 @@ export default function Home({ onLoginSuccess }: HomeProps & { userId?: number }
                 quietly down-weighted.
               </p>
               {transferability?.citation && (
-                <p className="mt-4 text-xs text-slate-500">{transferability.citation}</p>
+                <p className="mt-4 text-xs text-slate-400">{transferability.citation}</p>
               )}
               <Link href="/genomics">
                 <Button
@@ -137,7 +137,7 @@ export default function Home({ onLoginSuccess }: HomeProps & { userId?: number }
                 <h3 className="text-sm font-semibold text-white">
                   Accuracy retained, relative to the discovery population
                 </h3>
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1 text-xs text-slate-400">
                   A bar at 100% means the score transfers intact. Anything lower means
                   it does not.
                 </p>
@@ -164,7 +164,7 @@ export default function Home({ onLoginSuccess }: HomeProps & { userId?: number }
                           <span className="text-slate-400 tabular-nums text-[13px]">
                             ~{Math.round(value * 100)}%
                             {!group.percentileReported && (
-                              <span className="ml-2 text-[11px] text-slate-600">withheld</span>
+                              <span className="ml-2 text-[11px] text-slate-400">withheld</span>
                             )}
                           </span>
                         </div>
@@ -180,7 +180,7 @@ export default function Home({ onLoginSuccess }: HomeProps & { userId?: number }
                 </div>
 
                 {withheld.length > 0 && (
-                  <p className="mt-6 pt-5 border-t border-slate-800 text-xs text-slate-500 leading-relaxed">
+                  <p className="mt-6 pt-5 border-t border-slate-800 text-xs text-slate-400 leading-relaxed">
                     No percentile is reported for{" "}
                     <span className="text-slate-400">
                       {withheld.map((g) => prettyGroup(g.group)).join(", ")}
