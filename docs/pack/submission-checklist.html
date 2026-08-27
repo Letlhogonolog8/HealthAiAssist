@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Submission Checklist</title>
+<style>
+@page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+
+:root {
+  --ink: #14191b;
+  --ink-mid: #454f54;
+  --ink-faint: #6b7378;
+  --rule: #d4d8d4;
+  --accent: #0e6e6b;
+  --crit: #a8302a;
+  --sunk: #f4f5f3;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+  font-size: 10.5pt;
+  line-height: 1.5;
+  color: var(--ink);
+  max-width: 190mm;
+  margin: 0 auto;
+  padding: 8mm 0;
+  background: #fff;
+}
+
+h1, h2, h3, h4 {
+  font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  page-break-after: avoid;
+}
+h1 { font-size: 21pt; border-bottom: 2.5pt solid var(--ink); padding-bottom: 4mm; margin: 0 0 6mm; }
+h2 { font-size: 14pt; margin: 9mm 0 3mm; border-bottom: 0.5pt solid var(--rule); padding-bottom: 1.5mm; }
+h3 { font-size: 11.5pt; margin: 6mm 0 2mm; }
+h4 { font-size: 10pt; margin: 4mm 0 1.5mm; color: var(--ink-mid); }
+
+p { margin: 0 0 3mm; orphans: 3; widows: 3; }
+ul, ol { margin: 0 0 3mm; padding-left: 6mm; }
+li { margin-bottom: 1.2mm; }
+
+strong { font-weight: 600; }
+
+/* Reproduction commands are the point of the document. They must be legible
+   and must not wrap in a way that changes what they say. */
+code {
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: 8.8pt;
+  background: var(--sunk);
+  padding: 0.3mm 1mm;
+  border-radius: 0.6mm;
+  word-break: break-word;
+}
+pre {
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: 8.4pt;
+  line-height: 1.45;
+  background: var(--sunk);
+  border: 0.4pt solid var(--rule);
+  border-left: 2pt solid var(--accent);
+  padding: 3mm 4mm;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  page-break-inside: avoid;
+  margin: 0 0 4mm;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 9pt;
+  margin: 0 0 4mm;
+  page-break-inside: avoid;
+}
+th, td {
+  border: 0.4pt solid var(--rule);
+  padding: 1.6mm 2.2mm;
+  text-align: left;
+  vertical-align: top;
+}
+th {
+  background: var(--sunk);
+  font-family: "Segoe UI", Arial, sans-serif;
+  font-size: 8.2pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-mid);
+}
+
+blockquote {
+  margin: 0 0 4mm;
+  padding: 2.5mm 4mm;
+  border-left: 2pt solid var(--crit);
+  background: #faf3f2;
+  page-break-inside: avoid;
+}
+blockquote p:last-child { margin-bottom: 0; }
+
+hr { border: 0; border-top: 0.5pt solid var(--rule); margin: 7mm 0; }
+
+a { color: var(--accent); text-decoration: none; }
+
+.docfoot {
+  margin-top: 10mm;
+  padding-top: 3mm;
+  border-top: 1pt solid var(--ink);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 7.6pt;
+  color: var(--ink-faint);
+  line-height: 1.6;
+}
+</style>
+</head><body>
+<h1>Submission Readiness</h1>
+<p>Pre-Application Guidelines §10, worked line by line, with the state of each item
+as at the last verification run.</p>
+<p><strong>Deadline: 25 September 2026, 23:59 SAST. Submit on the 24th.</strong></p>
+<hr />
+<h2>Blocking — nothing else matters until these close</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Item</th>
+<th>State</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>B1</strong></td>
+<td><strong>South African entity or institutional affiliation</strong></td>
+<td>✗ <strong>UNRESOLVED</strong></td>
+</tr>
+<tr>
+<td><strong>B2</strong></td>
+<td><strong>Named clinical advisor</strong></td>
+<td>✗ <strong>UNRESOLVED</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>B1 is an eligibility gate.</strong> Entry is restricted to SA-registered SMMEs,
+university-based teams, science-council teams, or academic laboratories. Nothing
+in this repository establishes which applies. Either produce CIPC registration
+(plus a SARS tax compliance PIN, which §5 lists as a possible request) or a
+signed institutional authorisation letter.</p>
+<p><strong>B2 is the largest single scoring gain available.</strong> §4.1 rewards
+multidisciplinary teams and §7 scores "clinical utility and usability" — a
+criterion that cannot be evidenced at all by a team with no clinician in it. The
+outreach email and reviewer brief are written and ready in
+<code>docs/CLINICAL_ADVISOR_BRIEF.md</code>; it needs sending.</p>
+<p>Both depend on other people replying. Both have been outstanding since the
+beginning. Neither is an engineering task.</p>
+<hr />
+<h2>§10 checklist</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Requirement</th>
+<th>State</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Product aligns with the challenge problem statement</td>
+<td>✓</td>
+<td>Modernising legacy diagnostic workflow: AI triage behind installed radiology hardware, no equipment replaced</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Correct TRL selected</td>
+<td>✓ <strong>TRL 4</strong></td>
+<td>Proof of concept and safety demonstrated in a defined laboratory model. No regulatory review, so not TRL 5</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Only one category selected</td>
+<td>✓ <strong>Category A</strong></td>
+<td></td>
+</tr>
+<tr>
+<td>4</td>
+<td>Only one primary track selected</td>
+<td>✓ <strong>Track 2</strong></td>
+<td>Track 3 referenced as ecosystem contribution only, never as a second entry</td>
+</tr>
+<tr>
+<td>5</td>
+<td>All form sections complete</td>
+<td>⧗</td>
+<td>Text drafted in <code>APPLICATION_TEXT.md</code>; two <code>[CONFIRM]</code> markers correspond to B1 and B2</td>
+</tr>
+<tr>
+<td>6</td>
+<td>All supporting documentation uploaded</td>
+<td>⧗</td>
+<td>Pack assembled below; entity documents blocked on B1</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Integration across device, AI and workflow demonstrated</td>
+<td>◐ <strong>2 of 3</strong></td>
+<td>AI and workflow implemented; device layer is a costed plan under the §3 allowance</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Reviewed for accuracy, completeness and clarity</td>
+<td>✓</td>
+<td>See verification below</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>Supporting documents</h2>
+<table>
+<thead>
+<tr>
+<th>Document</th>
+<th>Format</th>
+<th>State</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Model cards</td>
+<td><code>model-cards.pdf</code> (8 pp)</td>
+<td>✓ Every figure with its reproduction command</td>
+</tr>
+<tr>
+<td>Architecture</td>
+<td><code>architecture.pdf</code></td>
+<td>✓ Three §2 components, refusal paths</td>
+</tr>
+<tr>
+<td>Application text</td>
+<td><code>APPLICATION_TEXT.md</code></td>
+<td>⧗ Two <code>[CONFIRM]</code> markers</td>
+</tr>
+<tr>
+<td>Device integration plan</td>
+<td><code>docs/DEVICE_INTEGRATION.md</code></td>
+<td>✓ Costed, named partner targets</td>
+</tr>
+<tr>
+<td>DPIA</td>
+<td><code>docs/DPIA.md</code></td>
+<td>✓ 16 risks, six unmet conditions</td>
+</tr>
+<tr>
+<td>Retention and erasure</td>
+<td><code>docs/RETENTION.md</code></td>
+<td>✓ Including what is not implemented</td>
+</tr>
+<tr>
+<td>Accessibility audit</td>
+<td><code>docs/ACCESSIBILITY.md</code></td>
+<td>✓ WCAG 2.1 AA, zero violations</td>
+</tr>
+<tr>
+<td>Failure modes and incident response</td>
+<td><code>FAILURE_MODES.md</code></td>
+<td>✓ Seven gaps stated</td>
+</tr>
+<tr>
+<td>Demonstration script</td>
+<td><code>DEMO_SCRIPT.md</code></td>
+<td>✓ Rehearsed, figures verified</td>
+</tr>
+<tr>
+<td>Translation status</td>
+<td><code>docs/TRANSLATION.md</code></td>
+<td>✓ Records that i18n is inert</td>
+</tr>
+<tr>
+<td>Demonstration video</td>
+<td>—</td>
+<td>✗ <strong>Not recorded</strong></td>
+</tr>
+<tr>
+<td>CIPC / institutional letter</td>
+<td>—</td>
+<td>✗ Blocked on B1</td>
+</tr>
+<tr>
+<td>Clinical advisor letter</td>
+<td>—</td>
+<td>✗ Blocked on B2</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>Verification — last full run</h2>
+<table>
+<thead>
+<tr>
+<th>Check</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>npx tsc --noEmit</code></td>
+<td>clean</td>
+</tr>
+<tr>
+<td><code>npm run build</code></td>
+<td>clean, service worker generated</td>
+</tr>
+<tr>
+<td><code>npm test</code></td>
+<td><strong>171 / 171</strong>, 42 suites</td>
+</tr>
+<tr>
+<td>Python modules compile</td>
+<td>✓</td>
+</tr>
+<tr>
+<td>Accessibility (axe-core, WCAG 2.1 AA)</td>
+<td>0 violations, both themes</td>
+</tr>
+</tbody>
+</table>
+<h3>Demo rehearsal — every figure in the script confirmed against a live system</h3>
+<table>
+<thead>
+<tr>
+<th>Act</th>
+<th>Claimed</th>
+<th>Measured</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>I — skin result</td>
+<td>malignant, Grad-CAM present</td>
+<td><code>malignant 99.52</code>, explanation present</td>
+</tr>
+<tr>
+<td>II — chest → skin model</td>
+<td>refused, 37.04 / 22.63</td>
+<td><strong>exact</strong></td>
+</tr>
+<tr>
+<td>II — skin → lung model</td>
+<td>refused, ~26.1 / 16.51</td>
+<td><code>26.125 / 16.51</code></td>
+</tr>
+<tr>
+<td>III — unsupported modality</td>
+<td>503, no diagnostic content, queued</td>
+<td><strong>exact</strong>, <code>queuedForManualReview: true</code>, no diagnostic field present</td>
+</tr>
+<tr>
+<td>V — clinical DICOM → lung</td>
+<td>422 with explicit reason</td>
+<td><strong>exact</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>One correction made during rehearsal.</strong> The script claimed sub-second latency
+while Act I demonstrates Grad-CAM, which costs ~1.2 s. Warm inference is ~470 ms;
+with the overlay it is ~1.7 s. The script now says so, because a panellist
+noticing the gap between a claim and the clock is worse than the extra second.</p>
+<h3>Capacity</h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Warm inference</td>
+<td>~470 ms skin, ~430 ms lung</td>
+</tr>
+<tr>
+<td>Sustained throughput</td>
+<td>~2 scans/second per instance</td>
+</tr>
+<tr>
+<td>30 concurrent</td>
+<td>27 served, 3 shed with 503 + <code>Retry-After</code>, queue drained to zero</td>
+</tr>
+</tbody>
+</table>
+<p>Shedding is the designed behaviour: past the queue depth the service refuses
+rather than accumulating work, and a 503 becomes a scan queued for manual review.</p>
+<hr />
+<h2>Before submitting — operational</h2>
+<ul>
+<li>[ ] <strong>Rotate every credential.</strong> <code>SECURITY_CHECKLIST.md</code> records that the
+      OpenAI key, Twilio credentials, Google Calendar credentials and database
+      password were exposed in git history. <code>.env</code> is gitignored now; history is
+      history.</li>
+<li>[ ] Run <code>npm run db:migrate-mfa</code> and <code>npm run db:migrate-care</code> on any
+      environment being demonstrated.</li>
+<li>[ ] Set <code>INFERENCE_URL</code> wherever the demo runs — without it every scan takes
+      8–14 s and DICOM is not converted.</li>
+<li>[ ] Provision a separate test database, so <code>npm test</code> no longer needs
+      <code>TEST_ALLOW_SHARED_DATABASE=true</code> against the live instance.</li>
+<li>[ ] Decide on <code>MFA_ENFORCE</code> and <code>CARE_RELATIONSHIP_ENFORCE</code>. Both are off.
+      Run in shadow mode, read <code>CARE_RELATIONSHIP_WOULD_BLOCK</code> in
+      <code>audit_events</code>, then enable. Until then the DPIA correctly marks R-02 and
+      R-07 as mitigated-in-shadow rather than closed.</li>
+<li>[ ] Record the demonstration video. Five acts, ~90 seconds of it refusals.</li>
+</ul>
+<hr />
+<h2>What this entry does not claim</h2>
+<p>Collected in one place, because a panel that finds an overstatement stops
+trusting the rest — and because every one of these is stated in the pack rather
+than omitted from it.</p>
+<ul>
+<li>No clinical validation. No prospective data. No patients.</li>
+<li>No regulatory clearance or submission in any jurisdiction. Expected
+  classification Class B/IIa SaMD, to be confirmed at pre-submission.</li>
+<li>No POPIA compliance claim. The DPIA records six unmet conditions, the first
+  being that no Information Officer has been appointed.</li>
+<li><strong>The lung model cannot read clinical DICOM.</strong> Every window tested — 20.3 to
+  30.4 against a 16.51 threshold. Retraining on a documented CT dataset is the
+  first item of clinical work.</li>
+<li><strong>Skin performance on darker skin cannot be established</strong> from the test set.
+  4.3% of images are brown or darker; the darkest bin holds four with no
+  controls.</li>
+<li>Breast, colon and prostate have no classifier and are not offered.</li>
+<li>No FHIR or HL7. DICOM ingest only, one direction.</li>
+<li>English only in practice — and no component consumes translations at all.</li>
+<li>No named accountable clinician for the review queue, no turnaround target, no
+  out-of-hours cover.</li>
+</ul>
+<p>Every one of these was found and published by this project rather than
+discovered by an evaluator. That is the argument the entry rests on, and it only
+works if the list stays complete.</p>
+<div class="docfoot">
+Generated from SUBMISSION_CHECKLIST.md by scripts/render-doc.py.<br>
+Every figure in this document is reproducible with the commands it contains.
+HealthAI Assistant &middot; 2026 South Africa MedTech Innovation Challenge.
+</div>
+</body></html>

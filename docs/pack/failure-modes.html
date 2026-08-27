@@ -336,7 +336,11 @@ removes the instance; <code>/api/health</code> stays 200 so a transient blip doe
 the container killed.</p>
 <h3>T-02 · Inference service down or saturated</h3>
 <p>Scans answer 503 and queue for manual review (F-01). Saturation returns
-<code>Retry-After</code> rather than accumulating work. <code>/api/ready</code> reports reachability
+<code>Retry-After</code> rather than accumulating work.</p>
+<p>Measured: 30 concurrent requests against one instance served 27 and shed 3 with
+503, queue draining to zero. Sustained throughput ~2 scans/second — inference is
+serialised, so that is the designed ceiling. Shedding beyond it is the intended
+behaviour, not a failure, and nothing submitted is lost. <code>/api/ready</code> reports reachability
 and the resident artifact hashes, so an operator can confirm the service holds
 the artifact that <code>medical_scans.model_version</code> names.</p>
 <h3>T-03 · Object storage unavailable</h3>

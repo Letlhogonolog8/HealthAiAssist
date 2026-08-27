@@ -134,7 +134,12 @@ the container killed.
 ### T-02 · Inference service down or saturated
 
 Scans answer 503 and queue for manual review (F-01). Saturation returns
-`Retry-After` rather than accumulating work. `/api/ready` reports reachability
+`Retry-After` rather than accumulating work.
+
+Measured: 30 concurrent requests against one instance served 27 and shed 3 with
+503, queue draining to zero. Sustained throughput ~2 scans/second — inference is
+serialised, so that is the designed ceiling. Shedding beyond it is the intended
+behaviour, not a failure, and nothing submitted is lost. `/api/ready` reports reachability
 and the resident artifact hashes, so an operator can confirm the service holds
 the artifact that `medical_scans.model_version` names.
 

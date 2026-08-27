@@ -35,7 +35,12 @@ curl -s localhost:8001/healthz | python -m json.tool
 Checklist:
 
 - [ ] `/healthz` shows `"loaded": true` for **both** models
-- [ ] A warm scan returns in under a second — run one before the panel arrives
+- [ ] A warm scan returns in **~470 ms**. Run two before the panel arrives — the
+      first request after start-up traces the graphs and is slower.
+- [ ] Know the Grad-CAM number: turning it on costs **~1.2 s extra**, so Act I
+      lands at roughly 1.7 s, not 500 ms. Say "about a second and a half, and
+      most of that is the explanation" rather than letting a panellist notice a
+      gap between the claim and the clock.
 - [ ] Test images to hand: a malignant dermoscopic image, a held-out chest PNG, a real DICOM
 - [ ] Signed in as a patient in one browser profile, a radiologist in another
 - [ ] Browser zoom at 100%; DevTools closed until Act IV
@@ -55,7 +60,8 @@ Upload a malignant dermoscopic image as the patient.
 - **Clinician review required** — *"there is no path through this system that skips it"*
 - The model version — *"a hash of the artifact that produced this, so this result can still be explained after the model is retrained"*
 
-Toggle the **Grad-CAM overlay**.
+Toggle the **Grad-CAM overlay**. It adds about 1.2 s — say so rather than
+letting it look like the base latency.
 
 > This shows where the model looked. It is not a lesion boundary and not a
 > measurement, and the caption says so. It is here because a clinician will not
@@ -177,6 +183,24 @@ Then hand over the model card, open at the skin-tone section.
 > What we would ask you to weigh instead is that this system knows when it does
 > not know — and that every limitation you have just seen, we found and published
 > ourselves.
+
+---
+
+## Capacity, if asked
+
+Measured on the development machine, one inference instance:
+
+| | |
+|---|---|
+| Warm inference | ~470 ms (skin), ~430 ms (lung) |
+| With Grad-CAM | ~1.7 s |
+| Sustained throughput | ~2 scans/second — inference is serialised behind a lock, so this is the designed ceiling, not a bottleneck to fix |
+| 30 concurrent requests | 27 served, **3 shed with 503 + Retry-After**, queue drained to zero |
+
+The shedding is the point. Past the queue depth the service refuses rather than
+accumulating work it cannot reach — and a 503 becomes a scan queued for manual
+review, so nothing is lost. Roughly 7,000 scans an hour on one instance is well
+beyond what a district hospital produces.
 
 ---
 

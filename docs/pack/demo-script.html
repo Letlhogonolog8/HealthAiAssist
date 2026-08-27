@@ -144,7 +144,12 @@ curl -s localhost:8001/healthz | python -m json.tool
 <p>Checklist:</p>
 <ul>
 <li>[ ] <code>/healthz</code> shows <code>"loaded": true</code> for <strong>both</strong> models</li>
-<li>[ ] A warm scan returns in under a second — run one before the panel arrives</li>
+<li>[ ] A warm scan returns in <strong>~470 ms</strong>. Run two before the panel arrives — the
+      first request after start-up traces the graphs and is slower.</li>
+<li>[ ] Know the Grad-CAM number: turning it on costs <strong>~1.2 s extra</strong>, so Act I
+      lands at roughly 1.7 s, not 500 ms. Say "about a second and a half, and
+      most of that is the explanation" rather than letting a panellist notice a
+      gap between the claim and the clock.</li>
 <li>[ ] Test images to hand: a malignant dermoscopic image, a held-out chest PNG, a real DICOM</li>
 <li>[ ] Signed in as a patient in one browser profile, a radiologist in another</li>
 <li>[ ] Browser zoom at 100%; DevTools closed until Act IV</li>
@@ -161,7 +166,8 @@ not produced a diagnosis. Notice what came back with the number.</p>
 - The calibrated probability — <em>"calibration measured at 0.024 expected error, so when it says 90% it is right about 90% of the time"</em>
 - <strong>Clinician review required</strong> — <em>"there is no path through this system that skips it"</em>
 - The model version — <em>"a hash of the artifact that produced this, so this result can still be explained after the model is retrained"</em></p>
-<p>Toggle the <strong>Grad-CAM overlay</strong>.</p>
+<p>Toggle the <strong>Grad-CAM overlay</strong>. It adds about 1.2 s — say so rather than
+letting it look like the base latency.</p>
 <blockquote>
 <p>This shows where the model looked. It is not a lesion boundary and not a
 measurement, and the caption says so. It is here because a clinician will not
@@ -267,6 +273,39 @@ in this competition will claim higher.</p>
 not know — and that every limitation you have just seen, we found and published
 ourselves.</p>
 </blockquote>
+<hr />
+<h2>Capacity, if asked</h2>
+<p>Measured on the development machine, one inference instance:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Warm inference</td>
+<td>~470 ms (skin), ~430 ms (lung)</td>
+</tr>
+<tr>
+<td>With Grad-CAM</td>
+<td>~1.7 s</td>
+</tr>
+<tr>
+<td>Sustained throughput</td>
+<td>~2 scans/second — inference is serialised behind a lock, so this is the designed ceiling, not a bottleneck to fix</td>
+</tr>
+<tr>
+<td>30 concurrent requests</td>
+<td>27 served, <strong>3 shed with 503 + Retry-After</strong>, queue drained to zero</td>
+</tr>
+</tbody>
+</table>
+<p>The shedding is the point. Past the queue depth the service refuses rather than
+accumulating work it cannot reach — and a 503 becomes a scan queued for manual
+review, so nothing is lost. Roughly 7,000 scans an hour on one instance is well
+beyond what a district hospital produces.</p>
 <hr />
 <h2>Questions to expect</h2>
 <table>
