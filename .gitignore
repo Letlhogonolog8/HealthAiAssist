@@ -90,3 +90,9 @@ cookies.txt
 set-openai-key.bat
 *.env.production.local
 inference/__pycache__/
+
+# LIDC-IDRI working files. The annotations and manifests are redistributable
+# under CC BY 3.0, but they are large and reproducible from the TCIA download,
+# so the derived label table is tracked and the source folder is not.
+TCIA Folder/
+dataset/lidc-subset.tcia
