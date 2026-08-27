@@ -1,0 +1,588 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Application Text</title>
+<style>
+@page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+
+:root {
+  --ink: #14191b;
+  --ink-mid: #454f54;
+  --ink-faint: #6b7378;
+  --rule: #d4d8d4;
+  --accent: #0e6e6b;
+  --crit: #a8302a;
+  --sunk: #f4f5f3;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+  font-size: 10.5pt;
+  line-height: 1.5;
+  color: var(--ink);
+  max-width: 190mm;
+  margin: 0 auto;
+  padding: 8mm 0;
+  background: #fff;
+}
+
+h1, h2, h3, h4 {
+  font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  page-break-after: avoid;
+}
+h1 { font-size: 21pt; border-bottom: 2.5pt solid var(--ink); padding-bottom: 4mm; margin: 0 0 6mm; }
+h2 { font-size: 14pt; margin: 9mm 0 3mm; border-bottom: 0.5pt solid var(--rule); padding-bottom: 1.5mm; }
+h3 { font-size: 11.5pt; margin: 6mm 0 2mm; }
+h4 { font-size: 10pt; margin: 4mm 0 1.5mm; color: var(--ink-mid); }
+
+p { margin: 0 0 3mm; orphans: 3; widows: 3; }
+ul, ol { margin: 0 0 3mm; padding-left: 6mm; }
+li { margin-bottom: 1.2mm; }
+
+strong { font-weight: 600; }
+
+/* Reproduction commands are the point of the document. They must be legible
+   and must not wrap in a way that changes what they say. */
+code {
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: 8.8pt;
+  background: var(--sunk);
+  padding: 0.3mm 1mm;
+  border-radius: 0.6mm;
+  word-break: break-word;
+}
+pre {
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: 8.4pt;
+  line-height: 1.45;
+  background: var(--sunk);
+  border: 0.4pt solid var(--rule);
+  border-left: 2pt solid var(--accent);
+  padding: 3mm 4mm;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  page-break-inside: avoid;
+  margin: 0 0 4mm;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 9pt;
+  margin: 0 0 4mm;
+  page-break-inside: avoid;
+}
+th, td {
+  border: 0.4pt solid var(--rule);
+  padding: 1.6mm 2.2mm;
+  text-align: left;
+  vertical-align: top;
+}
+th {
+  background: var(--sunk);
+  font-family: "Segoe UI", Arial, sans-serif;
+  font-size: 8.2pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-mid);
+}
+
+blockquote {
+  margin: 0 0 4mm;
+  padding: 2.5mm 4mm;
+  border-left: 2pt solid var(--crit);
+  background: #faf3f2;
+  page-break-inside: avoid;
+}
+blockquote p:last-child { margin-bottom: 0; }
+
+hr { border: 0; border-top: 0.5pt solid var(--rule); margin: 7mm 0; }
+
+a { color: var(--accent); text-decoration: none; }
+
+.docfoot {
+  margin-top: 10mm;
+  padding-top: 3mm;
+  border-top: 1pt solid var(--ink);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 7.6pt;
+  color: var(--ink-faint);
+  line-height: 1.6;
+}
+</style>
+</head><body>
+<h1>Application Text</h1>
+<p>Drafted against the Pre-Application Guidelines section by section, so each
+answer can be pasted into the corresponding form field.</p>
+<p><strong>Category A (TRL 4) · Track 2 — AI-Enabled Care and Triage</strong></p>
+<blockquote>
+<p><strong>Before submitting:</strong> two facts in this document are not yet true and are
+marked <code>[CONFIRM]</code>. Do not submit with either unresolved — the entity status
+is an eligibility gate, and a named clinical advisor is the difference between
+a strong answer and a weak one on §7's team criterion.</p>
+</blockquote>
+<hr />
+<h2>§4.2 — Product or Technology Description</h2>
+<h3>1. A clear description, supported by available evidence</h3>
+<p>HealthAI Assistant is a <strong>cancer screening triage platform</strong>. It accepts a
+medical image, runs a convolutional classifier over it, and routes the result to
+a clinician for review. It produces no diagnosis, and no path through the system
+bypasses human sign-off.</p>
+<p>Two modalities have a trained, evaluated classifier:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Skin (dermoscopic)</th>
+<th>Lung (chest imaging)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Balanced accuracy</td>
+<td><strong>0.864</strong></td>
+<td><strong>0.785</strong></td>
+</tr>
+<tr>
+<td>Sensitivity</td>
+<td>0.913</td>
+<td>0.812</td>
+</tr>
+<tr>
+<td>Specificity</td>
+<td>0.814</td>
+<td>0.757</td>
+</tr>
+<tr>
+<td>Held-out test set</td>
+<td>660 images</td>
+<td>554 images</td>
+</tr>
+<tr>
+<td>Calibration (ECE)</td>
+<td>0.024</td>
+<td>0.017</td>
+</tr>
+<tr>
+<td>Test AUC</td>
+<td>—</td>
+<td>0.88</td>
+</tr>
+</tbody>
+</table>
+<p>Every figure is from a held-out split never used in training or model selection,
+and every one is reproducible with a command published in the model card:</p>
+<pre><code>python scripts/evaluate-model.py &lt;model.h5&gt; &lt;data_dir&gt; &lt;class0&gt; &lt;class1&gt;
+</code></pre>
+<p>Breast, colon and prostate are <strong>not</strong> offered. They have no classifier;
+requests for them return HTTP 503 with no diagnostic content and queue the scan
+for a human. This is stated rather than concealed because a menu with dead
+entries is the failure the platform is built to avoid.</p>
+<h3>2. How it functions</h3>
+<pre><code>Image (JPEG/PNG/TIFF/WebP/AVIF, or DICOM)
+   │
+   ├─ Content verified from magic bytes, not the declared MIME type
+   ├─ DICOM: de-identified (PS3.15 Basic Profile) and windowed before anything is stored
+   │
+   ├─ Pixel-level quality screen ──────────► refuse: blank, blurred, over-exposed
+   ├─ Out-of-distribution screen ──────────► refuse: not the kind of image this model reads
+   │
+   ├─ Classifier (ResNet50V2, resident in memory, ~500 ms)
+   ├─ Temperature-calibrated probability
+   ├─ Screening operating point (not argmax)
+   │
+   ├─ Grad-CAM overlay (optional, on request)
+   │
+   ▼
+Radiologist review queue  →  clinician sign-off  →  confirmed outcome recorded
+                                                          │
+                                                          ▼
+                                            production performance, measurable
+</code></pre>
+<p>Three properties are worth drawing out:</p>
+<p><strong>The operating point is chosen clinically, not statistically.</strong> The lung
+threshold is 0.30 on the calibrated probability, not argmax. Argmax scores
+better on balanced accuracy (0.838 vs 0.785) and misses 86 of 282 cancers; the
+deployed threshold misses 53. Trading false alarms for missed cancers is the
+correct direction for screening, and the full threshold sweep is published.</p>
+<p><strong>Out-of-distribution screening is measured, not asserted.</strong> PCA reconstruction
+error in ResNet feature space, thresholded at the 99.5th percentile of the
+training features. Wrong-modality images flag at 100%; held-out same-modality
+images at 0.8%.</p>
+<p><strong>Confirmed outcomes are recorded per scan.</strong> An append-only <code>scan_outcomes</code>
+table stores what each scan turned out to be, who established it, and by what
+method — histopathology through to clinical follow-up, ranked by evidentiary
+strength. <code>GET /api/models/performance</code> computes a confusion matrix from those
+with denominators and confidence intervals attached. This is the architecture a
+post-market surveillance plan requires, built before there is anything to
+surveil.</p>
+<h3>3. Technologies used</h3>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Technology</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Models</td>
+<td>TensorFlow / Keras, ResNet50V2 (ImageNet trunk, frozen; trained head)</td>
+</tr>
+<tr>
+<td>Inference</td>
+<td>FastAPI service holding both models resident, bounded request queue</td>
+</tr>
+<tr>
+<td>Explainability</td>
+<td>Grad-CAM on the final convolutional feature map</td>
+</tr>
+<tr>
+<td>Medical imaging</td>
+<td>pydicom — DICOM ingest, de-identification, modality/VOI LUT windowing</td>
+</tr>
+<tr>
+<td>Application</td>
+<td>Node.js, Express, TypeScript, React, PostgreSQL (Drizzle)</td>
+</tr>
+<tr>
+<td>Offline</td>
+<td>Service worker, IndexedDB queue, background sync</td>
+</tr>
+<tr>
+<td>Security</td>
+<td>AES-GCM at rest under a rotatable keyring, TOTP second factor, append-only audit</td>
+</tr>
+<tr>
+<td>Genomics</td>
+<td>PGS Catalog scoring files, ancestry-aware reporting</td>
+</tr>
+<tr>
+<td>Observability</td>
+<td>Prometheus metrics; separated liveness and readiness probes</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Device layer:</strong> not built. A costed integration plan naming candidate capture
+hardware and a DICOM path from installed radiology equipment is in
+<code>docs/DEVICE_INTEGRATION.md</code>. Guidelines §3 permits Category A applicants to
+demonstrate integration through architecture and development plans, and that is
+what is offered rather than an invented capability.</p>
+<h3>4. Evidence of testing and validation</h3>
+<p><strong>Model evaluation.</strong> Held-out splits, calibration measured (and applied to lung,
+deliberately not applied to skin because it did not improve validation ECE),
+out-of-distribution detection measured, threshold sweep published. Skin-tone
+performance measured by Individual Typology Angle across 511 of 660 test images.</p>
+<p><strong>Software.</strong> 171 automated tests across 42 suites, run in CI on every push
+against an ephemeral PostgreSQL instance. The authorisation matrix exists because
+several <code>/api/doctor/*</code> routes were once found serving patient names and clinical
+notes to anonymous callers — a regression nobody noticed because nothing ran the
+checks.</p>
+<p><strong>Accessibility.</strong> Audited against WCAG 2.1 AA with axe-core through a real
+browser. Zero violations across the public site, patient dashboard, all five
+tabs, both dialogs, and in both themes.</p>
+<p><strong>What has <em>not</em> been done, stated plainly:</strong> no clinical validation, no
+prospective data, no patients, no regulatory clearance in any jurisdiction, and
+no clinician has used the system in practice. <code>[CONFIRM: revise if a clinical
+advisor has by submission.]</code></p>
+<h3>5. Intended users and healthcare context</h3>
+<table>
+<thead>
+<tr>
+<th>User</th>
+<th>What they do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Primary care clinician, CHW</td>
+<td>Captures or uploads an image at the point of care</td>
+</tr>
+<tr>
+<td>Radiologist / dermatologist</td>
+<td>Reviews every flagged result; signs off; records the confirmed outcome</td>
+</tr>
+<tr>
+<td>Patient</td>
+<td>Sees that a scan was received and is under review — never an unreviewed finding</td>
+</tr>
+<tr>
+<td>Administrator</td>
+<td>Access review, break-glass oversight, erasure requests</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Context:</strong> South African district and regional facilities where the constraint
+is specialist reading time, not imaging capacity. A scanner that produces images
+faster than anyone can read them creates a backlog; triage decides what is read
+first.</p>
+<p>The system is built for that setting rather than adapted to it: it operates
+offline and syncs on reconnect, it runs on one modest instance, and it refuses
+rather than guesses when conditions are outside what it was validated for.</p>
+<h3>6. The problem, and the value proposition</h3>
+<p><strong>The problem.</strong> South Africa has very few radiologists and dermatologists
+relative to population, concentrated in urban and private settings. Images are
+acquired in district facilities and wait — sometimes weeks — for a reader. Late
+presentation is the dominant driver of cancer mortality here, and a delay
+between acquisition and reading is a delay in every downstream step.</p>
+<p><strong>What we do not claim.</strong> This does not replace a specialist, and it is not more
+accurate than one. At 0.785 balanced accuracy the lung model misses roughly 1 in
+5 cancers and flags 1 in 4 healthy scans.</p>
+<p><strong>What it offers instead:</strong> <em>ordering</em>. A queue read in arrival order treats an
+urgent scan and a routine one identically. A queue ordered by a calibrated
+probability — with every scan still read by a human, and the tool declining to
+answer when it should not — puts the concerning scan in front of the specialist
+sooner, without removing anyone from the loop.</p>
+<p>That is a smaller claim than most clinical AI makes, and it is one the evidence
+actually supports.</p>
+<hr />
+<h2>§4.3 — Innovation and Differentiation</h2>
+<p><strong>The innovation is refusal by design.</strong></p>
+<p>Most clinical AI fails in the field not because its accuracy is too low, but
+because it answers confidently in situations it was never validated for. It is
+handed the wrong modality and returns a verdict. It is handed a blurred frame
+and returns a verdict. Its model fails to load and something downstream fills
+the gap with a default. Each failure produces output indistinguishable from a
+real result.</p>
+<p>This platform is architected so that it cannot do those things, and each refusal
+is measured rather than asserted:</p>
+<table>
+<thead>
+<tr>
+<th>Refusal</th>
+<th>Mechanism</th>
+<th>Measured</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>No validated model</strong> → 503, no diagnostic content, queued for a human</td>
+<td>Model registry gated on measured balanced accuracy</td>
+<td>Breast, colon, prostate refused; a modality cannot be offered by the UI unless the server will analyse it</td>
+</tr>
+<tr>
+<td><strong>Input outside training distribution</strong> → refused, not classified</td>
+<td>PCA reconstruction error in feature space</td>
+<td>Wrong-modality 100%, in-distribution 0.8%</td>
+</tr>
+<tr>
+<td><strong>Degenerate image</strong> → refused</td>
+<td>Pixel statistics: variance, level, Laplacian</td>
+<td>Blank frames caught, which the feature detector scores as in-distribution</td>
+</tr>
+<tr>
+<td><strong>Clinical DICOM to the lung model</strong> → refused explicitly, with the reason</td>
+<td>Deterministic gate ahead of the OOD screen</td>
+<td>Every window tested: 20.3–30.4 against a 16.51 threshold</td>
+</tr>
+<tr>
+<td><strong>Polygenic score that does not transfer</strong> → no percentile shown at all</td>
+<td>Ancestry transferability, Martin et al. 2019</td>
+<td>African-ancestry percentiles withheld entirely</td>
+</tr>
+<tr>
+<td><strong>Partially translated language</strong> → not offered</td>
+<td>Safety-critical key gate plus human sign-off</td>
+<td>Spanish withheld: 29 navigation keys, no clinical text</td>
+</tr>
+</tbody>
+</table>
+<p>Three of these deserve specific mention.</p>
+<p><strong>The lung model refuses real DICOM, and we published that.</strong> DICOM ingest was
+built, pointed at genuine clinical objects, and immediately established that the
+lung classifier — trained on web-sourced images of unrecorded provenance —
+refuses every real acquisition. Correcting the windowing did not help; the
+radiologically correct lung window scores <em>worse</em>. This is documented in the
+model card as a blocking limitation, with retraining on a documented CT dataset
+named as the first item of clinical work.</p>
+<p>A system that accepted that CT and returned a probability would have
+demonstrated better and been worthless in a clinic.</p>
+<p><strong>The skin fairness finding is negative, and published.</strong> Skin tone was measured
+across the test set. The conclusion is that <strong>the dataset cannot establish
+performance on darker skin</strong> — only 4.3% of images are brown or darker, and the
+Dark bin holds four images with no benign controls. The model card states in
+bold that absence of a measured disparity is evidence of an unrepresentative
+test set, not of fairness.</p>
+<p>For a South African deployment this is the most important thing in the
+documentation, and publishing it rather than an encouraging aggregate is the
+differentiator.</p>
+<p><strong>Genomics that withholds.</strong> Polygenic scores use a real PGS Catalog panel
+(PGS000339, Law et al. 2020) rather than invented weights. For African-ancestry
+patients no percentile is reported at all, because the reference distribution is
+European and ranking against it would not mean what it appears to. Unknown
+ancestry is never defaulted to European — that is the assumption which produces
+confident wrong answers for most of the world.</p>
+<p><strong>Distinguishing features versus existing technologies:</strong> calibration measured
+and reported; a screening operating point chosen on clinical grounds with the
+full sweep published; per-scan model provenance derived from a hash of the
+artifact so a stored result can always be explained; and an outcome-recording
+loop that makes production performance measurable rather than assumed.</p>
+<hr />
+<h2>§4.4 — Market and Impact</h2>
+<h3>Target market and end users</h3>
+<p><strong>Primary:</strong> South African public-sector district and regional hospitals, where
+imaging capacity exceeds specialist reading capacity. Entry through a single
+facility pilot with a named radiology or dermatology department.</p>
+<p><strong>Secondary:</strong> private practice groups and pathology networks with the same
+bottleneck and faster procurement.</p>
+<p><strong>Adjacent:</strong> the same constraint holds across much of sub-Saharan Africa, and
+the offline-first design was built for it rather than retrofitted.</p>
+<p>Deliberately not quantified here. Earlier versions of this project's material
+carried a total addressable market and facility counts that were not derived
+from anything, and they have been removed rather than re-estimated. A number we
+cannot source is worth less than the admission that we do not have one.</p>
+<h3>Anticipated impact</h3>
+<p><strong>Health outcomes.</strong> The mechanism is time-to-read, not accuracy. Whether
+ordering a reading queue by calibrated probability shortens time-to-diagnosis
+for the scans where it matters is a measurable question, and the platform
+already records what is needed to answer it. We would rather measure it in a
+pilot than assert it in an application.</p>
+<p><strong>Access.</strong> Offline capture and sync means a facility with intermittent
+connectivity can use the system, and a clinician can photograph a lesion in a
+ward with no signal and have it upload later. Nothing is analysed offline and
+nothing pretends to be.</p>
+<p><strong>Cost.</strong> The DICOM path is the striking figure: <strong>zero capital cost per site</strong>,
+because the scanner is already installed and already emitting the protocol. It
+is not being read promptly, which is a workflow problem rather than an equipment
+one. Dermoscopic capture is R14,500–R28,500 per site indicative, pending
+quotation.</p>
+<p><strong>System-level.</strong> Confirmed outcomes recorded against predictions give a
+facility its own measured performance rather than a vendor's brochure figure —
+which is what a procurement decision and a post-market surveillance plan both
+actually need.</p>
+<p><strong>Social impact in resource-limited settings.</strong> The honest version: this
+platform's own documentation shows that its skin model cannot be shown to work
+on darker skin, because the public datasets it was trained on are 96%
+light-skinned. That is a statement about the field, not only about us. A capture
+programme in South African clinics would build precisely the dataset that does
+not currently exist — a contribution beyond this platform, and the reason the
+dermatology partnership is the first item on our roadmap rather than a later
+one.</p>
+<hr />
+<h2>§6 — Operational and Implementation Readiness</h2>
+<p>Category A is assessed on technical feasibility, validation progress and future
+development plans.</p>
+<p><strong>Feasibility — demonstrated.</strong> Working prototype: 171 tests green in CI, warm
+inference ~500 ms behind a bounded queue, offline capture and sync, DICOM ingest
+with de-identification, second factor, POPIA-compliant cross-border consent.</p>
+<p><strong>Validation progress — partial and stated.</strong> Held-out evaluation with
+calibration and OOD screening measured. No clinical validation, no patients.</p>
+<p><strong>Development plan — the next twelve months:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Quarter</th>
+<th>Work</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Q4 2026</td>
+<td>Retrain lung on a documented CT dataset (LIDC-IDRI/NLST), patient-level splits. Retrospective validation on one SA facility's confirmed outcomes through the existing surveillance endpoint. Reader study, 3–5 clinicians, with and without the tool.</td>
+</tr>
+<tr>
+<td>Q1 2027</td>
+<td>SAHPRA pre-submission engagement; IMDRF SaMD risk classification; ISO 14971 risk file; IEC 62304 lifecycle records. FHIR R4 conformance. Independent penetration test.</td>
+</tr>
+<tr>
+<td>Q2 2027</td>
+<td>Prospective clinical investigation under an approved protocol. Fitzpatrick V–VI dataset acquisition with a dermatology partner.</td>
+</tr>
+<tr>
+<td>Q3 2027</td>
+<td>Multi-site pilot; ISO 13485 QMS.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Regulatory position, stated rather than implied.</strong> Software informing a
+clinical decision is a medical device under the Medicines and Related Substances
+Act. We hold no SAHPRA registration, have made no submission, and make no
+compliance claim. Expected classification is Class B/IIa software as a medical
+device, to be confirmed at pre-submission.</p>
+<hr />
+<h2>Team</h2>
+<p><code>[CONFIRM]</code> — complete before submission.</p>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Technical lead</td>
+<td>Named</td>
+</tr>
+<tr>
+<td>Clinical advisor (radiologist or dermatologist)</td>
+<td><strong>Outstanding.</strong> See <code>docs/CLINICAL_ADVISOR_BRIEF.md</code>.</td>
+</tr>
+<tr>
+<td>Regulatory adviser</td>
+<td>Outstanding</td>
+</tr>
+<tr>
+<td>Entity</td>
+<td><strong>[CONFIRM]</strong> CIPC-registered SMME or institutional affiliation</td>
+</tr>
+</tbody>
+</table>
+<p>Guidelines §4.1 rewards multidisciplinary teams and §7 scores clinical utility.
+Both weaknesses are real and neither is disguised here.</p>
+<hr />
+<h2>Supporting documents</h2>
+<table>
+<thead>
+<tr>
+<th>Document</th>
+<th>Covers</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>docs/pack/model-cards.pdf</code></td>
+<td>Every figure, with reproduction commands and every limitation</td>
+</tr>
+<tr>
+<td><code>docs/pack/architecture.pdf</code></td>
+<td>The three §2 components and the refusal paths</td>
+</tr>
+<tr>
+<td><code>docs/DEVICE_INTEGRATION.md</code></td>
+<td>Device layer plan, costed, with partner targets</td>
+</tr>
+<tr>
+<td><code>docs/DPIA.md</code></td>
+<td>POPIA assessment; 16 risks including six unmet conditions</td>
+</tr>
+<tr>
+<td><code>docs/RETENTION.md</code></td>
+<td>Retention schedule and erasure, with what is not yet implemented</td>
+</tr>
+<tr>
+<td><code>docs/ACCESSIBILITY.md</code></td>
+<td>WCAG 2.1 AA audit and what it does not cover</td>
+</tr>
+<tr>
+<td><code>docs/pack/FAILURE_MODES.md</code></td>
+<td>What happens when each part fails, and who is accountable</td>
+</tr>
+<tr>
+<td><code>docs/pack/DEMO_SCRIPT.md</code></td>
+<td>Demonstration, including the refusal paths</td>
+</tr>
+</tbody>
+</table>
+<div class="docfoot">
+Generated from APPLICATION_TEXT.md by scripts/render-doc.py.<br>
+Every figure in this document is reproducible with the commands it contains.
+HealthAI Assistant &middot; 2026 South Africa MedTech Innovation Challenge.
+</div>
+</body></html>

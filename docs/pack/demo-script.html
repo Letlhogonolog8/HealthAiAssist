@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Demo Script</title>
+<style>
+@page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+
+:root {
+  --ink: #14191b;
+  --ink-mid: #454f54;
+  --ink-faint: #6b7378;
+  --rule: #d4d8d4;
+  --accent: #0e6e6b;
+  --crit: #a8302a;
+  --sunk: #f4f5f3;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+  font-size: 10.5pt;
+  line-height: 1.5;
+  color: var(--ink);
+  max-width: 190mm;
+  margin: 0 auto;
+  padding: 8mm 0;
+  background: #fff;
+}
+
+h1, h2, h3, h4 {
+  font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  page-break-after: avoid;
+}
+h1 { font-size: 21pt; border-bottom: 2.5pt solid var(--ink); padding-bottom: 4mm; margin: 0 0 6mm; }
+h2 { font-size: 14pt; margin: 9mm 0 3mm; border-bottom: 0.5pt solid var(--rule); padding-bottom: 1.5mm; }
+h3 { font-size: 11.5pt; margin: 6mm 0 2mm; }
+h4 { font-size: 10pt; margin: 4mm 0 1.5mm; color: var(--ink-mid); }
+
+p { margin: 0 0 3mm; orphans: 3; widows: 3; }
+ul, ol { margin: 0 0 3mm; padding-left: 6mm; }
+li { margin-bottom: 1.2mm; }
+
+strong { font-weight: 600; }
+
+/* Reproduction commands are the point of the document. They must be legible
+   and must not wrap in a way that changes what they say. */
+code {
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: 8.8pt;
+  background: var(--sunk);
+  padding: 0.3mm 1mm;
+  border-radius: 0.6mm;
+  word-break: break-word;
+}
+pre {
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: 8.4pt;
+  line-height: 1.45;
+  background: var(--sunk);
+  border: 0.4pt solid var(--rule);
+  border-left: 2pt solid var(--accent);
+  padding: 3mm 4mm;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  page-break-inside: avoid;
+  margin: 0 0 4mm;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 9pt;
+  margin: 0 0 4mm;
+  page-break-inside: avoid;
+}
+th, td {
+  border: 0.4pt solid var(--rule);
+  padding: 1.6mm 2.2mm;
+  text-align: left;
+  vertical-align: top;
+}
+th {
+  background: var(--sunk);
+  font-family: "Segoe UI", Arial, sans-serif;
+  font-size: 8.2pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-mid);
+}
+
+blockquote {
+  margin: 0 0 4mm;
+  padding: 2.5mm 4mm;
+  border-left: 2pt solid var(--crit);
+  background: #faf3f2;
+  page-break-inside: avoid;
+}
+blockquote p:last-child { margin-bottom: 0; }
+
+hr { border: 0; border-top: 0.5pt solid var(--rule); margin: 7mm 0; }
+
+a { color: var(--accent); text-decoration: none; }
+
+.docfoot {
+  margin-top: 10mm;
+  padding-top: 3mm;
+  border-top: 1pt solid var(--ink);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 7.6pt;
+  color: var(--ink-faint);
+  line-height: 1.6;
+}
+</style>
+</head><body>
+<h1>Demonstration Script</h1>
+<p><strong>Runtime: 8 minutes.</strong> Written for a panel that has been shown clinical AI
+before and has learned to discount accuracy claims.</p>
+<h2>The one decision this script makes</h2>
+<p><strong>Three of the five demonstrations are the system refusing to answer.</strong></p>
+<p>That is deliberate and it is the whole argument. Every entrant will show a scan
+going in and a confident result coming out. What distinguishes this platform is
+what happens when it <em>should not</em> answer — and those paths are invisible unless
+you show them on purpose.</p>
+<p>Do not cut them for a tidier demo. A video showing only successes is
+indistinguishable from everyone else's.</p>
+<hr />
+<h2>Before you start</h2>
+<pre><code class="language-bash"># 1. Inference service — without it every scan takes 8-14 s instead of ~500 ms
+pip install -r inference/requirements.txt
+uvicorn inference.server:app --host 127.0.0.1 --port 8001
+
+# 2. Application
+export INFERENCE_URL=http://127.0.0.1:8001
+npm run dev
+
+# 3. Confirm both models are resident and their hashes match what gets recorded
+curl -s localhost:8001/healthz | python -m json.tool
+</code></pre>
+<p>Checklist:</p>
+<ul>
+<li>[ ] <code>/healthz</code> shows <code>"loaded": true</code> for <strong>both</strong> models</li>
+<li>[ ] A warm scan returns in under a second — run one before the panel arrives</li>
+<li>[ ] Test images to hand: a malignant dermoscopic image, a held-out chest PNG, a real DICOM</li>
+<li>[ ] Signed in as a patient in one browser profile, a radiologist in another</li>
+<li>[ ] Browser zoom at 100%; DevTools closed until Act IV</li>
+</ul>
+<hr />
+<h2>Act I — A result, and what travels with it <em>(90 s)</em></h2>
+<p>Upload a malignant dermoscopic image as the patient.</p>
+<p><strong>Say:</strong></p>
+<blockquote>
+<p>This is a screening triage tool. It has just produced a probability, and it has
+not produced a diagnosis. Notice what came back with the number.</p>
+</blockquote>
+<p><strong>Point at:</strong>
+- The calibrated probability — <em>"calibration measured at 0.024 expected error, so when it says 90% it is right about 90% of the time"</em>
+- <strong>Clinician review required</strong> — <em>"there is no path through this system that skips it"</em>
+- The model version — <em>"a hash of the artifact that produced this, so this result can still be explained after the model is retrained"</em></p>
+<p>Toggle the <strong>Grad-CAM overlay</strong>.</p>
+<blockquote>
+<p>This shows where the model looked. It is not a lesion boundary and not a
+measurement, and the caption says so. It is here because a clinician will not
+act on a bare probability, and nor should they.</p>
+</blockquote>
+<hr />
+<h2>Act II — The refusal that matters most <em>(2 min)</em></h2>
+<p><strong>The centrepiece.</strong> Take the <em>same</em> skin classifier and give it a chest image.</p>
+<p><strong>Say before you press anything:</strong></p>
+<blockquote>
+<p>Most clinical AI, given the wrong modality, returns a confident answer. It has
+no way to know it is out of its depth. Watch.</p>
+</blockquote>
+<p>Upload the chest image to the <strong>skin</strong> analyser.</p>
+<p><strong>Expected:</strong></p>
+<pre><code>rejected_input
+&quot;This image does not resemble the dermoscopic images the model was
+ trained on, so no classification was produced.&quot;
+oodScore: 37.04   threshold: 22.63
+</code></pre>
+<blockquote>
+<p>No classification. Not a low-confidence one — none. The measurement behind that
+is in the model card: wrong-modality images flag at 100%, held-out
+same-modality images at 0.8%.</p>
+</blockquote>
+<p>Then reverse it — skin image to the <strong>lung</strong> model. Refused, 26.1 against 16.51.</p>
+<blockquote>
+<p>It works in both directions, and both figures are published.</p>
+</blockquote>
+<hr />
+<h2>Act III — Refusing a modality it has no model for <em>(60 s)</em></h2>
+<p>Open the scan-type menu.</p>
+<blockquote>
+<p>Breast, colon and prostate are not on this menu. They have no trained
+classifier, so the system will not offer them.</p>
+</blockquote>
+<p>If a panellist asks what happens if one is submitted directly to the API:</p>
+<pre><code class="language-bash">curl -X POST .../api/scan/upload -F &quot;image=@x.jpg&quot; -F &quot;scanType=breast&quot;
+# HTTP 503 — no diagnostic content, scan queued for manual review
+</code></pre>
+<blockquote>
+<p>An earlier version of this system filled that gap with <code>Math.random()</code>,
+including a lung path that defaulted to <code>no_cancer</code> whenever the model failed
+to load — which it always did, because the path pointed at a directory that
+existed on no deployed machine. Nothing in the response distinguished that
+fabricated negative from a real one. That is why the refusal is now the
+designed behaviour rather than an error case.</p>
+</blockquote>
+<hr />
+<h2>Act IV — Offline capture <em>(2 min)</em></h2>
+<p>The most memorable moment. DevTools → Network → <strong>Offline</strong>.</p>
+<blockquote>
+<p>A clinic on intermittent connectivity is the target user, so this is not a
+degraded mode — it is the mode.</p>
+</blockquote>
+<p>Capture a scan while offline.</p>
+<p><strong>Point at the wording, not the mechanism:</strong></p>
+<blockquote>
+<p>"Nothing has been analysed yet. These are held on this device and will upload
+when there is a connection."</p>
+<p>The queue holds an upload. It never holds a result. An offline mode that showed
+a cached or estimated finding would contradict everything in the last three
+minutes, in the one situation where the patient is least able to check.</p>
+</blockquote>
+<p>Go back online. The queue flushes and the real result appears.</p>
+<hr />
+<h2>Act V — The finding we published against ourselves <em>(2 min)</em></h2>
+<p><strong>This is the act that wins or loses the room.</strong> Upload a real DICOM to the lung
+model.</p>
+<p><strong>Expected:</strong> HTTP 422 —</p>
+<blockquote>
+<p><em>"The lung model cannot read clinical DICOM acquisitions. It was trained on
+web-sourced PNG images, not on scanner output, and it refuses every real
+acquisition regardless of windowing."</em></p>
+</blockquote>
+<p><strong>Say:</strong></p>
+<blockquote>
+<p>We built DICOM ingestion, pointed it at real clinical objects, and found that
+our own lung model refuses all of them. We tested every conventional window —
+full range, lung, mediastinal, bone. All refused, and the radiologically
+correct lung window scores worse than the wrong one.</p>
+<p>We could have tuned the threshold until it passed. That would have been fitting
+the preprocessing to defeat the safety check. Instead it is in the model card
+as a blocking limitation, and retraining on a documented CT dataset is the
+first item on our clinical roadmap.</p>
+<p>A system that accepted that CT and returned a probability would have demoed
+better and been worthless in a clinic.</p>
+</blockquote>
+<p>Then hand over the model card, open at the skin-tone section.</p>
+<blockquote>
+<p>The same applies here. We measured performance across skin tones and the
+finding is that <strong>our dataset cannot answer the question</strong> — 4.3% of our test
+images are brown or darker, and the darkest bin holds four images with no
+controls. We publish that rather than an encouraging average.</p>
+</blockquote>
+<hr />
+<h2>Closing <em>(30 s)</em></h2>
+<blockquote>
+<p>Two modalities, 0.86 and 0.79 balanced accuracy on held-out data. Those are
+respectable for the stage and unremarkable against the literature, and someone
+in this competition will claim higher.</p>
+<p>What we would ask you to weigh instead is that this system knows when it does
+not know — and that every limitation you have just seen, we found and published
+ourselves.</p>
+</blockquote>
+<hr />
+<h2>Questions to expect</h2>
+<table>
+<thead>
+<tr>
+<th>Question</th>
+<th>Answer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><em>"Where did your training data come from?"</em></td>
+<td>Skin: a public ISIC-derived collection, 96% light-skinned — documented. Lung: unrecorded provenance, which is why it refuses real DICOM. Both stated in the model card. <strong>Do not improvise a source.</strong></td>
+</tr>
+<tr>
+<td><em>"Why is your accuracy lower than published work?"</em></td>
+<td>Small self-trained models on public data, CPU-only training. We report the measurement rather than the best number we could produce.</td>
+</tr>
+<tr>
+<td><em>"Is it a medical device?"</em></td>
+<td>Yes, under the Medicines and Related Substances Act, once it informs a clinical decision. No SAHPRA submission, no clearance, no compliance claim. Expected Class B/IIa, to be confirmed at pre-submission.</td>
+</tr>
+<tr>
+<td><em>"Has a clinician used it?"</em></td>
+<td>Answer honestly. <code>[CONFIRM before submission]</code></td>
+</tr>
+<tr>
+<td><em>"What happens to a flagged scan overnight?"</em></td>
+<td>There is no on-call path today. <code>docs/pack/FAILURE_MODES.md</code> F-03 states it as the largest operational gap, and it is a facility commitment rather than a feature.</td>
+</tr>
+<tr>
+<td><em>"Is it POPIA compliant?"</em></td>
+<td>We make no compliance claim. The DPIA records 16 risks including six unmet conditions, and names an unassigned Information Officer as the first.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>If you do not know, say so and offer to follow up.</strong> Every document in this
+pack is written to survive being checked; an improvised answer is the one thing
+that would undermine it.</p>
+<hr />
+<h2>Recording it</h2>
+<p>Same five acts. Screen capture at 1080p, no music, no speed-ramping.</p>
+<p>Show the terminal alongside the browser for Acts II and V — the OOD scores and
+the HTTP status are the evidence, and a viewer who only sees the UI has to take
+your word for it.</p>
+<p>Ninety seconds of it is the refusal paths. That is the correct proportion.</p>
+<div class="docfoot">
+Generated from DEMO_SCRIPT.md by scripts/render-doc.py.<br>
+Every figure in this document is reproducible with the commands it contains.
+HealthAI Assistant &middot; 2026 South Africa MedTech Innovation Challenge.
+</div>
+</body></html>

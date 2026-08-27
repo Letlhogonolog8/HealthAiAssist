@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Failure Modes</title>
+<style>
+@page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+
+:root {
+  --ink: #14191b;
+  --ink-mid: #454f54;
+  --ink-faint: #6b7378;
+  --rule: #d4d8d4;
+  --accent: #0e6e6b;
+  --crit: #a8302a;
+  --sunk: #f4f5f3;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+  font-size: 10.5pt;
+  line-height: 1.5;
+  color: var(--ink);
+  max-width: 190mm;
+  margin: 0 auto;
+  padding: 8mm 0;
+  background: #fff;
+}
+
+h1, h2, h3, h4 {
+  font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  page-break-after: avoid;
+}
+h1 { font-size: 21pt; border-bottom: 2.5pt solid var(--ink); padding-bottom: 4mm; margin: 0 0 6mm; }
+h2 { font-size: 14pt; margin: 9mm 0 3mm; border-bottom: 0.5pt solid var(--rule); padding-bottom: 1.5mm; }
+h3 { font-size: 11.5pt; margin: 6mm 0 2mm; }
+h4 { font-size: 10pt; margin: 4mm 0 1.5mm; color: var(--ink-mid); }
+
+p { margin: 0 0 3mm; orphans: 3; widows: 3; }
+ul, ol { margin: 0 0 3mm; padding-left: 6mm; }
+li { margin-bottom: 1.2mm; }
+
+strong { font-weight: 600; }
+
+/* Reproduction commands are the point of the document. They must be legible
+   and must not wrap in a way that changes what they say. */
+code {
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: 8.8pt;
+  background: var(--sunk);
+  padding: 0.3mm 1mm;
+  border-radius: 0.6mm;
+  word-break: break-word;
+}
+pre {
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: 8.4pt;
+  line-height: 1.45;
+  background: var(--sunk);
+  border: 0.4pt solid var(--rule);
+  border-left: 2pt solid var(--accent);
+  padding: 3mm 4mm;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  page-break-inside: avoid;
+  margin: 0 0 4mm;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 9pt;
+  margin: 0 0 4mm;
+  page-break-inside: avoid;
+}
+th, td {
+  border: 0.4pt solid var(--rule);
+  padding: 1.6mm 2.2mm;
+  text-align: left;
+  vertical-align: top;
+}
+th {
+  background: var(--sunk);
+  font-family: "Segoe UI", Arial, sans-serif;
+  font-size: 8.2pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-mid);
+}
+
+blockquote {
+  margin: 0 0 4mm;
+  padding: 2.5mm 4mm;
+  border-left: 2pt solid var(--crit);
+  background: #faf3f2;
+  page-break-inside: avoid;
+}
+blockquote p:last-child { margin-bottom: 0; }
+
+hr { border: 0; border-top: 0.5pt solid var(--rule); margin: 7mm 0; }
+
+a { color: var(--accent); text-decoration: none; }
+
+.docfoot {
+  margin-top: 10mm;
+  padding-top: 3mm;
+  border-top: 1pt solid var(--ink);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 7.6pt;
+  color: var(--ink-faint);
+  line-height: 1.6;
+}
+</style>
+</head><body>
+<h1>Failure Modes, Escalation and Incident Response</h1>
+<p>What happens when each part of this system fails, who is accountable, and how
+long they have.</p>
+<p>Written because "what happens to a flagged scan at 02:00" is the question a
+clinical governance review asks first, and because a system whose failure
+behaviour is undocumented has failure behaviour anyway — just nobody knows what
+it is.</p>
+<hr />
+<h2>Part 1 — Clinical failure modes</h2>
+<p>Severity is the risk to the <strong>patient</strong>, not to the service.</p>
+<h3>F-01 · A model produces no result</h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Cause</strong></td>
+<td>Model artifact missing, inference service down or saturated, modality has no classifier</td>
+</tr>
+<tr>
+<td><strong>Behaviour</strong></td>
+<td>HTTP 503, <strong>no diagnostic content whatsoever</strong>, scan recorded with status <code>pending_manual_review</code></td>
+</tr>
+<tr>
+<td><strong>Severity</strong></td>
+<td>Low — by design</td>
+</tr>
+<tr>
+<td><strong>Escalation</strong></td>
+<td>Enters the radiologist queue as an unread scan, indistinguishable in priority from any other unread scan</td>
+</tr>
+</tbody>
+</table>
+<p><strong>This is the designed behaviour, not a degradation.</strong> An earlier version of this
+system filled the gap with <code>Math.random()</code>, including a lung path that defaulted
+to <code>no_cancer</code> at 0.5 confidence whenever the model failed to load — which it
+always did, because the path pointed at a directory that existed on no deployed
+machine. Nothing in the response distinguished that fabricated negative from a
+real one.</p>
+<blockquote>
+<p><strong>A 503 is not a negative result.</strong> It means no model produced an opinion.</p>
+</blockquote>
+<h3>F-02 · An image is refused as unassessable</h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Cause</strong></td>
+<td>Out-of-distribution, blank, blurred, over-exposed, or a clinical DICOM sent to the lung model</td>
+</tr>
+<tr>
+<td><strong>Behaviour</strong></td>
+<td>HTTP 422 with a reason the person who uploaded it can read. No scan record created — nothing was analysed</td>
+</tr>
+<tr>
+<td><strong>Severity</strong></td>
+<td>Low</td>
+</tr>
+<tr>
+<td><strong>Escalation</strong></td>
+<td>The uploader recaptures. If a whole clinic's images are being refused, that is F-07</td>
+</tr>
+</tbody>
+</table>
+<h3>F-03 · A flagged scan is not reviewed</h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Cause</strong></td>
+<td>Nobody opens the queue</td>
+</tr>
+<tr>
+<td><strong>Severity</strong></td>
+<td><strong>High.</strong> This is the failure that harms a patient</td>
+</tr>
+</tbody>
+</table>
+<p>The system detects a flagged scan; it does not detect an unread queue. <strong>This is
+the largest gap in the current design</strong> and needs a named owner before any
+clinical use.</p>
+<p>Required before deployment, not yet built:</p>
+<ul>
+<li>A turnaround target agreed with the facility — e.g. flagged scans read within
+  24 hours, routine within 72.</li>
+<li>An alert when a flagged scan exceeds it, to a person rather than a dashboard.</li>
+<li>A named accountable clinician per facility, and a deputy.</li>
+<li>A weekly report of the oldest unread scan.</li>
+</ul>
+<p><strong>Overnight, today:</strong> there is no on-call path. A scan flagged at 02:00 waits
+for the queue to be opened. Any pilot must state its hours of cover and its
+out-of-hours arrangement explicitly, and neither is a software feature.</p>
+<h3>F-04 · A false negative reaches a patient</h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Cause</strong></td>
+<td>The model misses; the reviewing clinician agrees</td>
+</tr>
+<tr>
+<td><strong>Severity</strong></td>
+<td><strong>High</strong></td>
+</tr>
+<tr>
+<td><strong>Rate</strong></td>
+<td>Roughly 1 in 5 lung cancers; 3.3% of malignant lesions receive an outright benign skin result</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Mitigations in place:</strong> every result is reviewed by a clinician, so the model
+is never the last word. The lung operating point is deliberately set below argmax
+to trade false alarms for missed cancers. Skin uses banded thresholds so 96.7% of
+malignant lesions are either flagged or escalated to <code>uncertain</code>, both of which
+route to a clinician.</p>
+<p><strong>Mitigation not in place:</strong> the patient-facing wording for a non-flagged result
+must never read as an all-clear. <code>result.model_cleared</code> is a safety-critical
+translation key for exactly this reason.</p>
+<h3>F-05 · A false positive causes unnecessary investigation</h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Severity</strong></td>
+<td>Medium — real harm: anxiety, biopsy, cost, radiation</td>
+</tr>
+<tr>
+<td><strong>Rate</strong></td>
+<td>~1 in 4 healthy lung scans flagged; 17% of skin scans land in <code>uncertain</code></td>
+</tr>
+</tbody>
+</table>
+<p>Deliberate. The threshold sweep is published so the trade is inspectable, and
+<code>LUNG_CANCER_THRESHOLD</code> is configurable per deployment — a facility with scarce
+follow-up capacity may reasonably choose differently, and should record why.</p>
+<h3>F-06 · Model behaviour drifts</h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Cause</strong></td>
+<td>New scanner, new capture device, new population</td>
+</tr>
+<tr>
+<td><strong>Severity</strong></td>
+<td><strong>High</strong>, and slow — it does not announce itself</td>
+</tr>
+<tr>
+<td><strong>Detection</strong></td>
+<td><code>healthai_ood_rejections_total</code> and <code>healthai_scan_submissions_total{outcome}</code></td>
+</tr>
+</tbody>
+</table>
+<p>The measured OOD flag rate on in-distribution images is 0.8%. A production rate
+materially above that means the input distribution has moved and the published
+figures may no longer describe what is happening.</p>
+<p><strong>Not yet built:</strong> an alert threshold. The counters exist; nothing watches them.</p>
+<h3>F-07 · A whole site's images are refused</h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Cause</strong></td>
+<td>A capture device whose optics differ from the training distribution</td>
+</tr>
+<tr>
+<td><strong>Severity</strong></td>
+<td>Medium operationally, <strong>high</strong> for adoption</td>
+</tr>
+</tbody>
+</table>
+<p>The tool refusing most of what a clinic photographs is a deployment failure even
+when every individual refusal is correct. Any capture device must be validated
+by re-measuring sensitivity and specificity on images <em>that device</em> produced,
+before clinical use — see <code>docs/DEVICE_INTEGRATION.md</code>.</p>
+<hr />
+<h2>Part 2 — Technical failure modes</h2>
+<h3>T-01 · Database unreachable</h3>
+<p>Server starts; in-memory fallback holds <strong>no accounts</strong>, so every login fails.
+Deliberate: a health system that cannot reach its user table should refuse
+logins, not accept a built-in one. <code>/api/ready</code> returns 503 so a load balancer
+removes the instance; <code>/api/health</code> stays 200 so a transient blip does not get
+the container killed.</p>
+<h3>T-02 · Inference service down or saturated</h3>
+<p>Scans answer 503 and queue for manual review (F-01). Saturation returns
+<code>Retry-After</code> rather than accumulating work. <code>/api/ready</code> reports reachability
+and the resident artifact hashes, so an operator can confirm the service holds
+the artifact that <code>medical_scans.model_version</code> names.</p>
+<h3>T-03 · Object storage unavailable</h3>
+<p>Production <strong>refuses to start</strong> without it. The fallback writes patient imaging
+to ephemeral container disk, which is lost on the next deploy — leaving findings
+with no image behind them, which makes the human review step impossible for
+exactly the scans where it matters most.</p>
+<h3>T-04 · Connection lost mid-capture</h3>
+<p>The scan is held in IndexedDB and uploaded on reconnect. <strong>Nothing is analysed
+offline and no result is shown.</strong> A queued scan has two states — waiting and
+uploaded — and no third state in which it means anything clinically.</p>
+<h3>T-05 · Encryption key lost</h3>
+<p>Encrypted clinical free text becomes unreadable. Keys are a rotatable keyring
+with ids embedded in the ciphertext, so rotation is possible without data loss —
+but a lost key is unrecoverable by design.</p>
+<p><strong>Required:</strong> key custody procedure, offline backup, documented custodians.
+<strong>Not yet in place.</strong></p>
+<h3>T-06 · Second factor lost</h3>
+<p>Eight single-use recovery codes, shown once. Exhausted or lost, an administrator
+must intervene — and that path is a documented bypass of the control. Any
+support process for it needs identity verification defined before MFA is
+enforced.</p>
+<hr />
+<h2>Part 3 — Incident response (POPIA §22)</h2>
+<h3>Definition</h3>
+<p>A security compromise is any unauthorised access to, or acquisition of, personal
+information. Under POPIA §22 the Information Regulator <strong>and each affected data
+subject</strong> must be notified as soon as reasonably possible after discovery.</p>
+<h3>Timeline</h3>
+<table>
+<thead>
+<tr>
+<th>When</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>0–1 h</strong></td>
+<td>Contain. Revoke sessions, rotate credentials, isolate the affected component. Do not delete anything — the audit trail is evidence.</td>
+</tr>
+<tr>
+<td><strong>1–4 h</strong></td>
+<td>Assess: what data, whose, how many, still ongoing? <code>audit_events</code> and the genomic access log are the primary sources.</td>
+</tr>
+<tr>
+<td><strong>4–24 h</strong></td>
+<td>Decide notifiability. Record the decision and its reasoning either way.</td>
+</tr>
+<tr>
+<td><strong>24–72 h</strong></td>
+<td>Notify the Information Regulator. Notify affected data subjects in writing.</td>
+</tr>
+<tr>
+<td><strong>1 week</strong></td>
+<td>Written post-incident review, with remediation items and owners.</td>
+</tr>
+</tbody>
+</table>
+<h3>Roles</h3>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Responsibility</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Information Officer</td>
+<td>Statutory accountability; notifies the Regulator</td>
+<td><strong>UNASSIGNED — DPIA R-01</strong></td>
+</tr>
+<tr>
+<td>Technical lead</td>
+<td>Containment and forensics</td>
+<td>Named</td>
+</tr>
+<tr>
+<td>Clinical lead</td>
+<td>Assesses patient impact; decides on care disruption</td>
+<td><strong>UNASSIGNED</strong></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>Two of three roles are unassigned. That is the single largest gap in this
+document, and it is not a software gap.</p>
+</blockquote>
+<h3>Evidence available</h3>
+<ul>
+<li><code>audit_events</code> — append-only, non-identifying detail, 34 audited operations</li>
+<li><code>genomic_access_log</code> — every genomic read</li>
+<li>Cross-border transfer log — <code>scripts/show-transfer-log.ts</code></li>
+<li><code>care_relationships</code> — every break-glass grant with its written justification</li>
+<li>Session table — active sessions, revocable in bulk</li>
+</ul>
+<h3>Scenarios</h3>
+<p><strong>Clinician account compromised.</strong> Revoke sessions; query <code>audit_events</code> for
+everything that account read; check for break-glass grants; notify every patient
+whose record was accessed. MFA is the control that makes this less likely and it
+is currently <strong>not enforced</strong>.</p>
+<p><strong>Database exfiltrated.</strong> Clinical free text, contact details and MFA secrets
+are AES-GCM encrypted; genomic genotype data is <strong>not</strong> (DPIA R-11) and cannot be
+reissued if leaked — it implicates blood relatives who never consented. Rotate
+the keyring, notify, and treat genomic exposure as the most serious element.</p>
+<p><strong>Scan images exposed.</strong> Objects are private in both backends and reachable only
+through an authorised, audited endpoint that issues 10-minute signed URLs.
+Exposure means either a bucket misconfiguration or a credential compromise;
+check bucket policy first.</p>
+<hr />
+<h2>Summary of what is not in place</h2>
+<p>Consolidated so it cannot be missed:</p>
+<ol>
+<li><strong>No named accountable clinician</strong> for the review queue (F-03)</li>
+<li><strong>No turnaround target and no overdue alerting</strong> (F-03)</li>
+<li><strong>No out-of-hours cover</strong> (F-03)</li>
+<li><strong>No drift alert threshold</strong> — counters exist, nothing watches them (F-06)</li>
+<li><strong>No Information Officer</strong> (POPIA §22, DPIA R-01)</li>
+<li><strong>No key custody procedure</strong> (T-05)</li>
+<li><strong>No identity verification for MFA recovery</strong> (T-06)</li>
+</ol>
+<p>Items 1–3 must be closed before any clinical use. They are operational
+commitments a facility makes, not features a vendor ships.</p>
+<div class="docfoot">
+Generated from FAILURE_MODES.md by scripts/render-doc.py.<br>
+Every figure in this document is reproducible with the commands it contains.
+HealthAI Assistant &middot; 2026 South Africa MedTech Innovation Challenge.
+</div>
+</body></html>

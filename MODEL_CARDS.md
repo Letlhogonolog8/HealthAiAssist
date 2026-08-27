@@ -103,8 +103,27 @@ thing it established is that **this model refuses genuine radiology objects**:
 | Input | OOD score | Threshold | Outcome |
 |---|---|---|---|
 | Held-out `Lung MRI (n).png` from its own training distribution | ~10.9 | 16.51 | classified |
-| Real CT DICOM (`pydicom` CT_small, GE RHAPSODE), windowed per its tags | **22.88** | 16.51 | **refused** |
-| Real MR DICOM (`pydicom` MR_small), windowed per its tags | **27.16** | 16.51 | **refused** |
+| Real CT DICOM (`pydicom` CT_small, GE RHAPSODE) | **22.88** | 16.51 | **refused** |
+| Real MR DICOM (`pydicom` MR_small) | **27.16** | 16.51 | **refused** |
+
+**Windowing was investigated as a possible cause, and ruled out.** A DICOM
+carrying no VOI LUT was being rendered across its full stored range, which for
+CT compresses lung parenchyma into the bottom fifth of the greyscale — a
+genuine defect, since no radiologist reads a chest that way. Correcting it
+changes nothing about the refusal:
+
+| Window applied to the same CT | OOD score | Outcome |
+|---|---|---|
+| Full stored range (the old fallback) | 22.88 | refused |
+| **Lung, WC −600 / WW 1500** (radiologically correct) | **25.04** | **refused** |
+| Mediastinal, WC 40 / WW 400 | 30.35 | refused |
+| Bone, WC 500 / WW 2000 | 20.32 | refused |
+
+The correct window is *worse* than the wrong one. There is no presentation of a
+real acquisition that this model accepts, and tuning the window until one passed
+would be fitting the preprocessing to defeat the safety check rather than fixing
+anything. The windowing was corrected because it was wrong, not because it
+helped.
 
 The refusal is the out-of-distribution detector working correctly — it is doing
 precisely what it exists to do, and the alternative (a confident verdict on an
@@ -122,6 +141,14 @@ A properly windowed clinical acquisition does not resemble them. So:
 This is the concrete form of the provenance concern already recorded above, and
 it is the reason retraining on a documented CT dataset with patient-level splits
 (LIDC-IDRI, NLST) is the first item of clinical work, not a later refinement.
+
+The inference service therefore refuses DICOM for this modality **explicitly**,
+ahead of the out-of-distribution screen, with a message naming the reason. The
+screen would catch it anyway, but its wording — "does not resemble the chest
+images the model was trained on" — reads as though the submitted image were
+unusual. It is not: every clinical acquisition is refused, always. A radiology
+department evaluating this needs to hear "this modality cannot read your
+scanner's output yet", not "try a different image".
 Until that happens the lung modality is demonstrable only on data shaped like
 its own training set, and that should be stated plainly wherever it is shown.
 

@@ -191,7 +191,7 @@ def _read_upload(image: UploadFile) -> tuple[bytes, dict | None]:
     if looks_like_dicom(data):
         try:
             png, meta = dicom_to_png_bytes(data)
-        except DicomRejected as exc:
+        except DicomRejected as exc:  # noqa: PERF203
             # 422, not 503: the service is fine and this object will fail the
             # same way on retry. Same status the model's own input screening
             # uses, so the client has one refusal shape to handle.
@@ -270,6 +270,37 @@ def infer_lung(image: UploadFile = File(...), explain: str = Form(default="")) -
     in this path.
     """
     data, acquisition = _read_upload(image)
+
+    # A real DICOM acquisition is refused here, deterministically, rather than
+    # left for the out-of-distribution screen to catch.
+    #
+    # The screen does catch it — a windowed CT scores 22.9 and an MR 27.2
+    # against a 16.51 threshold — but the refusal it produces says the image
+    # "does not resemble the chest images the model was trained on", which reads
+    # as though this particular image were unusual. It is not. The model was
+    # trained on web-sourced PNG images of unrecorded provenance, and it refuses
+    # EVERY clinical acquisition, correctly and without exception.
+    #
+    # Saying so plainly is the difference between "try a different image" and
+    # "this modality cannot read your scanner's output yet". Only the second is
+    # true, and a radiology department evaluating this needs to hear the second.
+    #
+    # Verified across every conventional window: full-range 22.9, lung window
+    # 25.0, mediastinal 30.4, bone 20.3 — all refused. No preprocessing choice
+    # fixes it; retraining on a documented CT dataset does. See MODEL_CARDS.md.
+    if acquisition is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "The lung model cannot read clinical DICOM acquisitions. It was "
+                "trained on web-sourced PNG images, not on scanner output, and it "
+                "refuses every real acquisition regardless of windowing — this is "
+                "the model's limitation, not a problem with your image. Retraining "
+                "on a documented CT dataset is required before this modality can "
+                "accept DICOM. See MODEL_CARDS.md."
+            ),
+        )
+
     started = time.perf_counter()
     with _Admission(), _inference_lock:
         result = lung_service.predict_lung_cancer(data)

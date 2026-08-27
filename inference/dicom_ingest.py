@@ -223,13 +223,38 @@ def _window(frame: np.ndarray, dataset: Any) -> np.ndarray:
         centre = float(centre)
         width = float(width)
     else:
-        # No VOI LUT in the object. Full range rather than a modality-specific
-        # guess: assuming a lung window on an object that never said so would be
-        # inventing an acquisition parameter, and the OOD screen downstream is a
-        # better place to catch an image the model cannot read.
-        low, high = float(frame.min()), float(frame.max())
-        centre = (high + low) / 2.0
-        width = max(high - low, 1.0)
+        # No VOI LUT in the object, which is common — many CT exports carry none.
+        #
+        # This used to fall back to the full stored range. For CT that is
+        # radiologically wrong: the range runs from about -1000 HU (air) to
+        # +3000 (bone), so mapping all of it onto 0-255 compresses lung
+        # parenchyma into roughly the bottom fifth of the scale. The result is a
+        # flat grey image in which the anatomy a chest reader looks at is nearly
+        # black. No radiologist views a chest that way.
+        #
+        # A modality-appropriate default is not "inventing an acquisition
+        # parameter" — it is applying the presentation the anatomy is
+        # conventionally read at, which is what the absent tag would have
+        # specified. Lung window for CT, because this pipeline's CT interest is
+        # chest.
+        #
+        # Measured honestly: this does NOT change whether the lung model accepts
+        # a real CT. Full range scores 22.9 against a 16.51 OOD threshold and the
+        # lung window scores 25.0 — both refused, and the correct window is
+        # slightly worse. The windowing is fixed because it was wrong, not
+        # because it helps. See MODEL_CARDS.md.
+        modality = str(getattr(dataset, "Modality", "") or "").upper()
+        if modality == "CT":
+            centre, width = -600.0, 1500.0
+        else:
+            # For MR and everything else there is no universal window: signal
+            # intensity is sequence-dependent and has no absolute scale the way
+            # Hounsfield units do. Percentiles rather than min/max, so a single
+            # bright artefact does not wash out the rest of the image.
+            low = float(np.percentile(frame, 1))
+            high = float(np.percentile(frame, 99))
+            centre = (high + low) / 2.0
+            width = max(high - low, 1.0)
 
     low = centre - width / 2.0
     scaled = np.clip((frame - low) / width, 0.0, 1.0) * 255.0

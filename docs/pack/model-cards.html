@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Model Cards</title>
+<style>
+@page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+
+:root {
+  --ink: #14191b;
+  --ink-mid: #454f54;
+  --ink-faint: #6b7378;
+  --rule: #d4d8d4;
+  --accent: #0e6e6b;
+  --crit: #a8302a;
+  --sunk: #f4f5f3;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+  font-size: 10.5pt;
+  line-height: 1.5;
+  color: var(--ink);
+  max-width: 190mm;
+  margin: 0 auto;
+  padding: 8mm 0;
+  background: #fff;
+}
+
+h1, h2, h3, h4 {
+  font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  page-break-after: avoid;
+}
+h1 { font-size: 21pt; border-bottom: 2.5pt solid var(--ink); padding-bottom: 4mm; margin: 0 0 6mm; }
+h2 { font-size: 14pt; margin: 9mm 0 3mm; border-bottom: 0.5pt solid var(--rule); padding-bottom: 1.5mm; }
+h3 { font-size: 11.5pt; margin: 6mm 0 2mm; }
+h4 { font-size: 10pt; margin: 4mm 0 1.5mm; color: var(--ink-mid); }
+
+p { margin: 0 0 3mm; orphans: 3; widows: 3; }
+ul, ol { margin: 0 0 3mm; padding-left: 6mm; }
+li { margin-bottom: 1.2mm; }
+
+strong { font-weight: 600; }
+
+/* Reproduction commands are the point of the document. They must be legible
+   and must not wrap in a way that changes what they say. */
+code {
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: 8.8pt;
+  background: var(--sunk);
+  padding: 0.3mm 1mm;
+  border-radius: 0.6mm;
+  word-break: break-word;
+}
+pre {
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: 8.4pt;
+  line-height: 1.45;
+  background: var(--sunk);
+  border: 0.4pt solid var(--rule);
+  border-left: 2pt solid var(--accent);
+  padding: 3mm 4mm;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  page-break-inside: avoid;
+  margin: 0 0 4mm;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 9pt;
+  margin: 0 0 4mm;
+  page-break-inside: avoid;
+}
+th, td {
+  border: 0.4pt solid var(--rule);
+  padding: 1.6mm 2.2mm;
+  text-align: left;
+  vertical-align: top;
+}
+th {
+  background: var(--sunk);
+  font-family: "Segoe UI", Arial, sans-serif;
+  font-size: 8.2pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-mid);
+}
+
+blockquote {
+  margin: 0 0 4mm;
+  padding: 2.5mm 4mm;
+  border-left: 2pt solid var(--crit);
+  background: #faf3f2;
+  page-break-inside: avoid;
+}
+blockquote p:last-child { margin-bottom: 0; }
+
+hr { border: 0; border-top: 0.5pt solid var(--rule); margin: 7mm 0; }
+
+a { color: var(--accent); text-decoration: none; }
+
+.docfoot {
+  margin-top: 10mm;
+  padding-top: 3mm;
+  border-top: 1pt solid var(--ink);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 7.6pt;
+  color: var(--ink-faint);
+  line-height: 1.6;
+}
+</style>
+</head><body>
+<h1>Model Cards</h1>
+<blockquote>
+<p><strong>Artifacts are not in git.</strong> <code>dataset/</code> is gitignored (it was stripped from
+history), so the <code>.h5</code> files these cards describe are not version-controlled and
+must be provisioned onto any machine that serves them. Both are now rebuildable
+from source — <code>scripts/train-skin-cancer-model.py</code> and
+<code>scripts/train-lung-cancer-model.py</code> — so losing one costs a training run rather
+than the modality. Back them up anyway: <code>npm run backup:models</code>.</p>
+</blockquote>
+<p>Every model this system can serve, what it was measured at, and what it must not
+be used for. The authoritative machine-readable copy lives in
+<code>server/model-availability.ts</code> and is served at
+<code>GET /api/models/cards</code>.</p>
+<p>Reproduce any figure below with:</p>
+<pre><code class="language-bash">python scripts/evaluate-model.py &lt;model.h5&gt; &lt;data_dir&gt; &lt;class0&gt; &lt;class1&gt;
+</code></pre>
+<p><strong>Balanced accuracy</strong> (the mean of sensitivity and specificity) is the headline
+metric, not raw accuracy. On an imbalanced set, a model that answers "negative"
+for every image scores the majority-class rate while detecting nothing; balanced
+accuracy scores that degenerate case at 0.5, which is chance.</p>
+<hr />
+<h2>Lung cancer — ResNet50V2 — <strong>ENABLED</strong> (retrained 2026-08-18)</h2>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Artifact</td>
+<td><code>dataset/lung_cancer_MRI_dataset/resnet50v2_lung_cancer_model.h5</code></td>
+</tr>
+<tr>
+<td>Architecture</td>
+<td>ResNet50V2 ImageNet trunk, <strong>frozen</strong>; trained Dense(256)+Dropout head</td>
+</tr>
+<tr>
+<td>Input</td>
+<td>Raw RGB 0–255, 224×224. Normalisation <strong>fused into the graph</strong></td>
+</tr>
+<tr>
+<td>Splits</td>
+<td>2575 train / 551 validation / <strong>554 test</strong>, stratified, seed 4242</td>
+</tr>
+<tr>
+<td>Evaluation set</td>
+<td>554 images (282 cancer / 272 no_cancer), <strong>never used in training or model selection</strong></td>
+</tr>
+<tr>
+<td>Test AUC</td>
+<td><strong>0.88</strong></td>
+</tr>
+<tr>
+<td>Calibration</td>
+<td>ECE 0.019 → <strong>0.017</strong> with temperature scaling (T=1.125), <strong>applied</strong></td>
+</tr>
+<tr>
+<td><strong>Deployed operating point</strong></td>
+<td>threshold 0.30 on the <em>calibrated</em> P(cancer) — <em>not</em> argmax</td>
+</tr>
+<tr>
+<td>Sensitivity @ 0.30</td>
+<td><strong>0.812</strong> — 229 of 282</td>
+</tr>
+<tr>
+<td>Specificity @ 0.30</td>
+<td><strong>0.757</strong></td>
+</tr>
+<tr>
+<td>Balanced accuracy @ 0.30</td>
+<td><strong>0.785</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Reproduce: <code>python scripts/train-lung-cancer-model.py</code> then
+<code>python scripts/choose-lung-threshold.py</code></p>
+<h3>Why the threshold is not argmax</h3>
+<p>Argmax implicitly says a missed cancer and a false alarm cost the same. They do
+not in screening. The full sweep on the held-out set:</p>
+<table>
+<thead>
+<tr>
+<th>Threshold</th>
+<th>Sensitivity</th>
+<th>Specificity</th>
+<th>Balanced acc.</th>
+<th><strong>Missed cancers</strong></th>
+<th>False alarms</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0.50 (argmax)</td>
+<td>0.695</td>
+<td>0.982</td>
+<td><strong>0.838</strong></td>
+<td><strong>86</strong></td>
+<td>5</td>
+</tr>
+<tr>
+<td>0.40</td>
+<td>0.730</td>
+<td>0.941</td>
+<td>0.836</td>
+<td>76</td>
+<td>16</td>
+</tr>
+<tr>
+<td>0.35</td>
+<td>0.762</td>
+<td>0.901</td>
+<td>0.832</td>
+<td>67</td>
+<td>27</td>
+</tr>
+<tr>
+<td><strong>0.30 (deployed, calibrated)</strong></td>
+<td><strong>0.812</strong></td>
+<td><strong>0.757</strong></td>
+<td>0.785</td>
+<td><strong>53</strong></td>
+<td>66</td>
+</tr>
+<tr>
+<td>0.25</td>
+<td>0.826</td>
+<td>0.654</td>
+<td>0.740</td>
+<td>49</td>
+<td>94</td>
+</tr>
+<tr>
+<td>0.19</td>
+<td>0.911</td>
+<td>0.474</td>
+<td>0.693</td>
+<td>25</td>
+<td>143</td>
+</tr>
+</tbody>
+</table>
+<p>Argmax has the best balanced accuracy and is the wrong choice: it misses 86 of
+282 cancers. The deployed point trades extra false alarms for 33 fewer missed
+cancers. Override with <code>LUNG_CANCER_THRESHOLD</code>.</p>
+<p>The threshold is selected on <strong>calibrated</strong> probabilities and applied to
+calibrated probabilities at inference. Temperature scaling is monotonic so it
+cannot change the ranking, but it does move where a given numeric cut point sits
+— selecting 0.28 on raw output and then applying T at inference would silently
+shift the operating point. The sweep above pre-dates calibration; the deployed
+row is post-calibration.</p>
+<p>Note what the table shows about the model itself: there is no region with both
+high sensitivity and high specificity. <strong>Roughly 1 in 5 cancers is still missed
+and 1 in 4 healthy scans is still flagged.</strong></p>
+<h3>Why it was retrained rather than just re-measured</h3>
+<p>The previous figures — 0.75 balanced accuracy, 0.904 sensitivity — came from
+<code>lung_cancer_MRI_dataset/validate</code>, which was the validation generator during
+that model's own training. The model had been selected against it, so the numbers
+were optimistic. No untouched data existed anywhere in the repository, so a
+"held-out test set" could only be created by pooling both directories and
+re-splitting. The test file list is recorded in <code>lung_splits.json</code> so the claim
+is auditable.</p>
+<p>The honest comparison is therefore <em>not</em> 0.904 → 0.812. The old sensitivity was
+measured on data the model had been tuned on and never meant what it said.</p>
+<h3>Limitations</h3>
+<ul>
+<li>Input screening is active: PCA reconstruction error in feature space flags
+  skin images at <strong>100%</strong> and held-out chest images at <strong>0.8%</strong>; pixel checks
+  catch blank and blurred frames, which the feature detector scores as
+  in-distribution.</li>
+<li>Demographic composition of the training data is unrecorded.</li>
+<li>Not clinically validated. Not cleared by any regulator.</li>
+</ul>
+<h3>This model cannot currently read real clinical imaging</h3>
+<p>Measured, not inferred. DICOM ingestion was added in August 2026, and the first
+thing it established is that <strong>this model refuses genuine radiology objects</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Input</th>
+<th>OOD score</th>
+<th>Threshold</th>
+<th>Outcome</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Held-out <code>Lung MRI (n).png</code> from its own training distribution</td>
+<td>~10.9</td>
+<td>16.51</td>
+<td>classified</td>
+</tr>
+<tr>
+<td>Real CT DICOM (<code>pydicom</code> CT_small, GE RHAPSODE)</td>
+<td><strong>22.88</strong></td>
+<td>16.51</td>
+<td><strong>refused</strong></td>
+</tr>
+<tr>
+<td>Real MR DICOM (<code>pydicom</code> MR_small)</td>
+<td><strong>27.16</strong></td>
+<td>16.51</td>
+<td><strong>refused</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Windowing was investigated as a possible cause, and ruled out.</strong> A DICOM
+carrying no VOI LUT was being rendered across its full stored range, which for
+CT compresses lung parenchyma into the bottom fifth of the greyscale — a
+genuine defect, since no radiologist reads a chest that way. Correcting it
+changes nothing about the refusal:</p>
+<table>
+<thead>
+<tr>
+<th>Window applied to the same CT</th>
+<th>OOD score</th>
+<th>Outcome</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Full stored range (the old fallback)</td>
+<td>22.88</td>
+<td>refused</td>
+</tr>
+<tr>
+<td><strong>Lung, WC −600 / WW 1500</strong> (radiologically correct)</td>
+<td><strong>25.04</strong></td>
+<td><strong>refused</strong></td>
+</tr>
+<tr>
+<td>Mediastinal, WC 40 / WW 400</td>
+<td>30.35</td>
+<td>refused</td>
+</tr>
+<tr>
+<td>Bone, WC 500 / WW 2000</td>
+<td>20.32</td>
+<td>refused</td>
+</tr>
+</tbody>
+</table>
+<p>The correct window is <em>worse</em> than the wrong one. There is no presentation of a
+real acquisition that this model accepts, and tuning the window until one passed
+would be fitting the preprocessing to defeat the safety check rather than fixing
+anything. The windowing was corrected because it was wrong, not because it
+helped.</p>
+<p>The refusal is the out-of-distribution detector working correctly — it is doing
+precisely what it exists to do, and the alternative (a confident verdict on an
+image type the model has never seen) would be far worse.</p>
+<p>But read what it means. The training set is small RGBA PNGs named
+<code>Lung MRI (n).png</code>, of unrecorded provenance, at inconsistent dimensions —
+consistent with web-scraped or screenshot material rather than DICOM exports.
+A properly windowed clinical acquisition does not resemble them. So:</p>
+<blockquote>
+<p><strong>The lung modality cannot today be pointed at a hospital PACS.</strong> The pipeline
+around it works end to end — ingest, de-identify, window, screen, classify —
+and the model at the end of it declines every real object it is shown.</p>
+</blockquote>
+<p>This is the concrete form of the provenance concern already recorded above, and
+it is the reason retraining on a documented CT dataset with patient-level splits
+(LIDC-IDRI, NLST) is the first item of clinical work, not a later refinement.</p>
+<p>The inference service therefore refuses DICOM for this modality <strong>explicitly</strong>,
+ahead of the out-of-distribution screen, with a message naming the reason. The
+screen would catch it anyway, but its wording — "does not resemble the chest
+images the model was trained on" — reads as though the submitted image were
+unusual. It is not: every clinical acquisition is refused, always. A radiology
+department evaluating this needs to hear "this modality cannot read your
+scanner's output yet", not "try a different image".
+Until that happens the lung modality is demonstrable only on data shaped like
+its own training set, and that should be stated plainly wherever it is shown.</p>
+<hr />
+<h2>Skin cancer — ResNet50V2 — <strong>ENABLED</strong> (retrained 2026-08-13)</h2>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Artifact</td>
+<td><code>dataset/data/resnet50v2_skin_cancer_model.h5</code></td>
+</tr>
+<tr>
+<td>Task</td>
+<td>Binary classification, <code>benign</code> (index 0) vs <code>malignant</code> (index 1)</td>
+</tr>
+<tr>
+<td>Architecture</td>
+<td>ResNet50V2 ImageNet trunk, <strong>frozen</strong>; trained Dense(256)+Dropout head</td>
+</tr>
+<tr>
+<td>Input</td>
+<td>Raw RGB 0–255, 224×224. Normalisation is <strong>fused into the graph</strong> as a <code>Rescaling</code> layer</td>
+</tr>
+<tr>
+<td>Training set</td>
+<td><code>dataset/dataset/data/train</code> — 2241 images (1224 benign / 1017 malignant) after a 15% validation holdout, ×3 with flip/rotation augmentation</td>
+</tr>
+<tr>
+<td>Evaluation set</td>
+<td><code>dataset/dataset/data/test</code> — 360 benign / 300 malignant, <strong>never touched during training or model selection</strong></td>
+</tr>
+<tr>
+<td><strong>Balanced accuracy</strong></td>
+<td><strong>0.864</strong> (chance = 0.50)</td>
+</tr>
+<tr>
+<td>Sensitivity @ argmax</td>
+<td>0.913 — 274 of 300</td>
+</tr>
+<tr>
+<td>Specificity @ argmax</td>
+<td>0.814 — 293 of 360</td>
+</tr>
+<tr>
+<td>Raw accuracy</td>
+<td>0.859 (majority-class baseline 0.545)</td>
+</tr>
+<tr>
+<td>Validation balanced accuracy</td>
+<td>0.873 — close to test, so not overfit to the split</td>
+</tr>
+</tbody>
+</table>
+<p>Reproduce: <code>python scripts/train-skin-cancer-model.py</code> then
+<code>python scripts/evaluate-model.py dataset/data/resnet50v2_skin_cancer_model.h5 dataset/dataset/data/test benign malignant raw_0_255</code></p>
+<h3>The deployed operating point</h3>
+<p>The service does not use argmax. It bands the malignant probability, and <strong>these are
+the numbers that describe what a user actually receives</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Truth</th>
+<th>→ "benign" (≤0.30)</th>
+<th>→ "uncertain" (0.30–0.70)</th>
+<th>→ "malignant" (&gt;0.70)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Malignant (300)</td>
+<td><strong>10 (3.3%)</strong></td>
+<td>56</td>
+<td>234</td>
+</tr>
+<tr>
+<td>Benign (360)</td>
+<td>268</td>
+<td>57</td>
+<td>35</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>3.3% of malignant lesions receive an outright benign result.</strong> This is the
+  number to care about: it is the only outcome that actively reassures someone who
+  has cancer.</li>
+<li>96.7% of malignant lesions are either flagged or escalated to <code>uncertain</code>, and
+  both paths route to a clinician.</li>
+<li>74.4% of benign lesions are cleared; 17% of all scans land in <code>uncertain</code>.</li>
+<li>Banding trades label precision for safety: strict "malignant" sensitivity is
+  0.78, but outright-miss rate falls to 0.033.</li>
+</ul>
+<h3>Limitations</h3>
+<ul>
+<li><strong>Performance on darker skin cannot be established from this dataset.</strong> See
+  the section below — this was measured, and the measurement's finding is that
+  the data cannot answer the question.</li>
+<li>Not clinically validated. Not cleared by any regulator.</li>
+<li>The trunk is frozen, so the model relies on generic ImageNet features rather
+  than dermatology-specific ones. Fine-tuning the upper blocks would likely help;
+  it was not attempted here because the training box is CPU-only with ~1 GB free.</li>
+<li>660 test images is a small evaluation set. The confidence interval on 0.864 is
+  wide — roughly ±0.03.</li>
+</ul>
+<h3>Performance across skin tones</h3>
+<p>The dataset carries no Fitzpatrick labels, so skin tone was estimated with
+<strong>Individual Typology Angle</strong> — the standard proxy in dermatology-AI fairness
+work — computed from the healthy skin surrounding each lesion:</p>
+<pre><code>ITA = arctan((L* - 50) / b*)     python scripts/measure-skin-tone-performance.py
+</code></pre>
+<p>Usable estimates for <strong>511 of 660</strong> test images; the remaining 149 had no
+identifiable perilesional skin in frame (dermoscope vignetting, or the lesion
+filling the field) and are excluded rather than guessed at.</p>
+<table>
+<thead>
+<tr>
+<th>Tone (ITA bin)</th>
+<th>n</th>
+<th>Malignant</th>
+<th>Sensitivity</th>
+<th>95% CI</th>
+<th>Specificity</th>
+<th>Outright benign</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Dark</td>
+<td>4</td>
+<td>4</td>
+<td>1.000</td>
+<td>0.51–1.00</td>
+<td>—</td>
+<td>0/4</td>
+</tr>
+<tr>
+<td>Brown</td>
+<td>18</td>
+<td>12</td>
+<td>1.000</td>
+<td>0.76–1.00</td>
+<td>0.667</td>
+<td>0/12</td>
+</tr>
+<tr>
+<td>Tan</td>
+<td>42</td>
+<td>31</td>
+<td>0.968</td>
+<td>0.84–0.99</td>
+<td>0.909</td>
+<td>1/31</td>
+</tr>
+<tr>
+<td>Intermediate</td>
+<td>45</td>
+<td>21</td>
+<td>1.000</td>
+<td>0.85–1.00</td>
+<td>0.875</td>
+<td>0/21</td>
+</tr>
+<tr>
+<td><strong>Light</strong></td>
+<td>86</td>
+<td>34</td>
+<td><strong>0.882</strong></td>
+<td>0.73–0.95</td>
+<td>0.942</td>
+<td>2/34</td>
+</tr>
+<tr>
+<td><strong>Very light</strong></td>
+<td>316</td>
+<td>128</td>
+<td><strong>0.938</strong></td>
+<td>0.88–0.97</td>
+<td>0.835</td>
+<td>3/128</td>
+</tr>
+</tbody>
+</table>
+<p><strong>The finding is the representation, not the sensitivities.</strong></p>
+<p>Only <strong>22 of 511 images (4.3%)</strong> are brown or darker. A bin is treated as
+reliable only with at least 30 malignant <em>and</em> 30 benign images, and on that test
+<strong>just two bins qualify — Light and Very light. Both are light skin.</strong></p>
+<p>So the honest statement is not "the model performs equally well across skin
+tones". It is: <strong>this dataset cannot tell you how the model performs on darker
+skin.</strong> The Dark bin contains four images and no benign controls at all; its
+sensitivity of 1.000 has a confidence interval running from 0.51 to 1.00, which
+is another way of saying nothing is known.</p>
+<p>Across the two reliable bins sensitivity differs by 0.055, with overlapping
+intervals — no detectable disparity <em>among light skin tones</em>, which is not the
+question that matters.</p>
+<p><strong>Do not read the absence of a measured disparity as evidence of fairness.</strong> It
+is evidence that the evaluation set is 96% light-skinned. Closing this requires
+data, not modelling: a test set with meaningful representation of Fitzpatrick
+V–VI, ideally with recorded labels rather than an estimate from pixels.</p>
+<p>Caveats on the method: ITA is a proxy, not a Fitzpatrick score. It is affected by
+lighting, white balance and dermoscopy artefacts, and tanning shifts a
+light-skinned subject darker. It is adequate to detect a large disparity; it is
+not a substitute for labelled data.</p>
+<h3>History</h3>
+<p>The previous artifact scored <strong>0.50 balanced accuracy — exactly chance</strong> — on this
+same test set, under all three preprocessing schemes tried (raw 0–255 called every
+image benign; div255 and <code>resnet_v2.preprocess_input</code> flagged nearly everything
+malignant at specificity 0.06). Its training code no longer existed, so its
+preprocessing and class order could not be recovered, and it was rebuilt from
+scratch. The app had been advertising that model at "96% accuracy".</p>
+<p>Preprocessing is now fused into the saved graph specifically so that inference
+cannot silently disagree with training about normalisation again.</p>
+<hr />
+<h2>Modalities with no model</h2>
+<p>Breast, colon and prostate are named in the UI but <strong>have no trained classifier</strong>.
+Requests return HTTP 503 and queue the scan for manual review. Until an artifact
+exists and passes evaluation, they should be removed from the interface rather
+than presented as capabilities.</p>
+<hr />
+<h2>What a 503 means</h2>
+<p>When automated analysis cannot run, the API returns 503 with no diagnostic content
+and records the scan with status <code>pending_manual_review</code>. This is deliberate:</p>
+<blockquote>
+<p><strong>A 503 is not a negative result.</strong> It means no model produced an opinion.</p>
+</blockquote>
+<p>Earlier versions of this system filled that gap with <code>Math.random()</code> — including a
+lung path that defaulted to <code>no_cancer</code> at 0.5 confidence whenever the model failed
+to load, which it always did, because the model path pointed at a directory that
+did not exist on any deployed machine. Nothing in the response distinguished that
+fabricated negative from a real one.</p>
+<div class="docfoot">
+Generated from MODEL_CARDS.md by scripts/render-doc.py.<br>
+Every figure in this document is reproducible with the commands it contains.
+HealthAI Assistant &middot; 2026 South Africa MedTech Innovation Challenge.
+</div>
+</body></html>
