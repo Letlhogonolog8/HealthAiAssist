@@ -195,7 +195,39 @@ def _select_frame(pixels: np.ndarray) -> np.ndarray:
     raise DicomRejected(f"Unsupported pixel array shape {pixels.shape}")
 
 
-def _window(frame: np.ndarray, dataset: Any) -> np.ndarray:
+# The conventional chest window: about -1350 to +150 HU. Aerated lung sits near
+# -800 and the parenchyma spreads across most of the scale.
+CT_LUNG_WINDOW = (-600.0, 1500.0)
+
+
+def training_window(dataset: Any) -> tuple[float, float] | None:
+    """The window a MODEL must see, overriding the display preset in the tags.
+
+    WindowCenter and WindowWidth are a **display preference** — whatever preset
+    was active when somebody exported the study. The stored pixel data is
+    identical either way. A human reader re-windows at the workstation without
+    thinking about it; a model cannot, and gets whatever was saved.
+
+    That is not hypothetical. Across the 97 LIDC series downloaded so far, 40
+    carry a soft-tissue window (WC 40/WW 400, 55/500, 45/400). Those clip
+    everything below about -160 HU to black, and aerated lung is around -800 —
+    so the entire lung field, nodule included, renders as featureless black. In
+    38 of 97 series more than half the frame is near-black.
+
+    Honouring the tags would therefore have trained the nodule model on solid
+    black patches for roughly 40% of the collection, and the black-versus-not
+    split follows the scanner and the site, so it would have been available to
+    the model as a shortcut correlated with nothing clinical.
+
+    Every caller that renders CT for a model must use this, training and serving
+    alike. It lives here, in the module both import, so the two cannot drift.
+    """
+    modality = str(getattr(dataset, "Modality", "") or "").upper()
+    return CT_LUNG_WINDOW if modality == "CT" else None
+
+
+def _window(frame: np.ndarray, dataset: Any,
+            force_window: tuple[float, float] | None = None) -> np.ndarray:
     """Maps stored values to 0-255 using the windowing the object specifies.
 
     Order is fixed by the standard: the modality LUT (slope and intercept, which
@@ -203,12 +235,23 @@ def _window(frame: np.ndarray, dataset: Any) -> np.ndarray:
     width). Applying them the other way round, or skipping the rescale, gives an
     image that looks plausible and is wrong — which is the failure mode that
     matters, because nothing downstream can detect it.
+
+    `force_window` overrides the tags entirely — see `training_window` for why
+    any model-facing caller should pass one for CT.
     """
     frame = frame.astype(np.float64)
 
     slope = float(getattr(dataset, "RescaleSlope", 1) or 1)
     intercept = float(getattr(dataset, "RescaleIntercept", 0) or 0)
     frame = frame * slope + intercept
+
+    if force_window is not None:
+        centre, width = float(force_window[0]), float(force_window[1])
+        low = centre - width / 2.0
+        scaled = np.clip((frame - low) / width, 0.0, 1.0) * 255.0
+        if str(getattr(dataset, "PhotometricInterpretation", "")).strip() == "MONOCHROME1":
+            scaled = 255.0 - scaled
+        return scaled.astype(np.uint8)
 
     centre = getattr(dataset, "WindowCenter", None)
     width = getattr(dataset, "WindowWidth", None)
@@ -245,7 +288,7 @@ def _window(frame: np.ndarray, dataset: Any) -> np.ndarray:
         # because it helps. See MODEL_CARDS.md.
         modality = str(getattr(dataset, "Modality", "") or "").upper()
         if modality == "CT":
-            centre, width = -600.0, 1500.0
+            centre, width = CT_LUNG_WINDOW
         else:
             # For MR and everything else there is no universal window: signal
             # intensity is sequence-dependent and has no absolute scale the way

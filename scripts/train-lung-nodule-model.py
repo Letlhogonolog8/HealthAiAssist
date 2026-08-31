@@ -369,8 +369,13 @@ def main():
             'classIndexOrder': {c: i for i, c in enumerate(CLASSES)},
             'inputRange': 'raw RGB 0-255 (preprocessing fused into the model)',
             'imageSize': list(IMG_SIZE),
-            'windowing': 'inference/dicom_ingest.py _window — the same code the serving '
-                         'path uses. Training and serving cannot drift.',
+            'windowing': 'inference/dicom_ingest.py _window with '
+                         'force_window=training_window(ds), i.e. the CT lung window '
+                         '(WC -600 / WW 1500) regardless of the display preset in '
+                         'the tags. 40 of the first 97 LIDC series carry a '
+                         'soft-tissue window that clips the whole lung field to '
+                         'black. Any serving path for this model MUST pass the '
+                         'same override.',
             'backbone': 'ResNet50V2 ImageNet, frozen',
             'seed': SEED,
             'split': 'By patient, before any patch was written. No patient appears in '
@@ -416,6 +421,9 @@ def main():
     print(f'Saved {OUT_META}', flush=True)
 
     print('\nBefore this artifact goes anywhere near the serving path:', flush=True)
+    print('  0. The serving path must render CT with dicom_ingest.training_window(). '
+          'These patches were built that way; honouring the DICOM display '
+          'tags instead renders the lung field black on ~40% of series.', flush=True)
     print('  1. scripts/calibrate-model.py  — the head is uncalibrated', flush=True)
     print('  2. scripts/build-ood-reference.py — so whole slices are refused', flush=True)
     print('  3. Read the per-nodule interval. If it spans more than ~0.25, the honest '

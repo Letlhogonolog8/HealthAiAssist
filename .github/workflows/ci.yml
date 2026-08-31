@@ -122,4 +122,8 @@ jobs:
             server/lung-cancer-service.py \
             inference/server.py \
             inference/dicom_ingest.py \
-            inference/gradcam.py
+            inference/gradcam.py \
+            scripts/lidc_build_labels.py \
+            scripts/lidc_extract_patches.py \
+            scripts/lidc_whole_slices.py \
+            scripts/train-lung-nodule-model.py

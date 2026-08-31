@@ -48,7 +48,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "inference"))
-from dicom_ingest import _window  # noqa: E402  same windowing as the serving path
+from dicom_ingest import _window, training_window  # noqa: E402  one windowing implementation
 
 
 def index_series(dicom_root):
@@ -188,7 +188,8 @@ def main():
         for offset, (_z, slice_path) in enumerate(chosen):
             try:
                 ds = pydicom.dcmread(slice_path, force=True)
-                frame = _window(ds.pixel_array.astype(np.float64), ds)
+                frame = _window(ds.pixel_array.astype(np.float64), ds,
+                               force_window=training_window(ds))
             except Exception:
                 continue
 
