@@ -40,6 +40,7 @@ from __future__ import annotations
 import argparse
 import collections
 import csv
+import hashlib
 import os
 import random
 import sys
@@ -93,6 +94,23 @@ def index_series(dicom_root):
     return by_sop, by_series, scanned
 
 
+def nodule_id(row):
+    """A key that is unique across the whole collection.
+
+    `nodule_index` restarts at 0 in every series, and 8 of the 740 patients
+    contributed more than one series, so patient+index alone collides for 48
+    of the 1,746 nodules. Two of those collisions carry *different* labels —
+    LIDC-IDRI-0101 nodule 0 is benign in one series and malignant in another.
+
+    Left unfixed this silently overwrites patches and, worse, merges two
+    distinct nodules under one identity, which would corrupt the per-nodule
+    aggregation the evaluation depends on. Six hex of the series UID
+    separates them and stays short enough to read in a filename.
+    """
+    series = hashlib.sha256(row["series_uid"].encode()).hexdigest()[:6]
+    return f'{row["patient"]}_{series}_{row["nodule_index"]}'
+
+
 def crop(frame, cx, cy, size):
     """A square crop centred on (cx, cy), zero-padded at the edges.
 
@@ -143,6 +161,7 @@ def main():
         split_of[patient] = "train" if i < int(n * 0.70) else "val" if i < int(n * 0.85) else "test"
 
     counts = collections.Counter()
+    manifest = []
     missing = 0
 
     for row in rows:
@@ -160,6 +179,7 @@ def main():
         span = args.slices_per_nodule // 2
         chosen = series_slices[max(0, centre - span): centre + span + 1]
 
+        nid = nodule_id(row)
         label = "cancer" if row["positive"] == "1" else "no_cancer"
         split = split_of[row["patient"]]
         target = os.path.join(args.out_dir, split, label)
@@ -177,10 +197,24 @@ def main():
                 continue
 
             image = Image.fromarray(patch).convert("RGB").resize((224, 224), Image.BICUBIC)
-            name = f"{row['patient']}_{row['nodule_index']}_{offset}.png"
+            name = f"{nid}_{offset}.png"
             image.save(os.path.join(target, name), optimize=True)
             counts[(split, label)] += 1
+            manifest.append({
+                'path': os.path.relpath(os.path.join(target, name), args.out_dir).replace(os.sep, '/'),
+                'split': split, 'label': label, 'patient': row['patient'],
+                'series_uid': row['series_uid'], 'nodule_index': row['nodule_index'],
+                'nodule_id': nid, 'offset': offset,
+                'median_malignancy': row['median_malignancy'],
+                'n_readers': row['n_readers'], 'agreement': row['agreement'],
+            })
 
+    manifest_path = os.path.join(args.out_dir, 'patches.csv')
+    with open(manifest_path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=list(manifest[0].keys()) if manifest else ['path'])
+        writer.writeheader()
+        writer.writerows(manifest)
+    print(f"\nwrote {manifest_path} ({len(manifest)} patches)")
     print(f"\nnodules whose centre slice was not in the download: {missing}")
     print("\npatches written:")
     for split in ("train", "val", "test"):
@@ -189,16 +223,21 @@ def main():
         share = sum(1 for p in patients if split_of[p] == split)
         print(f"  {split:<6} {cancer:>6} cancer  {benign:>6} no_cancer   ({share} patients)")
 
-    total_test = counts[("test", "cancer")]
-    if total_test:
-        # Wilson half-width at 95%, p=0.8 — the honest precision of what the
-        # held-out set will be able to say about sensitivity.
+    test_nodules = {m['nodule_id'] for m in manifest
+                    if m['split'] == 'test' and m['label'] == 'cancer'}
+    if test_nodules:
+        # Wilson half-width at 95%, p=0.8, over NODULES. Patches from one
+        # nodule are five neighbouring slices of the same lesion — nowhere
+        # near independent — so a patch-count interval would be fiction.
+        n = len(test_nodules)
         z, p = 1.96, 0.8
-        half = z * ((p * (1 - p) / total_test) ** 0.5)
-        print(f"\n  Test set has {total_test} malignant patches. A sensitivity around 0.80")
-        print(f"  would carry a 95% interval of roughly +/-{half:.2f} — and patches from")
-        print("  one nodule are NOT independent, so the true interval is wider still.")
-        print("  Report the interval, not the point estimate.")
+        half = z * ((p * (1 - p) / n) ** 0.5)
+        print(f"\n  Test set holds {n} malignant NODULES "
+              f"({counts[('test', 'cancer')]} patches).")
+        print(f"  A sensitivity around 0.80 carries a 95% interval of roughly "
+              f"+/-{half:.2f} at the nodule level.")
+        print("  Report that interval, not the point estimate, and never the")
+        print("  patch-level one — it would look tighter by construction.")
 
 
 if __name__ == "__main__":
