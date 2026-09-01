@@ -199,10 +199,13 @@ def main():
         raise SystemExit(
             "None of the test-split patients are downloaded yet. Either the download "
             "has not reached them or the dicom_root is wrong.")
-    if len(by_patient) < len(wanted) * 0.5:
-        print(f"  NOTE: only {len(by_patient)}/{len(wanted)} are present. This is a "
-              "partial download; the sets below are smaller than the finished run "
-              "would produce, and the flagged rates carry correspondingly wide intervals.")
+    if len(by_patient) < len(wanted):
+        print(f"  NOTE: {len(by_patient)} of {len(wanted)} test-split patients are "
+              "present. The downloaded subset deliberately covers a fraction of the "
+              "label set, so this is expected rather than a sign of a partial "
+              "download - but the sets below are correspondingly small and every "
+              "flagged rate carries a wide interval. Check the counts against what "
+              "the extractor reported before reading anything into them.")
 
     whole_dir = os.path.join(args.out_dir, "whole-slice")
     off_dir = os.path.join(args.out_dir, "off-nodule")

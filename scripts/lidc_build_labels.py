@@ -137,6 +137,69 @@ def parse_reading_sessions(path):
     return series_uid, readings
 
 
+def annotation_signature(readings):
+    """What a set of readings says, independent of which file it came from."""
+    return tuple(sorted(
+        (r["malignancy"], round(r["cx"]), round(r["cy"]), round(r["cz"]))
+        for r in readings
+    ))
+
+
+def is_correction(path):
+    name = os.path.basename(path).lower()
+    return "correction" in name or "resubmit" in name
+
+
+def choose_one_xml_per_series(parsed):
+    """One annotation file per series, because the archive ships several.
+
+    `glob('**/*.xml')` finds 1,319 files describing 1,018 series, and treating
+    each as independent is wrong in two distinct ways:
+
+      * Six series carry between two and six byte-identical copies of the same
+        annotations. Every copy produced its own row, so those nodules were
+        counted up to six times over — 42 duplicate rows, which became 195
+        duplicate training patches pointing at 5 distinct images.
+      * One series, the one behind LIDC-IDRI-0101, has both an original and
+        `161-resubmitted-correction-3-9-12.xml`. Ingesting both put the same
+        nodule in the dataset twice with DIFFERENT labels, benign and
+        malignant. A correction exists precisely because the original is wrong;
+        keeping both means keeping the error and adding a contradiction.
+
+    The remaining 274 multi-file series pair one real annotation file with
+    empty ones, which the caller has already dropped, so they are harmless.
+
+    Ambiguity that fits neither rule is reported rather than silently resolved.
+    """
+    chosen, notes = {}, collections.Counter()
+    for series_uid, entries in parsed.items():
+        if len(entries) == 1:
+            chosen[series_uid] = entries[0]
+            continue
+
+        if len({annotation_signature(r) for _p, r in entries}) == 1:
+            notes["duplicate_copies"] += 1
+            chosen[series_uid] = min(entries, key=lambda e: e[0])
+            continue
+
+        corrections = [e for e in entries if is_correction(e[0])]
+        if len(corrections) == 1:
+            notes["superseded_by_correction"] += 1
+            chosen[series_uid] = corrections[0]
+            continue
+
+        # No rule covers this. Take the fullest reading so something sensible
+        # happens, and say so — a silent pick here would be a label of unknown
+        # provenance in a clinical training set.
+        notes["ambiguous"] += 1
+        print(f"  AMBIGUOUS: series {series_uid} has {len(entries)} disagreeing "
+              f"annotation files and none is marked a correction; took the one with "
+              f"the most readings", file=sys.stderr)
+        chosen[series_uid] = max(entries, key=lambda e: len(e[1]))
+
+    return chosen, notes
+
+
 def cluster(readings, match_mm):
     """Groups readings of the same physical nodule.
 
@@ -209,10 +272,23 @@ def main():
     unmatched_series = 0
     stats = collections.Counter()
 
+    parsed = collections.defaultdict(list)
     for path in xml_files:
         series_uid, readings = parse_reading_sessions(path)
         if not readings:
+            # Annotation files with no unblinded nodule reads. 274 series pair a
+            # real file with one of these; dropping them here is what makes the
+            # rest of the selection tractable.
             continue
+        parsed[series_uid].append((path, readings))
+
+    chosen, notes = choose_one_xml_per_series(parsed)
+    print(f"{len(xml_files)} XML files -> {len(parsed)} annotated series -> "
+          f"{len(chosen)} selected", file=sys.stderr)
+    for key, count in sorted(notes.items()):
+        print(f"  {key}: {count}", file=sys.stderr)
+
+    for series_uid, (path, readings) in sorted(chosen.items()):
         meta = digest.get(series_uid)
         if meta is None:
             unmatched_series += 1

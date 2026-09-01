@@ -221,8 +221,14 @@ def main():
     for split in ("train", "val", "test"):
         cancer = counts[(split, "cancer")]
         benign = counts[(split, "no_cancer")]
-        share = sum(1 for p in patients if split_of[p] == split)
-        print(f"  {split:<6} {cancer:>6} cancer  {benign:>6} no_cancer   ({share} patients)")
+        # Patients that actually contributed a patch, not patients ASSIGNED to
+        # this split. The subset downloaded covers 228 of the 740 patients in
+        # the label set, so counting assignments overstated every split by about
+        # three times and made the test set look far larger than it is.
+        present = len({m["patient"] for m in manifest if m["split"] == split})
+        nodules = len({m["nodule_id"] for m in manifest if m["split"] == split})
+        print(f"  {split:<6} {cancer:>6} cancer  {benign:>6} no_cancer   "
+              f"{nodules:>4} nodules, {present} patients present")
 
     test_nodules = {m['nodule_id'] for m in manifest
                     if m['split'] == 'test' and m['label'] == 'cancer'}
