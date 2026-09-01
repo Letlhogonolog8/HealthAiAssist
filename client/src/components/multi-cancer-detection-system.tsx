@@ -11,6 +11,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { submitScan, describeRejection, describeNotAnalysed } from '@/lib/submit-scan';
+import {
+  AiAnalysisConsentDialog,
+  useAiAnalysisConsent,
+} from '@/components/ai-analysis-consent-dialog';
 import { 
   Upload, 
   Eye, 
@@ -121,6 +125,8 @@ export default function MultiCancerDetectionSystem() {
 
   const [selectedCancerType, setSelectedCancerType] = useState<string>('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [consentOpen, setConsentOpen] = useState(false);
+  const { data: consent } = useAiAnalysisConsent();
   const [previewUrl, setPreviewUrl] = useState<string>("");
   const [analysisResult, setAnalysisResult] = useState<CancerAnalysisResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -272,6 +278,29 @@ export default function MultiCancerDetectionSystem() {
       });
       return;
     }
+
+    // Asked once, before the first scan, and never again — `recordedAt` is
+    // null only when there is no record either way. Someone who declined has
+    // decided, and re-prompting them on every upload would be nagging until
+    // they give the answer the prompt wants.
+    if (consent && consent.recordedAt === null) {
+      setConsentOpen(true);
+      return;
+    }
+
+    runAnalysis();
+  };
+
+  /**
+   * The submission itself, separated from the consent gate above.
+   *
+   * The dialog calls this directly once a decision is recorded, rather than
+   * re-entering startAnalysis: the consent query is refetched asynchronously,
+   * so a second pass through the gate could still read the stale null and
+   * reopen the dialog the person just answered.
+   */
+  const runAnalysis = () => {
+    if (!selectedFile || !selectedCancerType) return;
 
     setIsAnalyzing(true);
     setAnalysisProgress(0);
@@ -617,6 +646,14 @@ export default function MultiCancerDetectionSystem() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Rendered unconditionally; `open` controls it. Mounting it only when
+          needed would refetch the disclosure on every upload. */}
+      <AiAnalysisConsentDialog
+        open={consentOpen}
+        onOpenChange={setConsentOpen}
+        onDecided={() => runAnalysis()}
+      />
     </div>
   );
 }
