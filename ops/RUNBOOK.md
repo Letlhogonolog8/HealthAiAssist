@@ -181,6 +181,53 @@ uploaded something and nothing exists.
 
 ---
 
+## SevereHarmReported
+
+**Means:** a person filed an adverse event graded `severe_harm` — serious or
+lasting injury. This is not a system signal. Somebody is telling you they were
+hurt.
+
+**Do this in order.**
+
+1. Read the report: `GET /api/adverse-events?severity=severe_harm`. The
+   narrative is decrypted for clinical staff.
+2. Decide whether to disable the modality involved (see
+   [Kill switch](#kill-switch)). You do not need to establish causation first —
+   the cost of a needless day of manual review is much lower than the cost of a
+   second event while you investigate.
+3. Tell the clinical lead and the responsible person for the device. This is
+   the class of event a regulator expects to be recorded and, once these
+   classifiers are cleared, reported.
+4. Preserve the evidence. The scan row is mutable and erasable; the report
+   already holds its own copy of the model version and the prediction, but
+   export the linked scan and its audit trail before anything else touches it.
+5. Do not close the report to tidy the queue. It closes when the investigation
+   concludes, and the reported severity cannot be edited down.
+
+---
+
+## AdverseEventRateElevated
+
+**Means:** more than five `harm` or `severe_harm` reports in 24 hours.
+
+A cluster, not an incident. Individually these may each look explicable.
+
+1. Look for the common factor before treating them separately: same modality,
+   same model version, same clinic, same time of day, same reporting clinician.
+   `model_version_at_event` is denormalised onto each report precisely so this
+   is answerable after the scan rows have changed.
+2. Cross-check against `PredictionRateCollapsed` and `InputDistributionShift`.
+   A cluster of harm reports alongside either is a strong signal and should be
+   treated as a model integrity incident.
+3. **A rise is not necessarily worse care.** Under-reporting is the normal
+   state of every incident system, so a jump often follows someone publicising
+   the channel, a new cohort of staff, or a single motivated reporter. Check
+   whether the reporter population changed before concluding the device did.
+4. A *fall* is not evidence of improvement, for the same reason. Do not report
+   it as one.
+
+---
+
 ## BreakGlassUsageElevated
 
 **Means:** more than 3 emergency overrides opened in an hour. Break-glass

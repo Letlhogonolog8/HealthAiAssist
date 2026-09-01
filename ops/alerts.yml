@@ -214,6 +214,48 @@ groups:
             entirely. Check application logs by X-Request-Id.
           runbook: "ops/RUNBOOK.md#scanpipelineerrors"
 
+      # ── Somebody said they were harmed ──────────────────────────────────
+      #
+      # Not a system signal at all — a person filed a report. It is here
+      # because the alternative is that it waits for someone to open a
+      # dashboard, and a severe-harm report that sits unread for a shift is the
+      # failure the reporting channel was built to prevent.
+      #
+      # Fires on one. There is no threshold at which the second severe harm is
+      # the one worth waking up for.
+      - alert: SevereHarmReported
+        expr: |
+          sum(increase(healthai_adverse_events_total{severity="severe_harm"}[15m])) > 0
+        for: 0m
+        labels:
+          severity: critical
+          domain: clinical
+        annotations:
+          summary: "A severe harm adverse event has been reported"
+          description: >-
+            Someone has reported serious or lasting injury. Read the report now
+            at GET /api/adverse-events?severity=severe_harm. Consider whether the
+            modality involved should be disabled while it is investigated — see
+            the kill switch in the runbook.
+          runbook: "ops/RUNBOOK.md#severeharmreported"
+
+      # A cluster of any graded harm, which a single report does not establish.
+      - alert: AdverseEventRateElevated
+        expr: |
+          sum(increase(healthai_adverse_events_total{severity=~"harm|severe_harm"}[24h])) > 5
+        for: 30m
+        labels:
+          severity: warning
+          domain: clinical
+        annotations:
+          summary: "{{ $value }} harm events reported in 24 hours"
+          description: >-
+            A cluster rather than an incident. Look for a common modality, model
+            version or clinic before treating them separately. Note that these
+            are counts of what was *reported* — under-reporting is the normal
+            state, so a rise may be better reporting rather than worse care.
+          runbook: "ops/RUNBOOK.md#adverseeventrateelevated"
+
   - name: healthai-access-control
     interval: 60s
     rules:

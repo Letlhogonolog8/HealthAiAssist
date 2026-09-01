@@ -258,6 +258,137 @@ export type OutcomeMethod = (typeof OUTCOME_METHODS)[number];
 export type OutcomeValue = (typeof OUTCOME_VALUES)[number];
 
 /**
+ * Harm, and near-harm, reported by the people who saw it.
+ *
+ * `scan_outcomes` records what a scan turned out to be, which measures whether
+ * the model was right. This measures something the confusion matrix cannot see:
+ * whether anyone was hurt. The two come apart in both directions — a model can
+ * be correct and still contribute to harm through a delayed review, and it can
+ * be wrong on a scan that harmed nobody because a radiologist caught it.
+ *
+ * A device that cannot be told it caused harm cannot be shown to be safe, and
+ * every regulator that would ever clear these classifiers requires this channel
+ * to exist. It is also the only route by which a failure mode nobody predicted
+ * reaches the people who could fix it.
+ *
+ * ── Anyone may report ──────────────────────────────────────────────────────
+ *
+ * Including patients. A reporting channel restricted to clinicians misses the
+ * events clinicians are least likely to file, and the reporter's role is
+ * recorded rather than used as a filter.
+ *
+ * ── The report is immutable; the review is appended to it ──────────────────
+ *
+ * Reported fields are never rewritten. A review sets the review columns once
+ * and writes an audit event; re-opening writes another. An incident log that
+ * can be edited after the fact is not evidence, and the temptation to soften a
+ * severity grade after an investigation is exactly what it must resist.
+ *
+ * ── It outlives the scan ───────────────────────────────────────────────────
+ *
+ * `scan_id` and `patient_id` are nullable and carry no foreign key on purpose.
+ * Erasure deletes medical_scans once the retention hold expires, and a safety
+ * record that vanishes with the record it concerns cannot support the trend
+ * analysis it exists for. Erasure nulls these instead, on the same reasoning
+ * that retains audit_events under POPIA §19.
+ */
+export const adverseEvents = pgTable("adverse_events", {
+  id: serial("id").primaryKey(),
+
+  /** Nullable: not every event involves a scan, and erasure nulls it. */
+  scanId: integer("scan_id"),
+  /** Nullable for the same two reasons. */
+  patientId: integer("patient_id"),
+
+  reportedBy: integer("reported_by").references(() => users.id),
+  reporterRole: text("reporter_role"),
+
+  /** One of ADVERSE_EVENT_CATEGORIES. */
+  category: text("category").notNull(),
+  /** One of ADVERSE_EVENT_SEVERITIES. */
+  severity: text("severity").notNull(),
+
+  /**
+   * What happened, in the reporter's words. Encrypted: it is clinical
+   * narrative about an identifiable person, written once and read whole.
+   */
+  description: text("description").notNull(),
+
+  /** When the event happened, which is not when it was noticed. */
+  occurredAt: timestamp("occurred_at"),
+  reportedAt: timestamp("reported_at").defaultNow().notNull(),
+
+  /** "open" | "under_review" | "closed" */
+  status: text("status").default("open").notNull(),
+
+  reviewedBy: integer("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  /** Findings of the review. Encrypted for the same reason as description. */
+  reviewNotes: text("review_notes"),
+
+  /**
+   * What the model had said about the linked scan, copied at report time.
+   *
+   * Denormalised deliberately. The scan row is mutable and erasable, so by the
+   * time anyone analyses a cluster of reports the prediction that provoked them
+   * may be gone or changed. A safety record has to hold its own evidence.
+   */
+  modelVersionAtEvent: text("model_version_at_event"),
+  predictedPositiveAtEvent: boolean("predicted_positive_at_event"),
+}, (table) => ({
+  statusIdx: index("idx_adverse_events_status").on(table.status, table.reportedAt),
+  severityIdx: index("idx_adverse_events_severity").on(table.severity),
+  scanIdx: index("idx_adverse_events_scan").on(table.scanId),
+  reportedAtIdx: index("idx_adverse_events_reported").on(table.reportedAt),
+}));
+
+export type AdverseEvent = typeof adverseEvents.$inferSelect;
+export type InsertAdverseEvent = typeof adverseEvents.$inferInsert;
+
+/**
+ * What went wrong, in categories a trend can be computed over.
+ *
+ * Free text here would make the reports unanalysable, which is the failure mode
+ * of most incident systems: a thousand narratives nobody can count.
+ */
+export const ADVERSE_EVENT_CATEGORIES = [
+  /** The model's call was wrong in a way that mattered. */
+  'incorrect_result',
+  /** Something clinically significant was not flagged. */
+  'missed_finding',
+  /** The scan reached a human too late. */
+  'delayed_review',
+  /** The platform was unavailable or lost work. */
+  'system_failure',
+  /** A result was attached to the wrong person. */
+  'wrong_patient',
+  /** Unauthorised access or disclosure. */
+  'privacy_breach',
+  'other',
+] as const;
+
+/**
+ * Severity, graded by what reached the patient.
+ *
+ * `near_miss` is first because it is the most valuable and the least reported:
+ * an error caught before it reached anyone is the same latent fault as one that
+ * did, discovered for free. A scheme that only counts realised harm trains
+ * people to report nothing until it is too late.
+ */
+export const ADVERSE_EVENT_SEVERITIES = [
+  'near_miss',
+  'no_harm',
+  'harm',
+  'severe_harm',
+] as const;
+
+export const ADVERSE_EVENT_STATUSES = ['open', 'under_review', 'closed'] as const;
+
+export type AdverseEventCategory = (typeof ADVERSE_EVENT_CATEGORIES)[number];
+export type AdverseEventSeverity = (typeof ADVERSE_EVENT_SEVERITIES)[number];
+export type AdverseEventStatus = (typeof ADVERSE_EVENT_STATUSES)[number];
+
+/**
  * Consent for processing that is not genomic — currently the AI assistant, which
  * forwards messages to a processor outside South Africa.
  *

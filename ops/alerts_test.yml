@@ -381,3 +381,70 @@ tests:
       - eval_time: 2h
         alertname: NoScanSubmissions
         exp_alerts: []
+
+  # ── SevereHarmReported ───────────────────────────────────────────────────
+  #
+  # Fires on one. There is no threshold at which the second severe harm is the
+  # one worth waking up for.
+  - interval: 1m
+    name: a single severe harm report fires immediately
+    input_series:
+      - series: 'healthai_adverse_events_total{severity="severe_harm", category="incorrect_result"}'
+        values: '0+0x10 1+0x50'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: SevereHarmReported
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: SevereHarmReported
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              domain: clinical
+            exp_annotations:
+              summary: "A severe harm adverse event has been reported"
+              runbook: "ops/RUNBOOK.md#severeharmreported"
+              description: >-
+                Someone has reported serious or lasting injury. Read the report now at
+                GET /api/adverse-events?severity=severe_harm. Consider whether the
+                modality involved should be disabled while it is investigated — see the
+                kill switch in the runbook.
+
+  # Near misses and no-harm reports are the ones the scheme most wants people
+  # to file. Paging on them would train the opposite behaviour.
+  - interval: 1m
+    name: near-miss and no-harm reports page nobody
+    input_series:
+      - series: 'healthai_adverse_events_total{severity="near_miss", category="missed_finding"}'
+        values: '0+5x120'
+      - series: 'healthai_adverse_events_total{severity="no_harm", category="delayed_review"}'
+        values: '0+5x120'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: SevereHarmReported
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: AdverseEventRateElevated
+        exp_alerts: []
+
+  # ── AdverseEventRateElevated ─────────────────────────────────────────────
+  - interval: 1m
+    name: a cluster of harm reports fires
+    input_series:
+      - series: 'healthai_adverse_events_total{severity="harm", category="incorrect_result"}'
+        values: '0+1x200'
+    alert_rule_test:
+      - eval_time: 150m
+        alertname: AdverseEventRateElevated
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              domain: clinical
+            exp_annotations:
+              summary: "150 harm events reported in 24 hours"
+              runbook: "ops/RUNBOOK.md#adverseeventrateelevated"
+              description: >-
+                A cluster rather than an incident. Look for a common modality, model
+                version or clinic before treating them separately. Note that these are
+                counts of what was *reported* — under-reporting is the normal state, so
+                a rise may be better reporting rather than worse care.

@@ -118,6 +118,27 @@ export const scanPredictions = new client.Counter({
   registers: [registry],
 });
 
+/**
+ * Harm and near-harm, as reported.
+ *
+ * Counted here so that a cluster is visible without anyone opening the incident
+ * list, which is the difference between a reporting system and an archive.
+ *
+ * `severity` and `category` are the fixed vocabularies from the schema — they
+ * describe an event, not a person, so the rule at the top of this file holds.
+ *
+ * Read it as a report rate, never as a harm rate. Under-reporting is the normal
+ * state of every incident system, so a fall in this series is not evidence that
+ * the platform became safer; it is equally consistent with people having
+ * stopped filing.
+ */
+export const adverseEventsReported = new client.Counter({
+  name: 'healthai_adverse_events_total',
+  help: 'Adverse events reported, by severity and category',
+  labelNames: ['severity', 'category'] as const,
+  registers: [registry],
+});
+
 export const breakGlassUses = new client.Counter({
   name: 'healthai_break_glass_total',
   help: 'Emergency accesses opened outside a recorded care relationship',

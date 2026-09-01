@@ -37,6 +37,7 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from './db';
 import {
+  adverseEvents,
   chatMessages,
   genomicConsents,
   genomicProfiles,
@@ -239,6 +240,28 @@ export async function executeErasure(patientId: number): Promise<ErasureAssessme
   }
 
   if (erasable.has('Screening scans and findings')) {
+    // Safety reports outlive the scans they concern.
+    //
+    // adverse_events holds no foreign key precisely so this is possible: the
+    // personal references are nulled and the report survives. A harm report
+    // that disappears with the record it is about cannot support the trend
+    // analysis it exists for, and the device-safety obligation to keep it does
+    // not end because the patient asked to be forgotten — the same reasoning
+    // that retains audit_events under POPIA §19 accountability.
+    //
+    // The description is clinical narrative and IS erased, since that is the
+    // personal content; what remains is the category, severity, timing and the
+    // model version, which is what a trend is computed from.
+    await (db as any)
+      .update(adverseEvents)
+      .set({
+        patientId: null,
+        scanId: null,
+        description: '[Erased at data subject request]',
+        reviewNotes: null,
+      })
+      .where(eq(adverseEvents.patientId, patientId));
+
     await (db as any).delete(medicalScans).where(eq(medicalScans.patientId, patientId));
   }
 

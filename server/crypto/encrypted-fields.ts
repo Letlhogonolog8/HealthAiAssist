@@ -66,6 +66,20 @@ export const ENCRYPTED_FIELDS: EncryptedField[] = [
     why: 'Adjudication notes: why a scan was called malignant or benign.',
   },
   {
+    table: 'adverse_events',
+    property: 'description',
+    column: 'description',
+    why:
+      'A harm report written by whoever saw it. Clinical narrative about an ' +
+      'identifiable person, read whole by a reviewer and never matched on.',
+  },
+  {
+    table: 'adverse_events',
+    property: 'reviewNotes',
+    column: 'review_notes',
+    why: 'Findings of the harm review, including what was concluded about the patient.',
+  },
+  {
     table: 'users',
     property: 'address',
     column: 'address',

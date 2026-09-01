@@ -5,7 +5,7 @@ import { insertUserSchema, insertScanSchema, insertTermSchema, erasureRequests }
 import { and, eq } from "drizzle-orm";
 import { db } from "./db";
 import { verifyUpload } from "./upload-validation";
-import { scanOutcomes, scanPredictions, inferenceDuration, oodRejections, breakGlassUses, careRelationshipDenials } from "./metrics";
+import { scanOutcomes, scanPredictions, inferenceDuration, oodRejections, breakGlassUses, careRelationshipDenials, adverseEventsReported } from "./metrics";
 import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
@@ -1340,6 +1340,199 @@ export async function registerRoutes(app: Express): Promise<Server> {
     await recordExternalAiConsent(patientId, granted);
     res.json({ scope: 'external_ai_assistant', version: DISCLOSURE_VERSION, granted });
   });
+
+  /**
+   * Adverse event reporting.
+   *
+   * -- Open to everyone who holds a session, including patients --------------
+   *
+   * A channel restricted to clinicians misses precisely the events clinicians
+   * are least likely to file: the ones where the clinician was involved. The
+   * reporter's role is recorded rather than used as a gate.
+   *
+   * -- Rate limiting is deliberately not applied -----------------------------
+   *
+   * sensitiveOperationLimit guards routes where repetition is abuse. Here
+   * repetition is a person filing several reports about a bad afternoon, and a
+   * 429 in the middle of that loses a report and teaches them not to bother.
+   * Spam is a moderation problem, not a reason to drop safety reports.
+   */
+  app.post(
+    "/api/adverse-events",
+    auditLog('ADVERSE_EVENT_REPORTED'),
+    requireAuth,
+    async (req: AuthenticatedRequest, res) => {
+      try {
+        const { category, severity, description, scanId, patientId, occurredAt } = req.body ?? {};
+        const { reportAdverseEvent } = await import('./adverse-events');
+
+        const event = await reportAdverseEvent({
+          reportedBy: req.session!.user!.id,
+          reporterRole: req.session!.user!.role,
+          category,
+          severity,
+          description,
+          scanId: scanId !== undefined && scanId !== null ? parseInt(String(scanId), 10) : null,
+          patientId:
+            patientId !== undefined && patientId !== null ? parseInt(String(patientId), 10) : null,
+          occurredAt: occurredAt ? new Date(occurredAt) : null,
+        });
+
+        adverseEventsReported.inc({ severity: event.severity, category: event.category });
+
+        // Non-identifying: the grading and the id, never the narrative.
+        const { recordAuditEvent: auditAe } = await import('./security-middleware');
+        await auditAe({
+          action: 'ADVERSE_EVENT_FILED',
+          actorUserId: req.session!.user!.id,
+          actorUsername: req.session!.user!.username,
+          actorRole: req.session!.user!.role,
+          method: 'POST',
+          path: '/api/adverse-events',
+          statusCode: 201,
+          detail:
+            `event=${event.id}; severity=${event.severity}; category=${event.category}; ` +
+            `scan=${event.scanId ?? 'none'}`,
+        });
+
+        res.status(201).json({
+          id: event.id,
+          status: event.status,
+          severity: event.severity,
+          category: event.category,
+          reportedAt: event.reportedAt,
+          message:
+            'Report filed. It will be reviewed by a clinician; you do not need to do anything further.',
+        });
+      } catch (error: any) {
+        if (error?.name === 'InvalidReportError') {
+          return res
+            .status(400)
+            .json({ error: error.message, field: error.field, allowed: error.allowed });
+        }
+        // Logged loudly. A lost harm report is the one failure this route
+        // cannot absorb quietly, because nothing else recorded the event.
+        console.error('[ADVERSE EVENT] FAILED TO FILE REPORT:', error);
+        res.status(500).json({
+          error: 'Your report could not be saved.',
+          detail:
+            'Nothing was recorded. Please tell a supervisor directly rather than relying on this channel.',
+        });
+      }
+    }
+  );
+
+  /** The vocabularies, so a client never has to hardcode them. */
+  app.get("/api/adverse-events/vocabularies", requireAuth, async (_req, res) => {
+    const { ADVERSE_EVENT_CATEGORIES, ADVERSE_EVENT_SEVERITIES, ADVERSE_EVENT_STATUSES } =
+      await import('@shared/schema');
+    res.json({
+      categories: ADVERSE_EVENT_CATEGORIES,
+      severities: ADVERSE_EVENT_SEVERITIES,
+      statuses: ADVERSE_EVENT_STATUSES,
+      severityGuidance: {
+        near_miss: 'Caught before it reached the patient. Worth reporting: same fault, no harm.',
+        no_harm: 'Reached the patient but caused no injury.',
+        harm: 'Caused injury, distress or a delay in care.',
+        severe_harm: 'Caused serious or lasting injury.',
+      },
+    });
+  });
+
+  app.get(
+    "/api/adverse-events",
+    auditLog('READ_ADVERSE_EVENTS'),
+    requireAuth,
+    requireMedicalAccess,
+    async (req, res) => {
+      try {
+        const { listAdverseEvents } = await import('./adverse-events');
+        const events = await listAdverseEvents({
+          status: (req.query.status as any) || undefined,
+          severity: (req.query.severity as any) || undefined,
+          limit: req.query.limit ? parseInt(String(req.query.limit), 10) : undefined,
+        });
+        res.json({ events, count: events.length });
+      } catch (error) {
+        console.error('Failed to list adverse events:', error);
+        res.status(500).json({ error: 'Could not load adverse events' });
+      }
+    }
+  );
+
+  /**
+   * The trend, which is the only form in which these are useful.
+   *
+   * A list of incidents is an archive; what says whether the device is getting
+   * more dangerous is the rate against the previous comparable window.
+   */
+  app.get(
+    "/api/adverse-events/trend",
+    auditLog('READ_ADVERSE_EVENT_TREND'),
+    requireAuth,
+    requireMedicalAccess,
+    async (req, res) => {
+      try {
+        const { adverseEventTrend } = await import('./adverse-events');
+        const days = req.query.days ? parseInt(String(req.query.days), 10) : 30;
+        res.json(await adverseEventTrend(Number.isFinite(days) && days > 0 ? days : 30));
+      } catch (error) {
+        console.error('Failed to compute adverse event trend:', error);
+        res.status(500).json({ error: 'Could not compute trend' });
+      }
+    }
+  );
+
+  app.patch(
+    "/api/adverse-events/:id/review",
+    auditLog('ADVERSE_EVENT_REVIEWED'),
+    requireAuth,
+    requireMedicalAccess,
+    async (req: AuthenticatedRequest, res) => {
+      try {
+        const id = parseInt(req.params.id, 10);
+        if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid event id' });
+
+        const { status, reviewNotes } = req.body ?? {};
+        const { reviewAdverseEvent } = await import('./adverse-events');
+
+        const updated = await reviewAdverseEvent({
+          id,
+          reviewerId: req.session!.user!.id,
+          status,
+          reviewNotes: String(reviewNotes ?? ''),
+        });
+
+        if (!updated) return res.status(404).json({ error: 'No such adverse event' });
+
+        const { recordAuditEvent: auditReview } = await import('./security-middleware');
+        await auditReview({
+          action: 'ADVERSE_EVENT_STATUS_CHANGED',
+          actorUserId: req.session!.user!.id,
+          actorUsername: req.session!.user!.username,
+          actorRole: req.session!.user!.role,
+          method: 'PATCH',
+          path: '/api/adverse-events/:id/review',
+          statusCode: 200,
+          detail: `event=${id}; status=${updated.status}`,
+        });
+
+        res.json({
+          id: updated.id,
+          status: updated.status,
+          reviewedAt: updated.reviewedAt,
+          // Said plainly: a reviewer cannot rewrite what was reported.
+          note: 'The reported category, severity and description are unchanged and cannot be edited.',
+        });
+      } catch (error: any) {
+        if (error?.name === 'InvalidReportError') {
+          return res.status(400).json({ error: error.message, allowed: error.allowed });
+        }
+        console.error('Failed to review adverse event:', error);
+        res.status(500).json({ error: 'Could not record the review' });
+      }
+    }
+  );
 
   /**
    * What a model does to a scan, and how often it is wrong.

@@ -1,10 +1,16 @@
 {
   "title": "HealthAI — Clinical Safety",
   "uid": "healthai-clinical",
-  "tags": ["healthai", "clinical"],
+  "tags": [
+    "healthai",
+    "clinical"
+  ],
   "timezone": "Africa/Johannesburg",
   "refresh": "1m",
-  "time": { "from": "now-24h", "to": "now" },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
   "templating": {
     "list": [
       {
@@ -14,7 +20,10 @@
         "query": "label_values(healthai_scan_submissions_total, modality)",
         "includeAll": true,
         "multi": true,
-        "current": { "text": "All", "value": "$__all" }
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
       }
     ]
   },
@@ -22,23 +31,37 @@
     {
       "type": "text",
       "title": "Read this first",
-      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "options": {
         "mode": "markdown",
         "content": "**These panels show what the models did, not whether they were right.** Correctness needs adjudicated outcomes and lives at `GET /api/models/performance`, which updates over days, not seconds.\n\nA refusal is safe — the scan reached a human. A *wrong answer* is not, and the panel that would show one is **Flagged-positive rate**. Alert definitions: `ops/alerts.yml`. What to do about each: `ops/RUNBOOK.md`."
       }
     },
-
     {
       "type": "row",
       "title": "Clinical safety",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 4 }
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      }
     },
     {
       "type": "timeseries",
       "title": "Flagged-positive rate (catches a silently broken model)",
       "description": "No ground truth exists at inference time, so this is the only real-time signal that a model has stopped discriminating. Expected: tens of percent. Under 2% fires PredictionRateCollapsed (critical); over 80% fires PredictionRateSaturated. Not meaningful under ~50 calls in the window.",
-      "gridPos": { "h": 9, "w": 14, "x": 0, "y": 5 },
+      "gridPos": {
+        "h": 9,
+        "w": 14,
+        "x": 0,
+        "y": 5
+      },
       "datasource": "Prometheus",
       "targets": [
         {
@@ -51,13 +74,25 @@
           "unit": "percentunit",
           "min": 0,
           "max": 1,
-          "custom": { "lineWidth": 2, "fillOpacity": 5 },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 5
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "green", "value": 0.02 },
-              { "color": "orange", "value": 0.8 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0.02
+              },
+              {
+                "color": "orange",
+                "value": 0.8
+              }
             ]
           }
         }
@@ -67,41 +102,88 @@
       "type": "stat",
       "title": "Scans analysed (24h)",
       "description": "Denominator for the rate panels.",
-      "gridPos": { "h": 4, "w": 5, "x": 14, "y": 5 },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 14,
+        "y": 5
+      },
       "datasource": "Prometheus",
-      "targets": [{ "expr": "sum(increase(healthai_scan_submissions_total{outcome=\"analysed\"}[24h]))" }],
-      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 } }
+      "targets": [
+        {
+          "expr": "sum(increase(healthai_scan_submissions_total{outcome=\"analysed\"}[24h]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        }
+      }
     },
     {
       "type": "stat",
       "title": "Sent to humans unanalysed (24h)",
       "description": "refused_no_model + refused_no_consent + rejected_input. Safe, but it is radiologist workload that nothing else surfaces.",
-      "gridPos": { "h": 4, "w": 5, "x": 19, "y": 5 },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 19,
+        "y": 5
+      },
       "datasource": "Prometheus",
-      "targets": [{ "expr": "sum(increase(healthai_scan_submissions_total{outcome=~\"refused_no_model|refused_no_consent|rejected_input\"}[24h]))" }],
+      "targets": [
+        {
+          "expr": "sum(increase(healthai_scan_submissions_total{outcome=~\"refused_no_model|refused_no_consent|rejected_input\"}[24h]))"
+        }
+      ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "decimals": 0,
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 25 }] }
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 25
+              }
+            ]
+          }
         }
       }
     },
     {
       "type": "piechart",
       "title": "What happened to submissions (24h)",
-      "gridPos": { "h": 5, "w": 10, "x": 14, "y": 9 },
+      "gridPos": {
+        "h": 5,
+        "w": 10,
+        "x": 14,
+        "y": 9
+      },
       "datasource": "Prometheus",
       "targets": [
-        { "expr": "sum by (outcome) (increase(healthai_scan_submissions_total{modality=~\"$modality\"}[24h]))", "legendFormat": "{{outcome}}" }
+        {
+          "expr": "sum by (outcome) (increase(healthai_scan_submissions_total{modality=~\"$modality\"}[24h]))",
+          "legendFormat": "{{outcome}}"
+        }
       ]
     },
-
     {
       "type": "timeseries",
       "title": "Out-of-distribution refusal rate",
       "description": "Measured baseline on held-out same-modality images is under 4% (skin lesions 0.8%, benign lung nodule patches 3.3%). Sustained above 20% means the input distribution has moved and the published performance figures no longer describe this deployment.",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
       "datasource": "Prometheus",
       "targets": [
         {
@@ -113,7 +195,19 @@
         "defaults": {
           "unit": "percentunit",
           "min": 0,
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.2 }] }
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.2
+              }
+            ]
+          }
         }
       }
     },
@@ -121,7 +215,12 @@
       "type": "timeseries",
       "title": "Consent take-up — automated analysis",
       "description": "Not a fault signal. A patient declining is a right being honoured, and the scan still reached a clinician. Watched because a sudden move usually means the consent copy or its placement changed, not that anything broke.",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
       "datasource": "Prometheus",
       "targets": [
         {
@@ -129,28 +228,113 @@
           "legendFormat": "declined"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        }
+      }
     },
-
+    {
+      "type": "row",
+      "title": "Reported harm",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Adverse events reported, by severity",
+      "description": "Counts of what was REPORTED, not of what happened. Under-reporting is the normal state of every incident system, so a fall here is not evidence that the platform became safer — it is equally consistent with people having stopped filing. A rise often means the channel became better known.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 23
+      },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum by (severity) (increase(healthai_adverse_events_total[24h]))",
+          "legendFormat": "{{severity}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        }
+      }
+    },
+    {
+      "type": "piechart",
+      "title": "What is going wrong (30d, by category)",
+      "description": "Where to look first. A category that dominates is a design problem, not a run of bad luck.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 23
+      },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum by (category) (increase(healthai_adverse_events_total[30d]))",
+          "legendFormat": "{{category}}"
+        }
+      ]
+    },
     {
       "type": "row",
       "title": "Capacity",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 }
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 31
+      }
     },
     {
       "type": "timeseries",
       "title": "Inference latency (p50 / p95)",
       "description": "Resident service answers in ~0.5s. The per-request Python subprocess fallback takes 8-14s — p95 above 5s means INFERENCE_URL is unset or unreachable and the fallback is carrying production traffic.",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 23 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
       "datasource": "Prometheus",
       "targets": [
-        { "expr": "histogram_quantile(0.50, sum by (le, modality) (rate(healthai_inference_duration_seconds_bucket{modality=~\"$modality\"}[15m])))", "legendFormat": "p50 {{modality}}" },
-        { "expr": "histogram_quantile(0.95, sum by (le, modality) (rate(healthai_inference_duration_seconds_bucket{modality=~\"$modality\"}[15m])))", "legendFormat": "p95 {{modality}}" }
+        {
+          "expr": "histogram_quantile(0.50, sum by (le, modality) (rate(healthai_inference_duration_seconds_bucket{modality=~\"$modality\"}[15m])))",
+          "legendFormat": "p50 {{modality}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, modality) (rate(healthai_inference_duration_seconds_bucket{modality=~\"$modality\"}[15m])))",
+          "legendFormat": "p95 {{modality}}"
+        }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 5 }] }
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 5
+              }
+            ]
+          }
         }
       }
     },
@@ -158,32 +342,76 @@
       "type": "timeseries",
       "title": "Pipeline errors and saturation",
       "description": "Unlike a refusal, an error leaves no queued manual-review row — the scan may be lost to the patient entirely.",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 23 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
       "datasource": "Prometheus",
       "targets": [
-        { "expr": "sum(rate(healthai_scan_submissions_total{outcome=\"error\"}[15m]))", "legendFormat": "error" },
-        { "expr": "sum(rate(healthai_scan_submissions_total{outcome=\"saturated\"}[15m]))", "legendFormat": "saturated" },
-        { "expr": "sum(rate(healthai_scan_submissions_total{outcome=\"rejected_upload\"}[15m]))", "legendFormat": "rejected upload" }
+        {
+          "expr": "sum(rate(healthai_scan_submissions_total{outcome=\"error\"}[15m]))",
+          "legendFormat": "error"
+        },
+        {
+          "expr": "sum(rate(healthai_scan_submissions_total{outcome=\"saturated\"}[15m]))",
+          "legendFormat": "saturated"
+        },
+        {
+          "expr": "sum(rate(healthai_scan_submissions_total{outcome=\"rejected_upload\"}[15m]))",
+          "legendFormat": "rejected upload"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "reqps" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
+      }
     },
-
     {
       "type": "row",
       "title": "Access control",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 31 }
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      }
     },
     {
       "type": "timeseries",
       "title": "Break-glass overrides",
       "description": "Bypasses the care-relationship check. Designed to be easy to invoke and impossible to invoke quietly — this panel is the second half of that. Each event names a clinician, a patient and a stated reason in audit_events.",
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 32 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 41
+      },
       "datasource": "Prometheus",
-      "targets": [{ "expr": "sum(increase(healthai_break_glass_total[1h]))", "legendFormat": "opened" }],
+      "targets": [
+        {
+          "expr": "sum(increase(healthai_break_glass_total[1h]))",
+          "legendFormat": "opened"
+        }
+      ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 3 }] }
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 3
+              }
+            ]
+          }
         }
       }
     },
@@ -191,12 +419,24 @@
       "type": "timeseries",
       "title": "Care-relationship denials",
       "description": "Shadow counts what enforcement would have refused; enforced counts what it did. Shadow falling towards zero is how the derivation is judged ready to enforce. Sustained enforced denials push clinicians towards break-glass or shared logins, which is worse for privacy than the access they prevented.",
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 32 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 41
+      },
       "datasource": "Prometheus",
       "targets": [
-        { "expr": "sum by (mode) (increase(healthai_care_relationship_denials_total[1h]))", "legendFormat": "{{mode}}" }
+        {
+          "expr": "sum by (mode) (increase(healthai_care_relationship_denials_total[1h]))",
+          "legendFormat": "{{mode}}"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "short" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      }
     }
   ]
 }
