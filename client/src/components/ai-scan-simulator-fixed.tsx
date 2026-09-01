@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { submitScan, describeRejection, describeNotAnalysed } from "@/lib/submit-scan";
 import { Upload, Brain, Eye, CheckCircle, AlertTriangle, FileText, Image, X } from "lucide-react";
 
 export default function AIScanSimulator({ userId }: { userId?: number }) {
@@ -68,27 +69,42 @@ export default function AIScanSimulator({ userId }: { userId?: number }) {
   // Image upload mutation
   const uploadMutation = useMutation({
     mutationFn: async ({ file, scanType }: { file: File; scanType: string }) => {
-      const formData = new FormData();
-      formData.append('image', file);
-      formData.append('scanType', scanType);
-      if (userId !== undefined) {
-        formData.append('patientId', userId.toString());
-      }
-
-      const response = await fetch('/api/scan/upload', {
-        method: 'POST',
-        credentials: 'include',
-        body: formData,
+      const outcome = await submitScan({
+        image: file,
+        fileName: file.name,
+        scanType,
+        patientId: userId,
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to upload and analyze image');
+      if (outcome.kind === 'rejected') {
+        const { title, description } = describeRejection(outcome.status, outcome.body);
+        throw new Error(`${title}. ${description}`);
       }
 
-      return response.json();
+      return outcome;
     },
-    onSuccess: (data) => {
-      setScanResult(data.analysis);
+    onSuccess: (outcome) => {
+      // `setScanResult(data.analysis)` ran unguarded here, so a 200 carrying no
+      // analysis set the result to undefined and then announced "AI analysis
+      // completed successfully" — the reassurance being wrong is the whole
+      // reason this path is handled separately.
+      if (outcome.kind === 'queued' || outcome.kind === 'not_analysed') {
+        setScanResult(null);
+        setIsScanning(false);
+        setScanProgress(0);
+        toast(
+          outcome.kind === 'queued'
+            ? {
+                title: 'Saved on this device',
+                description:
+                  'You are offline, so nothing has been analysed yet. This scan will upload automatically when you have a connection.',
+              }
+            : describeNotAnalysed(outcome.body)
+        );
+        return;
+      }
+
+      setScanResult(outcome.body.analysis);
       setIsScanning(false);
       setScanProgress(100);
       toast({

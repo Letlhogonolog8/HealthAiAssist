@@ -7,12 +7,13 @@
  * expression matches nothing. Nobody notices, because "no data" and "nothing
  * wrong" look identical on a dashboard.
  *
- * So this asserts three things:
+ * So this asserts four things:
  *
  *   1. Every healthai_* metric named in ops/alerts.yml and ops/dashboard.json
  *      is actually defined in server/metrics.ts.
  *   2. Every alert carries a runbook annotation.
  *   3. Every runbook anchor resolves to a heading in ops/RUNBOOK.md.
+ *   4. Every alert is exercised by at least one case in ops/alerts_test.yml.
  *
  * Deliberately regex-based rather than parsing YAML: `yaml` is only a
  * transitive dependency here, and a check that fails when someone prunes the
@@ -86,6 +87,26 @@ for (const anchor of runbookRefs) {
   }
 }
 
+// ── 4. Every alert is exercised by a test ──────────────────────────────────
+//
+// An untested alert is a guess about PromQL semantics. NoScanSubmissions was
+// silent in exactly the case it existed for — sum(increase(...)) over a metric
+// with no series returns an empty vector, not zero — and only a test found it.
+
+const testSrc = read('ops/alerts_test.yml');
+const tested = new Set(
+  [...testSrc.matchAll(/alertname:\s*(\S+)/g)].map((m) => m[1])
+);
+
+for (const name of alertNames) {
+  if (!tested.has(name)) {
+    failures.push(
+      `ops/alerts_test.yml: no test exercises "${name}" — add a firing or a ` +
+        'stays-silent case before shipping it'
+    );
+  }
+}
+
 // ── Report ─────────────────────────────────────────────────────────────────
 
 if (failures.length) {
@@ -96,5 +117,5 @@ if (failures.length) {
 
 console.log(
   `Ops config OK: ${alertNames.length} alerts, all metric references defined, ` +
-    'all runbook anchors resolve.'
+    `all runbook anchors resolve, all alerts covered by ${tested.size} tested names.`
 );

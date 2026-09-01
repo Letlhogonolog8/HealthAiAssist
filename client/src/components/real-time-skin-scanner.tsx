@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useMutation } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
+import { submitScan, describeRejection, describeNotAnalysed } from '@/lib/submit-scan';
 import DermatologistSchedulingButton from "./dermatologist-scheduling-button";
 
 interface ScanResult {
@@ -47,43 +48,53 @@ export default function RealTimeSkinScanner() {
 
   const scanMutation = useMutation({
     mutationFn: async (imageBlob: Blob) => {
-      const formData = new FormData();
-      formData.append('image', imageBlob, 'skin-scan.jpg');
-      formData.append('scanType', 'skin-cancer');
-      
-      const response = await fetch('/api/scan/upload', {
-        method: 'POST',
-        credentials: 'include',
-        body: formData,
+      const outcome = await submitScan({
+        image: imageBlob,
+        fileName: 'skin-scan.jpg',
+        scanType: 'skin-cancer',
       });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Scan failed' }));
-        throw new Error(errorData.error || 'Scan failed');
+
+      if (outcome.kind === 'rejected') {
+        const { title, description } = describeRejection(outcome.status, outcome.body);
+        throw new Error(`${title}. ${description}`);
       }
-      
-      return response.json();
+
+      return outcome;
     },
-    onSuccess: (data) => {
-      // No analysis in the payload means no model produced an opinion. This
-      // used to fall back to a literal `hasCancer: false, confidence: 85,
-      // findings: ['Analysis completed successfully']` — a fabricated negative,
-      // shown to the patient as though a classifier had cleared their lesion.
-      // It is the one outcome that actively reassures someone who may have
-      // cancer, and nothing in it was distinguishable from a real result.
-      if (!data.analysis) {
+    onSuccess: (outcome) => {
+      // The `!data.analysis` guard this replaces was already correct — it was
+      // written after a literal `hasCancer: false, confidence: 85` fallback was
+      // found here, a fabricated negative shown as though a classifier had
+      // cleared the lesion. It is kept, now stated in terms of the outcome
+      // rather than a missing field, and with the offline and no-consent cases
+      // named separately instead of both reading as an error.
+      if (outcome.kind === 'queued') {
         setIsScanning(false);
         setScanProgress(0);
         toast({
-          title: "Analysis unavailable",
+          title: 'Saved on this device',
           description:
-            "No result was produced for this image. Your scan has been queued for review by a clinician — this is not a negative result.",
-          variant: "destructive",
+            'You are offline, so nothing has been analysed yet. This scan will upload automatically when you have a connection.',
         });
         return;
       }
 
-      setScanResult(data.analysis);
+      if (outcome.kind === 'not_analysed' || !outcome.body?.analysis) {
+        setIsScanning(false);
+        setScanProgress(0);
+        toast(
+          outcome.kind === 'not_analysed'
+            ? describeNotAnalysed(outcome.body)
+            : {
+                title: 'Analysis unavailable',
+                description:
+                  'No result was produced for this image. Your scan has been queued for review by a clinician — this is not a negative result.',
+              }
+        );
+        return;
+      }
+
+      setScanResult(outcome.body.analysis);
       setScanProgress(100);
       setIsScanning(false);
       toast({

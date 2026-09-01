@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { submitScan, describeRejection, describeNotAnalysed } from "@/lib/submit-scan";
 import { Camera, Upload, Eye, AlertTriangle, CheckCircle, Info, Sun, Zap, Target, Heart } from "lucide-react";
 import ScheduleDermatologistDialog from "./schedule-dermatologist-dialog";
 
@@ -64,26 +65,61 @@ export default function SkinCancerAnalyzer() {
   });
   const [activeTab, setActiveTab] = useState('upload');
 
+  /**
+   * Routed through submitScan rather than its own fetch.
+   *
+   * This handler read `data.analysis.malignancyRisk` with no guard, so a 200
+   * carrying no analysis — which is what a scan submitted without consent to
+   * automated analysis returns — threw a TypeError on undefined and surfaced
+   * as "Analysis Failed", a wrong explanation of a normal outcome.
+   *
+   * `lesionData` is no longer sent. handleScanAnalysis reads only scanType and
+   * patientId, so it was never stored or used; it is dropped here rather than
+   * carried as a field that looks meaningful and is not.
+   */
   const skinAnalysisMutation = useMutation({
-    mutationFn: async (formData: FormData) => {
-      const response = await fetch('/api/scans/analyze', {
-        method: 'POST',
-        body: formData,
-        credentials: 'include'
+    mutationFn: async (file: File) => {
+      const outcome = await submitScan({
+        image: file,
+        fileName: file.name,
+        scanType: 'skin-cancer',
       });
-      
-      if (!response.ok) {
-        throw new Error('Analysis failed');
+
+      if (outcome.kind === 'rejected') {
+        const { title, description } = describeRejection(outcome.status, outcome.body);
+        throw new Error(`${title}. ${description}`);
       }
-      
-      return response.json();
+
+      return outcome;
     },
-    onSuccess: (data) => {
-      setAnalysisResult(data.analysis);
+    onSuccess: (outcome) => {
+      // Nothing was analysed: held on the device, or no consent on record.
+      // Both must show no result panel and no risk level — the alternative is
+      // an empty findings card that reads as a clean bill of health.
+      if (outcome.kind === 'queued') {
+        setShowResults(false);
+        setAnalysisResult(null);
+        toast({
+          title: 'Saved on this device',
+          description:
+            'You are offline, so nothing has been analysed yet. This scan will upload automatically when you have a connection.',
+        });
+        return;
+      }
+
+      if (outcome.kind === 'not_analysed') {
+        const { title, description } = describeNotAnalysed(outcome.body);
+        setShowResults(false);
+        setAnalysisResult(null);
+        toast({ title, description });
+        return;
+      }
+
+      setAnalysisResult(outcome.body.analysis);
       setShowResults(true);
       toast({
         title: "Skin Analysis Complete",
-        description: `Risk level: ${data.analysis.malignancyRisk}. Check results for detailed recommendations.`,
+        description: `Risk level: ${outcome.body.analysis.malignancyRisk}. Check results for detailed recommendations.`,
       });
     },
     onError: (error: any) => {
@@ -143,12 +179,7 @@ export default function SkinCancerAnalyzer() {
       return;
     }
 
-    const formData = new FormData();
-    formData.append('image', selectedFile);
-    formData.append('scanType', 'skin-cancer');
-    formData.append('lesionData', JSON.stringify(lesionData));
-
-    skinAnalysisMutation.mutate(formData);
+    skinAnalysisMutation.mutate(selectedFile);
   };
 
   const handleLesionDataChange = (field: string, value: any) => {

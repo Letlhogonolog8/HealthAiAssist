@@ -74,6 +74,21 @@ jobs:
       - name: Ops config references real metrics
         run: node scripts/check-ops-config.mjs
 
+      # check-ops-config.mjs verifies the alerts point at metrics the code
+      # exports and runbook sections that exist; it cannot tell whether the
+      # PromQL means what it says. promtool can, and `test rules` goes further:
+      # it drives synthetic series past each threshold and asserts the alert
+      # fires — including the negative cases, which are what stop a rule that
+      # also fires on ordinary traffic from being silenced into uselessness.
+      - name: Alert rules are valid and behave as specified
+        run: |
+          PROM_VERSION=3.14.0
+          curl -sLo /tmp/prom.tar.gz "https://github.com/prometheus/prometheus/releases/download/v${PROM_VERSION}/prometheus-${PROM_VERSION}.linux-amd64.tar.gz"
+          tar -xzf /tmp/prom.tar.gz -C /tmp
+          PROMTOOL="/tmp/prometheus-${PROM_VERSION}.linux-amd64/promtool"
+          "$PROMTOOL" check rules ops/alerts.yml
+          cd ops && "$PROMTOOL" test rules alerts_test.yml
+
       - name: Build client
         run: npx vite build
 

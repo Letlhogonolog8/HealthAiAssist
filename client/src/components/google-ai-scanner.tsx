@@ -9,6 +9,7 @@ import { Upload, Brain, AlertTriangle, CheckCircle, FileImage, Zap, X } from 'lu
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 // import { apiRequest } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
+import { submitScan, describeRejection, describeNotAnalysed } from '@/lib/submit-scan';
 import MedicalImageViewer from './medical-image-viewer';
 import { AnalysisResultsDisplay } from './AnalysisResultsDisplay';
 
@@ -77,72 +78,46 @@ export default function GoogleAIScannerFixed() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  /**
+   * The bespoke retry loop that used to live here is gone.
+   *
+   * It made three in-memory attempts with backoff, which is worse than what
+   * submitScan does for the failure it was aimed at: a queued scan survives the
+   * page being closed, three retries in a closed tab do not. It also retried
+   * 5xx indiscriminately, including the 503 that means "no validated model
+   * exists" — a refusal that will never succeed on attempt two, delaying the
+   * honest answer by several seconds to arrive at the same place.
+   */
   const analyzeImageMutation = useMutation({
     mutationFn: async ({ file, scanType }: { file: File; scanType: string }) => {
-      const formData = new FormData();
-      formData.append('image', file);
-      formData.append('scanType', scanType);
-      
-      // Retry logic with timeout handling for production deployment
-      let lastError;
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout
-          
-          const response = await fetch('/api/scans/analyze', {
-            method: 'POST',
-            body: formData,
-            signal: controller.signal,
-            credentials: 'include',
-            headers: {
-              'Connection': 'keep-alive',
-            }
-          });
-          
-          clearTimeout(timeoutId);
-          
-          if (!response.ok) {
-            if (response.status >= 500 && attempt < 3) {
-              await new Promise(resolve => setTimeout(resolve, 1500 * attempt));
-              continue;
-            }
-            throw new Error(`Analysis failed with status ${response.status}`);
-          }
-          
-          return response.json();
-        } catch (error: any) {
-          lastError = error;
-          
-          if (error.name === 'AbortError') {
-            if (attempt < 3) {
-              await new Promise(resolve => setTimeout(resolve, 2000));
-              continue;
-            }
-            throw new Error('Analysis timed out. Please try with a smaller image.');
-          }
-          
-          if (error.message?.includes('ERR_CONNECTION_RESET') || 
-              error.message?.includes('fetch') || 
-              error.message?.includes('network')) {
-            if (attempt < 3) {
-              await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-              continue;
-            }
-            throw new Error('Connection interrupted. Please check your network and try again.');
-          }
-          
-          if (attempt === 3) {
-            throw error;
-          }
-          
-          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-        }
+      const outcome = await submitScan({ image: file, fileName: file.name, scanType });
+
+      if (outcome.kind === 'rejected') {
+        const { title, description } = describeRejection(outcome.status, outcome.body);
+        throw new Error(`${title}. ${description}`);
       }
-      throw lastError || new Error('Analysis failed after multiple attempts');
+
+      return outcome;
     },
-    onSuccess: (data) => {
-      setAnalysisResult(data);
+    onSuccess: (outcome) => {
+      // The whole response body was assigned to analysisResult unguarded, so a
+      // 200 carrying no analysis populated the result panel with a shape whose
+      // `analysis` field is undefined, under the heading "Analysis Complete".
+      if (outcome.kind === 'queued' || outcome.kind === 'not_analysed') {
+        setAnalysisResult(null);
+        toast(
+          outcome.kind === 'queued'
+            ? {
+                title: 'Saved on this device',
+                description:
+                  'You are offline, so nothing has been analysed yet. This scan will upload automatically when you have a connection.',
+              }
+            : describeNotAnalysed(outcome.body)
+        );
+        return;
+      }
+
+      setAnalysisResult(outcome.body);
       queryClient.invalidateQueries({ queryKey: ['/api/scans'] });
       toast({
         title: "Analysis Complete",

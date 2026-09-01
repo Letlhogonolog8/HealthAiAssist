@@ -1,0 +1,383 @@
+# Unit tests for ops/alerts.yml.
+#
+# The thresholds in the rules are derived from published measurements, but a
+# derivation is not evidence that the expression implements it. These drive
+# synthetic series past each boundary and assert the alert does — or does not —
+# fire.
+#
+# ── What these prove and what they do not ──────────────────────────────────
+#
+# They prove each rule fires where it claims to, that the volume guards guard,
+# and that the templating resolves (a broken template renders a literal
+# "{{ $value }}" onto the page someone is paged with).
+#
+# They do NOT prove the thresholds are right for this deployment. That needs
+# production traffic. PredictionRateCollapsed's 2% floor in particular should
+# be revisited once the real base rate is known — it is currently derived from
+# the deployed threshold of 0.30 and the published specificity, not observed.
+#
+# ── Why most of these are negative tests ───────────────────────────────────
+#
+# An alert that fires correctly but also fires on ordinary traffic gets
+# silenced, and a silenced alert is worse than no alert because it looks like
+# coverage. The "stays silent" cases below are the ones that keep these usable.
+# They also cost nothing to maintain: promtool compares annotations exactly, so
+# only the firing tests have to be updated when wording changes.
+#
+# Run: promtool test rules ops/alerts_test.yml
+
+rule_files:
+  - alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  # ── PredictionRateCollapsed: the critical one ────────────────────────────
+  #
+  # A model that has stopped discriminating keeps latency flat and the error
+  # rate at zero, so this is the only rule that would catch it.
+  #
+  # Volume reaches the 50-call guard at t=50m, after which `for: 1h` holds it
+  # pending until ~t=110m.
+  - interval: 1m
+    name: model flagging almost nothing positive, on enough volume, fires
+    input_series:
+      - series: 'healthai_scan_predictions_total{modality="lung", predicted="positive"}'
+        values: '0+0x420'
+      - series: 'healthai_scan_predictions_total{modality="lung", predicted="negative"}'
+        values: '0+1x420'
+    alert_rule_test:
+      # Too few calls yet for the ratio to mean anything.
+      - eval_time: 30m
+        alertname: PredictionRateCollapsed
+        exp_alerts: []
+      - eval_time: 3h
+        alertname: PredictionRateCollapsed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              domain: clinical
+              modality: lung
+            exp_annotations:
+              summary: "lung model has flagged almost nothing positive (0% over 6h)"
+              runbook: "ops/RUNBOOK.md#predictionratecollapsed"
+              description: >-
+                At the deployed lung threshold of 0.30 the flagged fraction on a
+                screening population sits in the tens of percent, and the skin bands
+                escalate 96.7% of malignant lesions. A positive rate under 2% across
+                50+ scans is not a healthy population, it is a model that has stopped
+                discriminating — a wrong artifact, a preprocessing regression, or a
+                threshold read as 1.0. Treat every negative issued during this window
+                as unverified and re-queue them for human review.
+
+  # The guard that stops it firing on noise: same collapsed ratio, zero
+  # positives, but only ~40 calls in the window — where the positive fraction
+  # swings wildly for entirely ordinary reasons.
+  - interval: 1m
+    name: collapsed ratio on too little volume does not fire
+    input_series:
+      - series: 'healthai_scan_predictions_total{modality="lung", predicted="positive"}'
+        values: '0+0x420'
+      - series: 'healthai_scan_predictions_total{modality="lung", predicted="negative"}'
+        values: '0+1x40 40+0x380'
+    alert_rule_test:
+      - eval_time: 7h
+        alertname: PredictionRateCollapsed
+        exp_alerts: []
+
+  # A healthy screening rate must stay silent in both directions, or the pair
+  # is noise.
+  - interval: 1m
+    name: a normal positive rate fires neither rule
+    input_series:
+      - series: 'healthai_scan_predictions_total{modality="lung", predicted="positive"}'
+        values: '0+1x420'
+      - series: 'healthai_scan_predictions_total{modality="lung", predicted="negative"}'
+        values: '0+3x420'
+    alert_rule_test:
+      - eval_time: 5h
+        alertname: PredictionRateCollapsed
+        exp_alerts: []
+      - eval_time: 5h
+        alertname: PredictionRateSaturated
+        exp_alerts: []
+
+  # ── PredictionRateSaturated ──────────────────────────────────────────────
+  - interval: 1m
+    name: model flagging nearly everything positive fires
+    input_series:
+      - series: 'healthai_scan_predictions_total{modality="skin", predicted="positive"}'
+        values: '0+10x420'
+      - series: 'healthai_scan_predictions_total{modality="skin", predicted="negative"}'
+        values: '0+0x420'
+    alert_rule_test:
+      - eval_time: 3h
+        alertname: PredictionRateSaturated
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              domain: clinical
+              modality: skin
+            exp_annotations:
+              summary: "skin model is flagging 100% of scans positive"
+              runbook: "ops/RUNBOOK.md#predictionratesaturated"
+              description: >-
+                Measured specificity is 0.757 (lung) and 0.814 (skin), so even on an
+                all-negative population the expected flag rate is well under 30%.
+                Above 80% the triage signal carries no information and the radiology
+                queue is being filled indiscriminately. Same causes as
+                PredictionRateCollapsed, opposite sign.
+
+  # ── AutomatedAnalysisUnavailable ─────────────────────────────────────────
+  - interval: 1m
+    name: sustained refusals with no model fire after 10m
+    input_series:
+      - series: 'healthai_scan_submissions_total{modality="lung", outcome="refused_no_model"}'
+        values: '0+1x60'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: AutomatedAnalysisUnavailable
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: AutomatedAnalysisUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              domain: clinical
+              modality: lung
+            exp_annotations:
+              summary: "No validated model is serving lung scans"
+              runbook: "ops/RUNBOOK.md#automatedanalysisunavailable"
+              description: >-
+                Scans for lung have been refused for 10 minutes because no enabled
+                model could analyse them. They are being queued for manual review,
+                which is safe but silently increases radiologist load. Check
+                MODEL_REGISTRY.enabled and that the model artifact is readable by the
+                inference process.
+
+  # ── InputDistributionShift ───────────────────────────────────────────────
+  #
+  # The measured baseline must not fire it, or the rule is unusable: roughly
+  # 1 refusal in 100 submissions is what held-out same-modality data produces.
+  - interval: 1m
+    name: baseline OOD rate stays silent
+    input_series:
+      - series: 'healthai_ood_rejections_total{modality="skin"}'
+        values: '0+1x200'
+      - series: 'healthai_scan_submissions_total{modality="skin", outcome="analysed"}'
+        values: '0+100x200'
+    alert_rule_test:
+      - eval_time: 150m
+        alertname: InputDistributionShift
+        exp_alerts: []
+
+  # ── InferenceFallbackInUse ───────────────────────────────────────────────
+  #
+  # A warm resident service answers in ~0.5s and must not fire it. Every
+  # observation lands at or below the 0.5s bucket.
+  - interval: 1m
+    name: resident-service latency stays silent
+    input_series:
+      - series: 'healthai_inference_duration_seconds_bucket{modality="lung", le="0.25"}'
+        values: '0+0x60'
+      - series: 'healthai_inference_duration_seconds_bucket{modality="lung", le="0.5"}'
+        values: '0+1x60'
+      - series: 'healthai_inference_duration_seconds_bucket{modality="lung", le="1"}'
+        values: '0+1x60'
+      - series: 'healthai_inference_duration_seconds_bucket{modality="lung", le="2"}'
+        values: '0+1x60'
+      - series: 'healthai_inference_duration_seconds_bucket{modality="lung", le="5"}'
+        values: '0+1x60'
+      - series: 'healthai_inference_duration_seconds_bucket{modality="lung", le="10"}'
+        values: '0+1x60'
+      - series: 'healthai_inference_duration_seconds_bucket{modality="lung", le="15"}'
+        values: '0+1x60'
+      - series: 'healthai_inference_duration_seconds_bucket{modality="lung", le="30"}'
+        values: '0+1x60'
+      - series: 'healthai_inference_duration_seconds_bucket{modality="lung", le="+Inf"}'
+        values: '0+1x60'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: InferenceFallbackInUse
+        exp_alerts: []
+
+  # ── refused_no_consent is never a fault ──────────────────────────────────
+  #
+  # A patient declining automated analysis is a right being exercised, and the
+  # scan still reached a clinician. Nothing may treat it as a fault: an alert
+  # on it would be standing pressure to make declining harder.
+  - interval: 1m
+    name: patients declining automated analysis fires nothing
+    input_series:
+      - series: 'healthai_scan_submissions_total{modality="lung", outcome="refused_no_consent"}'
+        values: '0+10x420'
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: AutomatedAnalysisUnavailable
+        exp_alerts: []
+      - eval_time: 2h
+        alertname: ScanPipelineErrors
+        exp_alerts: []
+      - eval_time: 2h
+        alertname: InputDistributionShift
+        exp_alerts: []
+      - eval_time: 2h
+        alertname: PredictionRateCollapsed
+        exp_alerts: []
+
+  # ── BreakGlassUsageElevated ──────────────────────────────────────────────
+  #
+  # One override in an hour is normal and must stay silent, or the rule
+  # punishes legitimate emergency use.
+  - interval: 1m
+    name: an isolated override stays silent
+    input_series:
+      - series: 'healthai_break_glass_total'
+        values: '0+0x30 1+0x90'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: BreakGlassUsageElevated
+        exp_alerts: []
+
+  # ── InferenceSaturated ───────────────────────────────────────────────────
+  - interval: 1m
+    name: load shedding fires
+    input_series:
+      - series: 'healthai_scan_submissions_total{modality="lung", outcome="saturated"}'
+        values: '0+1x60'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: InferenceSaturated
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: InferenceSaturated
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              domain: capacity
+            exp_annotations:
+              summary: "Inference service is shedding load"
+              runbook: "ops/RUNBOOK.md#inferencesaturated"
+              description: >-
+                Scans are being rejected because the inference queue is full. Patients
+                are receiving 503s. Scale the inference service or raise
+                INFERENCE_MAX_IN_FLIGHT after confirming the service can absorb it.
+
+  # ── CareRelationshipDenialsEnforced ──────────────────────────────────────
+  #
+  # Shadow mode must never fire it: counting what enforcement *would* have
+  # refused is how the derivation is judged ready, and paging on it would
+  # discourage the measurement.
+  - interval: 1m
+    name: shadow-mode denials stay silent
+    input_series:
+      - series: 'healthai_care_relationship_denials_total{mode="shadow"}'
+        values: '0+5x120'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: CareRelationshipDenialsEnforced
+        exp_alerts: []
+
+  - interval: 1m
+    name: enforced denials at volume fire
+    input_series:
+      - series: 'healthai_care_relationship_denials_total{mode="enforced"}'
+        values: '0+1x120'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: CareRelationshipDenialsEnforced
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              domain: privacy
+            exp_annotations:
+              summary: "60 clinicians refused access to patient records in the last hour"
+              runbook: "ops/RUNBOOK.md#carerelationshipdenialsenforced"
+              description: >-
+                Enforced denials at this rate usually mean the care-relationship
+                derivation is missing a legitimate basis, not that access is being
+                attacked. Left alone it pushes clinicians towards break-glass or shared
+                logins. Review which patient/clinician pairs are failing before
+                tightening anything further.
+
+  # ── ApplicationDown ──────────────────────────────────────────────────────
+  - interval: 1m
+    name: a dead instance fires
+    input_series:
+      - series: 'up{job="healthai", instance="a"}'
+        values: '1 1 1 0 0 0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: ApplicationDown
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: ApplicationDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              domain: availability
+              job: healthai
+              instance: a
+            exp_annotations:
+              summary: "HealthAI instance is not responding to scrapes"
+              runbook: "ops/RUNBOOK.md#applicationdown"
+
+  # ── NoScanSubmissions ────────────────────────────────────────────────────
+  #
+  # promtool evaluates from Unix epoch 0, a Thursday, so eval_time 8h lands at
+  # 08:00 on a weekday — inside the rule's clinic-hours window.
+  - interval: 1m
+    name: a live but idle system fires during clinic hours
+    input_series:
+      - series: 'healthai_scan_submissions_total{modality="lung", outcome="analysed"}'
+        values: '100+0x600'
+    alert_rule_test:
+      - eval_time: 8h
+        alertname: NoScanSubmissions
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              domain: availability
+            exp_annotations:
+              summary: "No scans submitted in the last hour during clinic hours"
+              runbook: "ops/RUNBOOK.md#noscansubmissions"
+              description: >-
+                Silence here is indistinguishable from a broken upload path on the
+                client. Confirm a scan can be submitted end to end before assuming it
+                is a quiet day.
+
+  # The case that was silent before `or vector(0)`: a deployment where the
+  # counter has never been incremented, so the series does not exist at all.
+  # sum(increase(...)) returns an empty vector there, and `== 0` matched
+  # nothing — the rule slept through the one situation it is for.
+  - interval: 1m
+    name: a system that has never recorded a scan still fires
+    input_series:
+      - series: 'healthai_break_glass_total'
+        values: '0+0x600'
+    alert_rule_test:
+      - eval_time: 8h
+        alertname: NoScanSubmissions
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              domain: availability
+            exp_annotations:
+              summary: "No scans submitted in the last hour during clinic hours"
+              runbook: "ops/RUNBOOK.md#noscansubmissions"
+              description: >-
+                Silence here is indistinguishable from a broken upload path on the
+                client. Confirm a scan can be submitted end to end before assuming it
+                is a quiet day.
+
+  # Outside clinic hours it must stay quiet, or it fires every night and is
+  # silenced permanently. eval_time 2h = 02:00.
+  - interval: 1m
+    name: an idle system outside clinic hours stays silent
+    input_series:
+      - series: 'healthai_scan_submissions_total{modality="lung", outcome="analysed"}'
+        values: '100+0x600'
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: NoScanSubmissions
+        exp_alerts: []

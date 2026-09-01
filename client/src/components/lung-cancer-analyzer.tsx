@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { submitScan, describeRejection, describeNotAnalysed } from "@/lib/submit-scan";
 import { 
   Upload, 
   Wind, 
@@ -77,41 +78,53 @@ export default function LungCancerAnalyzer() {
   });
 
   const lungAnalysisMutation = useMutation({
+    /**
+     * The 422 and 503 wording that used to be spelled out here now comes from
+     * describeRejection, so all six upload surfaces say the same thing about a
+     * refusal. Two other things change with it: the request now carries
+     * credentials — this fetch omitted them, so the session cookie was never
+     * sent — and an offline submission is queued rather than lost.
+     *
+     * `riskFactors` is no longer transmitted. handleScanAnalysis reads only
+     * scanType and patientId, so the server never saw it; it is still used
+     * locally by buildLungResult below.
+     */
     mutationFn: async (data: { file: File; riskFactors: PatientRiskFactors }) => {
-      const formData = new FormData();
-      formData.append('image', data.file);
-      formData.append('scanType', 'lung');
-      formData.append('riskFactors', JSON.stringify(data.riskFactors));
-      
-      const response = await fetch('/api/scan/upload', {
-        method: 'POST',
-        body: formData
+      const outcome = await submitScan({
+        image: data.file,
+        fileName: data.file.name,
+        scanType: 'lung',
       });
-      
-      const payload = await response.json().catch(() => null);
 
-      // 422 = the image itself was refused (wrong subject, blank, blurred).
-      if (response.status === 422) {
-        const reasons = Array.isArray(payload?.reasons) ? payload.reasons.join(' ') : '';
-        throw new Error(`${payload?.message ?? 'Image rejected.'} ${reasons}`.trim());
+      if (outcome.kind === 'rejected') {
+        const { title, description } = describeRejection(outcome.status, outcome.body);
+        throw new Error(`${title}. ${description}`);
       }
 
-      // 503 = no validated model could run. Not a negative result.
-      if (response.status === 503) {
-        throw new Error(
-          payload?.message ||
-          'No validated model could analyse this scan. This is not a negative result.'
-        );
-      }
-
-      if (!response.ok) {
-        throw new Error(payload?.error || 'Lung analysis failed');
-      }
-
-      return payload;
+      return outcome;
     },
-    onSuccess: (data) => {
-      const result = buildLungResult(data.analysis, riskFactors);
+    onSuccess: (outcome) => {
+      // buildLungResult ran unguarded on `data.analysis`. A 200 with no
+      // analysis — an offline queue or a scan submitted without consent to
+      // automated analysis — would have built a result object out of undefined
+      // and presented it beside a confidence figure.
+      if (outcome.kind === 'queued' || outcome.kind === 'not_analysed') {
+        setAnalysisResult(null);
+        setIsAnalyzing(false);
+        setAnalysisProgress(0);
+        toast(
+          outcome.kind === 'queued'
+            ? {
+                title: 'Saved on this device',
+                description:
+                  'You are offline, so nothing has been analysed yet. This scan will upload automatically when you have a connection.',
+              }
+            : describeNotAnalysed(outcome.body)
+        );
+        return;
+      }
+
+      const result = buildLungResult(outcome.body.analysis, riskFactors);
       setAnalysisResult(result);
       setIsAnalyzing(false);
       setAnalysisProgress(100);

@@ -274,9 +274,16 @@ groups:
       # hours has failed in a way no error rate shows, because there are no
       # requests to be errors. Deliberately scoped to weekday daytime SAST
       # (UTC+2) so it does not fire every night.
+      #
+      # `or vector(0)` is load-bearing. sum(increase(...)) over a metric with no
+      # series returns an empty vector, not zero, so `== 0` matched nothing and
+      # the rule was silent in exactly the case it exists for: a deployment
+      # where the counter has never been incremented because nothing has ever
+      # been submitted. Verified by the "never recorded a scan" case in
+      # alerts_test.yml, which failed before this was added.
       - alert: NoScanSubmissions
         expr: |
-          sum(increase(healthai_scan_submissions_total[1h])) == 0
+          (sum(increase(healthai_scan_submissions_total[1h])) or vector(0)) == 0
           and on() (hour() >= 6 < 15)
           and on() (day_of_week() > 0 < 6)
         for: 1h
