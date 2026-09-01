@@ -78,7 +78,7 @@ import { dirname } from 'path';
 
 import { randomUUID } from 'crypto';
 import { uploadToGoogleCloudStorage, getSignedScanUrl, isScanObjectStoreAvailable } from './google-cloud-service';
-import { ModelUnavailableError, InputRejectedError, assertModelEnabled, MODEL_REGISTRY } from './model-availability';
+import { ModelUnavailableError, InputRejectedError, assertModelEnabled, resolveScanType, MODEL_REGISTRY } from './model-availability';
 import { summarise, type ProductionPerformance } from './production-performance';
 import { deliverInBackground } from './notification-delivery';
 import { OUTCOME_METHODS, OUTCOME_VALUES } from '@shared/schema';
@@ -565,13 +565,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Model cards: what each model is, how it was measured, and what it cannot do.
   // Public by design — anyone relying on a result should be able to see the
   // evidence behind it, including that the skin model is currently disabled.
-  app.get("/api/models/cards", (_req, res) => {
+  app.get("/api/models/cards", async (_req, res) => {
+    // Which artifact each figure describes, and whether that artifact is the
+    // one deployed. Published beside the figures rather than somewhere else,
+    // because a performance claim whose provenance lives on another page is a
+    // performance claim nobody checks.
+    const { allGovernanceStatuses } = await import('./model-governance');
+    const governance = Object.fromEntries(
+      (await allGovernanceStatuses()).map((g) => [g.modality, g])
+    );
+
     res.json({
       models: Object.entries(MODEL_REGISTRY).map(([scanType, entry]) => ({
         scanType,
         enabled: entry.enabled,
         disabledReason: entry.disabledReason ?? null,
         evaluation: entry.evaluation,
+        // Null rather than absent when unbound, so a client cannot mistake a
+        // missing binding for an unremarkable one.
+        measurementBinding: governance[scanType] ?? null,
+        /**
+         * The figures above describe the artifact named in measurementBinding,
+         * not necessarily the one serving. When `state` is anything other than
+         * "matched", they do not describe this deployment at all and the
+         * modality is refusing to serve.
+         */
+        figuresDescribeDeployedArtifact: governance[scanType]?.state === 'matched',
         intendedUse: 'Screening triage to prioritise human review. Not a diagnosis.',
         humanReviewRequired: true
       })),
@@ -3575,6 +3594,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(patientId);
       if (!user) {
         return res.status(400).json({ error: "Invalid patient ID" });
+      }
+
+      // Is the deployed artifact the one the published figures describe?
+      //
+      // Checked here rather than at boot so that swapping a model file under a
+      // running process is caught too. A mismatch does not mean the model is
+      // bad, it means it is unmeasured — and MODEL_REGISTRY's rule is that a
+      // modality serves only when its measured performance beats chance.
+      // Raised as ModelUnavailableError so it takes the existing safe path:
+      // stored, queued for a human, 503 saying explicitly that this is not a
+      // negative finding.
+      const { governanceStatus } = await import('./model-governance');
+      const governedModality = resolveScanType(String(scanType ?? ''));
+      const governance = await governanceStatus(governedModality ?? String(scanType ?? 'unknown'));
+      if (!governance.mayServe) {
+        throw new ModelUnavailableError(governance.modality, governance.explanation);
       }
 
       // Has this person agreed to a model reading their image at all?

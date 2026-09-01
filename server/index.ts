@@ -184,6 +184,14 @@ installProcessHandlers();
     // Before anything else that could accept a request.
     await assertScanStorageConfigured();
 
+    // Which model artifacts are deployed, and whether the published figures
+    // describe them. A drifted artifact is a deployment mistake, and the moment
+    // to say so is before it has served anything.
+    void (async () => {
+      const { reportGovernanceAtStartup } = await import('./model-governance');
+      await reportGovernanceAtStartup();
+    })();
+
     // Test database connection before starting server
     let dbConnected = false;
     try {
