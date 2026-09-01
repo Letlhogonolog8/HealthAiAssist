@@ -208,6 +208,64 @@ describe("a clinician's counters", { timeout: TIMEOUT }, () => {
   });
 });
 
+describe('the security control inventory', { timeout: TIMEOUT }, () => {
+  test('publishes no compliance score and no compliance verdict', async () => {
+    const res = await docSession.get('/api/advanced/security/compliance');
+    assert.equal(res.status, 200, res.text.slice(0, 200));
+
+    // This endpoint returned `overallScore` out of 100, computed as
+    // `(hipaa.compliant ? 50 : 0) + truthyEnvVars / total * 50`. Three
+    // environment variables cannot establish compliance with anything, and the
+    // number was printed on a dashboard where someone would act on it.
+    assert.equal(res.json.overallScore, undefined, 'no aggregate score');
+    assert.equal(res.json.compliance, undefined, 'no compliance verdict block');
+
+    const body = JSON.stringify(res.json);
+    assert.doesNotMatch(body, /"compliant"\s*:/, 'nothing claims to be compliant');
+  });
+
+  test('names POPIA rather than HIPAA, which does not govern this platform', async () => {
+    const res = await docSession.get('/api/advanced/security/compliance');
+    assert.match(res.json.applicableFramework, /POPIA/);
+    assert.doesNotMatch(JSON.stringify(res.json), /HIPAA|SOC ?2/i);
+  });
+
+  test('every control says how its state was established', async () => {
+    const res = await docSession.get('/api/advanced/security/compliance');
+    assert.ok(Array.isArray(res.json.controls) && res.json.controls.length > 0);
+
+    for (const c of res.json.controls) {
+      assert.ok(c.control, 'a control has a name');
+      assert.ok(
+        ['verified', 'absent', 'not_assessable_here'].includes(c.state),
+        `unexpected state ${c.state} for ${c.control}`
+      );
+      // The basis is the whole point: a state with no stated evidence is the
+      // same unfalsifiable claim the score was.
+      assert.ok(c.basis && c.basis.length > 10, `${c.control} states no basis`);
+    }
+  });
+
+  test('facts the server cannot see are marked as such, not guessed', async () => {
+    const res = await docSession.get('/api/advanced/security/compliance');
+    const byName = Object.fromEntries(
+      res.json.controls.map((c: any) => [c.control, c])
+    );
+
+    // Backups and incident response are organisational facts. A web server has
+    // no way to observe them, and a checkbox claiming otherwise is worse than
+    // an absent one.
+    assert.equal(byName['Backup and restore'].state, 'not_assessable_here');
+    assert.equal(byName['Incident response procedure'].state, 'not_assessable_here');
+
+    // The one thing it must never soften.
+    assert.equal(
+      byName['Regulatory clearance for the classifiers'].state,
+      'absent'
+    );
+  });
+});
+
 describe('the reading queue', { timeout: TIMEOUT }, () => {
   test('publishes no accuracy figure', async () => {
     const res = await docSession.get('/api/radiologist/stats');

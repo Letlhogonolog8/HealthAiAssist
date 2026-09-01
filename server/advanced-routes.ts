@@ -121,33 +121,39 @@ router.post('/security/2fa/verify', requireAuth, async (req: AuthenticatedReques
   }
 });
 
-// Security Compliance Report
+/**
+ * An inventory of observable security controls.
+ *
+ * This returned `compliance.hipaa.compliant` and an `overallScore` out of 100.
+ * Both are gone: the score was computed from whether three environment
+ * variables were set, and HIPAA is United States law that does not govern this
+ * South African platform. See the note on ComplianceChecker.
+ *
+ * What is returned instead names each control, its observed state, and how that
+ * state was established — including "not_assessable_here" for the several that
+ * a web server genuinely cannot determine about its own organisation. There is
+ * no summary field, because the summary was the untrue part.
+ */
 router.get('/security/compliance', requireMedicalAccess, async (req, res) => {
   try {
-    const [hipaaCompliance, soc2Compliance] = await Promise.all([
-      ComplianceChecker.checkHIPAACompliance(),
-      ComplianceChecker.checkSOC2Compliance()
-    ]);
+    const controls = await ComplianceChecker.controlInventory();
 
     res.json({
       timestamp: new Date().toISOString(),
-      compliance: {
-        hipaa: hipaaCompliance,
-        soc2: soc2Compliance
-      },
-      overallScore: (
-        (hipaaCompliance.compliant ? 50 : 0) + 
-        (Object.values(soc2Compliance.controlsStatus).filter(Boolean).length / Object.keys(soc2Compliance.controlsStatus).length * 50)
-      ),
-      recommendations: [
-        ...hipaaCompliance.recommendations,
-        ...soc2Compliance.recommendations
-      ].slice(0, 10)
+      // Named so no caller mistakes this for a compliance assessment. It is a
+      // list of things that were checked, by a process that can only see itself.
+      reportType: 'observable_control_inventory',
+      applicableFramework: 'POPIA (Protection of Personal Information Act, South Africa)',
+      notAnAssessment:
+        'This lists controls this application can observe about itself. It is not ' +
+        'a compliance assessment, it is not an audit, and it establishes conformity ' +
+        'with no standard. The POPIA impact assessment is docs/DPIA.md.',
+      controls,
     });
 
   } catch (error) {
-    console.error('Compliance check error:', error);
-    res.status(500).json({ error: 'Failed to generate compliance report' });
+    console.error('Control inventory error:', error);
+    res.status(500).json({ error: 'Failed to build control inventory' });
   }
 });
 

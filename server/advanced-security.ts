@@ -272,69 +272,148 @@ export class DataEncryption {
   }
 }
 
-// Security Compliance Checker
+/**
+ * What this deployment can actually be observed to do, and nothing more.
+ *
+ * ── What was here ──────────────────────────────────────────────────────────
+ *
+ * `checkHIPAACompliance()` and `checkSOC2Compliance()`, returning a
+ * `compliant` boolean and feeding an `overallScore` out of 100 on
+ * GET /security/compliance. The score was computed from whether three
+ * environment variables were set:
+ *
+ *     overallScore: (hipaa.compliant ? 50 : 0) + (truthy controls / total * 50)
+ *
+ * Three env vars cannot establish compliance with anything. The number was the
+ * same class of artefact as the hardcoded "96% accuracy" removed from the model
+ * cards: authoritative in shape, unfounded in substance, and printed on a
+ * dashboard where someone would reasonably act on it.
+ *
+ * Two of the checks were also simply wrong. `ENABLE_AUDIT_LOGGING` is read
+ * nowhere else in this codebase — `auditLog()` and `recordAuditEvent()` run
+ * unconditionally on some forty routes — so an unset flag reported "Audit
+ * logging not enabled" while the audit trail was being written, and setting it
+ * to the string "false" reported it healthy. SOC 2 "Audit Logging" was the
+ * literal `true` with the comment "Implemented above", which asserts a control
+ * from a code comment rather than from evidence.
+ *
+ * ── And HIPAA is the wrong statute ─────────────────────────────────────────
+ *
+ * This platform is South African and processes special personal information
+ * under POPIA. HIPAA is United States law and does not apply unless and until
+ * the platform serves US patients. `docs/DPIA.md` and `docs/RETENTION.md` are
+ * written against POPIA, which is the assessment that exists and matters.
+ *
+ * ── What replaces it ───────────────────────────────────────────────────────
+ *
+ * An inventory, not a verdict. Every entry says what is true, how it was
+ * established, and — where the answer cannot be established from inside a
+ * running process — says that instead of guessing. Backups, incident response
+ * and risk assessment are organisational facts; a web server has no way to see
+ * them, and a checkbox claiming otherwise is worse than an absent one.
+ */
+export type ControlState =
+  /** Verified at runtime, by the evidence named alongside it. */
+  | 'verified'
+  /** Verified at runtime to be absent or misconfigured. */
+  | 'absent'
+  /**
+   * Cannot be determined from inside the application. Not a failure and not a
+   * pass — the evidence lives somewhere this process cannot see.
+   */
+  | 'not_assessable_here';
+
+export interface ControlReport {
+  control: string;
+  state: ControlState;
+  /** How the state was established, or where the evidence actually lives. */
+  basis: string;
+}
+
 export class ComplianceChecker {
-  static async checkHIPAACompliance(): Promise<{
-    compliant: boolean;
-    issues: string[];
-    recommendations: string[];
-  }> {
-    const issues: string[] = [];
-    const recommendations: string[] = [];
+  /**
+   * Observable security controls.
+   *
+   * Deliberately returns no aggregate, no percentage and no boolean. A caller
+   * that wants a summary has to read the entries, which is the point: the
+   * summary was the part that was untrue.
+   */
+  static async controlInventory(): Promise<ControlReport[]> {
+    const reports: ControlReport[] = [];
 
-    // Check encryption
-    if (!process.env.ENCRYPTION_KEY) {
-      issues.push('Data encryption not configured');
-      recommendations.push('Configure ENCRYPTION_KEY environment variable');
+    // ── Verifiable from configuration ────────────────────────────────────
+    const keyed = !!process.env.ENCRYPTION_KEY || !!process.env.ENCRYPTION_KEYS;
+    reports.push({
+      control: 'Field-level encryption configured',
+      state: keyed ? 'verified' : 'absent',
+      basis: keyed
+        ? 'A key is present and the keyring loaded at boot; see server/crypto/keyring.ts.'
+        : 'Neither ENCRYPTION_KEY nor ENCRYPTION_KEYS is set.',
+    });
+
+    const secret = process.env.SESSION_SECRET ?? '';
+    reports.push({
+      control: 'Session secret strength',
+      state: secret.length >= 64 ? 'verified' : 'absent',
+      basis: `SESSION_SECRET is ${secret.length} characters; 64 or more is required in production.`,
+    });
+
+    // ── Verifiable by asking the database ────────────────────────────────
+    //
+    // The previous version asked an environment variable whether auditing was
+    // on. The trail itself is the evidence, so this reads it.
+    try {
+      const { pool } = await import('./db');
+      const { rows } = await pool.query(
+        `SELECT count(*)::int AS n FROM audit_events WHERE occurred_at > now() - interval '24 hours'`
+      );
+      const n = rows[0]?.n ?? 0;
+      reports.push({
+        control: 'Audit trail is being written',
+        state: n > 0 ? 'verified' : 'absent',
+        basis: `${n} audit events recorded in the last 24 hours.`,
+      });
+    } catch (error) {
+      reports.push({
+        control: 'Audit trail is being written',
+        state: 'absent',
+        basis: `The audit table could not be read: ${(error as Error).message}`,
+      });
     }
 
-    // Check audit logging
-    if (!process.env.ENABLE_AUDIT_LOGGING) {
-      issues.push('Audit logging not enabled');
-      recommendations.push('Enable comprehensive audit logging');
-    }
+    // ── Facts a running process cannot see ───────────────────────────────
+    reports.push({
+      control: 'Backup and restore',
+      state: 'not_assessable_here',
+      basis:
+        'A property of the database platform and its operator, not of this ' +
+        'application. No restore has been tested; see ops/RUNBOOK.md.',
+    });
+    reports.push({
+      control: 'Incident response procedure',
+      state: 'not_assessable_here',
+      basis: 'An organisational process. ops/RUNBOOK.md covers operational alerts only.',
+    });
+    reports.push({
+      control: 'Data protection impact assessment',
+      state: 'not_assessable_here',
+      basis: 'A document, not a runtime property: docs/DPIA.md, written against POPIA.',
+    });
+    reports.push({
+      control: 'Retention and erasure policy',
+      state: 'not_assessable_here',
+      basis:
+        'Erasure is implemented (server/erasure.ts) and the policy is docs/RETENTION.md, ' +
+        'but whether records are being purged on schedule is not checked here.',
+    });
+    reports.push({
+      control: 'Regulatory clearance for the classifiers',
+      state: 'absent',
+      basis:
+        'No clearance is held in any jurisdiction. See docs/REGULATORY_PATHWAY.md.',
+    });
 
-    // Check access controls
-    if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 64) {
-      issues.push('Weak session security');
-      recommendations.push('Use strong session secrets (64+ characters)');
-    }
-
-    // Check data retention policies
-    issues.push('Data retention policies not automated');
-    recommendations.push('Implement automated data retention and deletion');
-
-    return {
-      compliant: issues.length === 0,
-      issues,
-      recommendations
-    };
-  }
-
-  static async checkSOC2Compliance(): Promise<{
-    compliant: boolean;
-    controlsStatus: { [key: string]: boolean };
-    recommendations: string[];
-  }> {
-    const controlsStatus = {
-      'Access Controls': !!process.env.SESSION_SECRET,
-      'Data Encryption': !!process.env.ENCRYPTION_KEY,
-      'Audit Logging': true, // Implemented above
-      'Backup Systems': false, // Would need to implement
-      'Incident Response': false, // Would need to implement
-      'Risk Assessment': false, // Would need to implement
-      'Vulnerability Management': false // Would need to implement
-    };
-
-    const recommendations = Object.entries(controlsStatus)
-      .filter(([, status]) => !status)
-      .map(([control]) => `Implement ${control} procedures`);
-
-    return {
-      compliant: Object.values(controlsStatus).every(status => status),
-      controlsStatus,
-      recommendations
-    };
+    return reports;
   }
 }
 
