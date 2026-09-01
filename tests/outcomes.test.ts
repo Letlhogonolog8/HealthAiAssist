@@ -81,6 +81,13 @@ before(async () => {
   });
   assert.equal(login.status, 200);
 
+  // Automated analysis now requires the patient to have agreed to it. Without
+  // this the scans below are stored and queued for a human but never analysed,
+  // `predicted_positive` stays null, and every measurement in this file has
+  // nothing to measure.
+  const consent = await patient.session.post('/api/scans/analysis-consent', { granted: true });
+  assert.equal(consent.status, 200, consent.text.slice(0, 200));
+
   if (haveImages) {
     for (const file of lungImages) scanIds.push(await analyse(patient.session, file));
   }
@@ -102,6 +109,9 @@ after(async () => {
         [ids]
       );
       await pool.query('DELETE FROM medical_scans WHERE patient_id = ANY($1)', [ids]);
+      // Consent rows reference users.id; leaving them behind makes the user
+      // delete below fail on the foreign key rather than clean up.
+      await pool.query('DELETE FROM processing_consents WHERE patient_id = ANY($1)', [ids]);
       await pool.query(
         'DELETE FROM notifications WHERE recipient_id = ANY($1) OR actor_id = ANY($1)',
         [ids]
@@ -121,6 +131,76 @@ after(async () => {
 });
 
 // ---------------------------------------------------------------------------
+
+describe('consent to automated analysis', { timeout: TIMEOUT }, () => {
+  test('the disclosure states the error rates, not just that AI is used', async () => {
+    const res = await new Session().get('/api/scans/analysis-disclosure');
+    assert.equal(res.status, 200);
+
+    const text = res.json.disclosure.join(' ');
+    // The miss rate is the fact that determines whether a reasonable person
+    // agrees. A disclosure that omits it is not informed consent.
+    assert.match(text, /1 in 5/, 'lung miss rate must be disclosed');
+    assert.match(text, /not been approved by any medical regulator/i);
+    assert.match(text, /darker skin/i);
+    assert.equal(res.json.revocable, true);
+    assert.equal(res.json.humanReviewGuaranteed, true);
+  });
+
+  test('declining is the default, and is recorded as a decision', async () => {
+    const decliner = await registerPatient('outcome-decliner');
+
+    const before = await decliner.session.get('/api/scans/analysis-consent');
+    assert.equal(before.status, 200);
+    assert.equal(before.json.granted, false, 'consent must not be assumed');
+    assert.equal(before.json.version, null, 'nothing agreed to yet');
+
+    const post = await decliner.session.post('/api/scans/analysis-consent', { granted: false });
+    assert.equal(post.status, 200);
+
+    const after = await decliner.session.get('/api/scans/analysis-consent');
+    assert.equal(after.json.granted, false);
+    // An explicit refusal is distinguishable from never having been asked,
+    // because it records which version of the text was refused.
+    assert.ok(after.json.version, 'an explicit decline records the version seen');
+  });
+
+  test('a scan submitted without consent is stored, queued, and not given a result', async (t) => {
+    if (!haveImages) return t.skip('lung dataset not present');
+
+    const decliner = await registerPatient('outcome-noconsent');
+
+    const form = new FormData();
+    const bytes = fs.readFileSync(`${LUNG_DIR}/${lungImages[0]}`);
+    form.append('image', new Blob([bytes], { type: 'image/jpeg' }), lungImages[0]);
+    form.append('scanType', 'lung');
+
+    const res = await decliner.session.postForm('/api/scans/analyze', form);
+    assert.equal(res.status, 200, res.text.slice(0, 200));
+
+    // Declining must not cost the patient their scan.
+    assert.ok(res.json.scan?.id, 'the scan is still stored');
+    assert.equal(res.json.analysed, false);
+    assert.equal(res.json.scan.status, 'pending_manual_review');
+
+    // The whole point: an absent result must never read as a negative one.
+    assert.equal(res.json.scan.predictedPositive ?? null, null);
+    assert.equal(res.json.scan.aiConfidence, 'N/A');
+    assert.doesNotMatch(
+      String(res.json.scan.result),
+      /no abnormal|normal|negative|clear/i,
+      'an unanalysed scan must not be phrased as a negative finding'
+    );
+    assert.match(res.json.message, /NOT a negative finding/);
+
+    const pool = db();
+    try {
+      await pool.query('DELETE FROM medical_scans WHERE patient_id = $1', [decliner.id]);
+    } finally {
+      await pool.end();
+    }
+  });
+});
 
 describe('interval arithmetic', { timeout: TIMEOUT }, () => {
   test('Wilson keeps a sensible width at the boundaries', () => {

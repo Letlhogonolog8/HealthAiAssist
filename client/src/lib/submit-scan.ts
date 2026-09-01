@@ -19,6 +19,17 @@ import { enqueue, queueAvailable, flushQueue } from './scan-queue';
 export type SubmitOutcome =
   | { kind: 'analysed'; body: any }
   | { kind: 'queued'; queuedId: string; reason: 'offline' }
+  /**
+   * Stored and sent to a clinician, with no model run — the patient has not
+   * consented to automated analysis.
+   *
+   * Separate from 'rejected' because nothing was refused and nothing failed:
+   * the upload succeeded and the server answered 200. It is separate from
+   * 'analysed' for the reason this whole module exists — a 200 that carries no
+   * finding must not reach a caller that renders findings, or "we did not look"
+   * is displayed in the same place as "we looked and it was fine".
+   */
+  | { kind: 'not_analysed'; reason: 'no_consent'; body: any }
   | { kind: 'rejected'; status: number; body: any };
 
 export interface SubmitInput {
@@ -104,6 +115,13 @@ export async function submitScan(input: SubmitInput): Promise<SubmitOutcome> {
   // earlier outage, since the connection is demonstrably working.
   void flushQueue();
 
+  // 200, but nothing was analysed. Checked explicitly rather than inferred from
+  // a missing field: a caller that reads `body.analysis` off this response
+  // would get undefined and quite plausibly render it as "no findings".
+  if (body?.analysed === false) {
+    return { kind: 'not_analysed', reason: 'no_consent', body };
+  }
+
   return { kind: 'analysed', body };
 }
 
@@ -114,6 +132,17 @@ export async function submitScan(input: SubmitInput): Promise<SubmitOutcome> {
  * unambiguous. "No result" and "a negative result" are different, and the
  * difference is the whole point.
  */
+export function describeNotAnalysed(body: any): { title: string; description: string } {
+  return {
+    title: 'No automated analysis was performed',
+    description:
+      body?.message ??
+      'Your scan has been stored and sent to a clinician for review. No automated ' +
+        'analysis was run because there is no consent on record for it. This is not ' +
+        'a negative result — nothing has been assessed yet.',
+  };
+}
+
 export function describeRejection(status: number, body: any): { title: string; description: string } {
   if (status === 422) {
     const reasons: string[] = Array.isArray(body?.reasons) ? body.reasons : [];

@@ -66,6 +66,14 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      # Monitoring config fails silently: rename a metric and the alert that was
+      # meant to catch a broken model quietly matches nothing forever, while the
+      # panel shows an empty graph that looks exactly like "nothing wrong".
+      # Cheap to check, and the failure mode is otherwise invisible until the
+      # incident it was supposed to catch.
+      - name: Ops config references real metrics
+        run: node scripts/check-ops-config.mjs
+
       - name: Build client
         run: npx vite build
 

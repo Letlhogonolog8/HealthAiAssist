@@ -1,0 +1,292 @@
+# Prometheus alerting rules for the clinical path.
+#
+# The metrics these read have existed since `server/metrics.ts` was written.
+# What did not exist was any statement of which values are wrong — a counter
+# nobody has attached a threshold to is a number on a graph, not monitoring, and
+# a screening model that silently degrades produces a perfectly steady request
+# rate while it does so.
+#
+# ── How the thresholds were chosen ─────────────────────────────────────────
+#
+# Every threshold below is derived from a figure that was actually measured and
+# is published in MODEL_CARDS.md / MODEL_REGISTRY, not from a round number that
+# looked reasonable. Where a rate is compared against a baseline, the baseline is
+# cited in the comment. When the models are retrained those figures move, and
+# these rules have to move with them — that is the intended coupling, not an
+# oversight.
+#
+# ── What is deliberately not alerted on ────────────────────────────────────
+#
+#   - `refused_no_consent`. A patient declining automated analysis is a choice
+#     being honoured, and the scan still reached a radiologist. Paging someone
+#     because patients used a right would be an incentive to make the right
+#     harder to use.
+#   - Absolute request rate. This is a screening tool with bursty, clinic-hours
+#     traffic; a rate alert here would fire every evening and be silenced.
+#
+# Load with:  rule_files: [ "ops/alerts.yml" ]  in prometheus.yml
+# Validate with:  promtool check rules ops/alerts.yml
+
+groups:
+  - name: healthai-clinical-safety
+    interval: 30s
+    rules:
+
+      # ── The model stopped being able to answer ──────────────────────────
+      #
+      # `refused_no_model` means assertModelEnabled threw: the artifact is
+      # missing, disabled, or the modality has no model. Every such scan became
+      # a manual-review queue item, so this is a workload transfer onto
+      # radiologists that is invisible from the radiology side.
+      - alert: AutomatedAnalysisUnavailable
+        expr: |
+          sum by (modality) (
+            rate(healthai_scan_submissions_total{outcome="refused_no_model"}[15m])
+          ) > 0
+        for: 10m
+        labels:
+          severity: critical
+          domain: clinical
+        annotations:
+          summary: "No validated model is serving {{ $labels.modality }} scans"
+          description: >-
+            Scans for {{ $labels.modality }} have been refused for 10 minutes
+            because no enabled model could analyse them. They are being queued
+            for manual review, which is safe but silently increases radiologist
+            load. Check MODEL_REGISTRY.enabled and that the model artifact is
+            readable by the inference process.
+          runbook: "ops/RUNBOOK.md#automatedanalysisunavailable"
+
+      # ── The input distribution moved ────────────────────────────────────
+      #
+      # Measured OOD flag rates on same-modality held-out data: 0.8% for skin
+      # lesions, 3.3% for benign lung nodule patches, 0.8% for off-nodule lung
+      # parenchyma. 20% sustained is an order of magnitude above any of those and
+      # cannot be ordinary variation — it means a new scanner, a new capture
+      # device, a new clinic, or a client that has started sending whole slices
+      # instead of patches. Until that is understood the published performance
+      # figures do not describe what is happening.
+      - alert: InputDistributionShift
+        expr: |
+          (
+            sum by (modality) (rate(healthai_ood_rejections_total[1h]))
+            /
+            clamp_min(sum by (modality) (rate(healthai_scan_submissions_total[1h])), 0.0001)
+          ) > 0.20
+        for: 30m
+        labels:
+          severity: warning
+          domain: clinical
+        annotations:
+          summary: "{{ $labels.modality }} inputs are being refused as out-of-distribution at {{ $value | humanizePercentage }}"
+          description: >-
+            Measured OOD flag rate on held-out same-modality images is under 4%.
+            A sustained rate above 20% means the images now arriving are not the
+            images the model was measured on, so the published sensitivity and
+            specificity no longer describe this deployment. Do not treat results
+            as valid until the source of the shift is identified.
+          runbook: "ops/RUNBOOK.md#inputdistributionshift"
+
+      # ── The model's call rate drifted ───────────────────────────────────
+      #
+      # The single most clinically dangerous failure is a model that keeps
+      # answering while having quietly become wrong, because nothing else in the
+      # stack notices. There is no ground truth at inference time, so the
+      # available proxy is the positive rate: at the deployed lung threshold of
+      # 0.30 on a screening population the flagged fraction should sit in the
+      # low tens of percent. A flagged fraction that collapses towards zero or
+      # saturates towards one is the signature of a broken preprocessing change,
+      # a wrong artifact loaded, or a threshold misconfiguration.
+      #
+      # These bounds are deliberately wide. They are not a quality measure —
+      # they catch gross breakage, and only adjudicated outcomes
+      # (/api/models/performance) can measure whether the model is actually right.
+      # Guarded by a minimum volume of 50 calls in the window: on small numbers
+      # the positive fraction swings wildly for entirely ordinary reasons, and an
+      # alert that fires on five scans is an alert that gets silenced.
+      - alert: PredictionRateCollapsed
+        expr: |
+          (
+            sum by (modality) (increase(healthai_scan_predictions_total{predicted="positive"}[6h]))
+            /
+            clamp_min(sum by (modality) (increase(healthai_scan_predictions_total[6h])), 1)
+          ) < 0.02
+          and
+          sum by (modality) (increase(healthai_scan_predictions_total[6h])) >= 50
+        for: 1h
+        labels:
+          severity: critical
+          domain: clinical
+        annotations:
+          summary: "{{ $labels.modality }} model has flagged almost nothing positive ({{ $value | humanizePercentage }} over 6h)"
+          description: >-
+            At the deployed lung threshold of 0.30 the flagged fraction on a
+            screening population sits in the tens of percent, and the skin bands
+            escalate 96.7% of malignant lesions. A positive rate under 2% across
+            50+ scans is not a healthy population, it is a model that has stopped
+            discriminating — a wrong artifact, a preprocessing regression, or a
+            threshold read as 1.0. Treat every negative issued during this window
+            as unverified and re-queue them for human review.
+          runbook: "ops/RUNBOOK.md#predictionratecollapsed"
+
+      - alert: PredictionRateSaturated
+        expr: |
+          (
+            sum by (modality) (increase(healthai_scan_predictions_total{predicted="positive"}[6h]))
+            /
+            clamp_min(sum by (modality) (increase(healthai_scan_predictions_total[6h])), 1)
+          ) > 0.80
+          and
+          sum by (modality) (increase(healthai_scan_predictions_total[6h])) >= 50
+        for: 1h
+        labels:
+          severity: warning
+          domain: clinical
+        annotations:
+          summary: "{{ $labels.modality }} model is flagging {{ $value | humanizePercentage }} of scans positive"
+          description: >-
+            Measured specificity is 0.757 (lung) and 0.814 (skin), so even on an
+            all-negative population the expected flag rate is well under 30%.
+            Above 80% the triage signal carries no information and the radiology
+            queue is being filled indiscriminately. Same causes as
+            PredictionRateCollapsed, opposite sign.
+          runbook: "ops/RUNBOOK.md#predictionratesaturated"
+
+      # ── The slow path is in production ──────────────────────────────────
+      #
+      # A warm resident model answers in roughly 0.5 s. The subprocess fallback
+      # spawns a TensorFlow process per request and takes 8-14 s with no
+      # concurrency ceiling. p95 above 5 s means INFERENCE_URL is unset or
+      # unreachable and the fallback is carrying production traffic — the exact
+      # "slow-and-working survives to production unnoticed" case that
+      # inference-client.ts warns about once at startup and then never again.
+      - alert: InferenceFallbackInUse
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, modality) (rate(healthai_inference_duration_seconds_bucket[15m]))
+          ) > 5
+        for: 15m
+        labels:
+          severity: warning
+          domain: capacity
+        annotations:
+          summary: "{{ $labels.modality }} inference p95 is {{ $value | humanizeDuration }}"
+          description: >-
+            Expected p95 for the resident inference service is well under 2s.
+            Above 5s indicates the per-request Python subprocess fallback is
+            serving traffic. Set INFERENCE_URL and confirm inference/server.py is
+            reachable. The fallback has no concurrency ceiling and will degrade
+            non-linearly under load.
+          runbook: "ops/RUNBOOK.md#inferencefallbackinuse"
+
+      - alert: InferenceSaturated
+        expr: |
+          sum(rate(healthai_scan_submissions_total{outcome="saturated"}[10m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+          domain: capacity
+        annotations:
+          summary: "Inference service is shedding load"
+          description: >-
+            Scans are being rejected because the inference queue is full.
+            Patients are receiving 503s. Scale the inference service or raise
+            INFERENCE_MAX_IN_FLIGHT after confirming the service can absorb it.
+          runbook: "ops/RUNBOOK.md#inferencesaturated"
+
+      - alert: ScanPipelineErrors
+        expr: |
+          (
+            sum(rate(healthai_scan_submissions_total{outcome="error"}[15m]))
+            /
+            clamp_min(sum(rate(healthai_scan_submissions_total[15m])), 0.0001)
+          ) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+          domain: clinical
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of scan submissions are erroring"
+          description: >-
+            Unhandled failures in the scan path. Unlike a refusal these produce
+            no queued manual-review row, so the scan may be lost to the patient
+            entirely. Check application logs by X-Request-Id.
+          runbook: "ops/RUNBOOK.md#scanpipelineerrors"
+
+  - name: healthai-access-control
+    interval: 60s
+    rules:
+
+      # Break-glass is designed to be easy to invoke and impossible to invoke
+      # quietly. "Quietly" is what this rule removes: without it the audit event
+      # exists but nobody reads it until an incident review.
+      - alert: BreakGlassUsageElevated
+        expr: sum(increase(healthai_break_glass_total[1h])) > 3
+        for: 5m
+        labels:
+          severity: warning
+          domain: privacy
+        annotations:
+          summary: "{{ $value }} emergency access overrides opened in the last hour"
+          description: >-
+            Break-glass bypasses the care-relationship check and is expected to
+            be rare. A cluster suggests either a genuine emergency, or that the
+            normal assignment path is broken and clinicians are routing around
+            it. Review audit_events WHERE action = 'BREAK_GLASS_OPENED'.
+          runbook: "ops/RUNBOOK.md#breakglassusageelevated"
+
+      # Shadow mode counts what enforcement *would* have refused. Watching it
+      # fall towards zero is how the derivation is judged ready to enforce; a
+      # sustained non-zero enforced count means real clinicians are being locked
+      # out of patients they are treating.
+      - alert: CareRelationshipDenialsEnforced
+        expr: sum(increase(healthai_care_relationship_denials_total{mode="enforced"}[1h])) > 10
+        for: 15m
+        labels:
+          severity: warning
+          domain: privacy
+        annotations:
+          summary: "{{ $value }} clinicians refused access to patient records in the last hour"
+          description: >-
+            Enforced denials at this rate usually mean the care-relationship
+            derivation is missing a legitimate basis, not that access is being
+            attacked. Left alone it pushes clinicians towards break-glass or
+            shared logins. Review which patient/clinician pairs are failing
+            before tightening anything further.
+          runbook: "ops/RUNBOOK.md#carerelationshipdenialsenforced"
+
+  - name: healthai-availability
+    interval: 30s
+    rules:
+
+      - alert: ApplicationDown
+        expr: up{job="healthai"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          domain: availability
+        annotations:
+          summary: "HealthAI instance is not responding to scrapes"
+          runbook: "ops/RUNBOOK.md#applicationdown"
+
+      # A screening platform that accepts no scans for an hour during clinic
+      # hours has failed in a way no error rate shows, because there are no
+      # requests to be errors. Deliberately scoped to weekday daytime SAST
+      # (UTC+2) so it does not fire every night.
+      - alert: NoScanSubmissions
+        expr: |
+          sum(increase(healthai_scan_submissions_total[1h])) == 0
+          and on() (hour() >= 6 < 15)
+          and on() (day_of_week() > 0 < 6)
+        for: 1h
+        labels:
+          severity: warning
+          domain: availability
+        annotations:
+          summary: "No scans submitted in the last hour during clinic hours"
+          description: >-
+            Silence here is indistinguishable from a broken upload path on the
+            client. Confirm a scan can be submitted end to end before assuming
+            it is a quiet day.
+          runbook: "ops/RUNBOOK.md#noscansubmissions"

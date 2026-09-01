@@ -39,11 +39,18 @@ client.collectDefaultMetrics({ register: registry, prefix: 'healthai_' });
 /**
  * Scan submissions by what happened to them.
  *
- * `outcome` is one of: analysed, refused_no_model, rejected_input,
- * rejected_upload, saturated, error. Deliberately not a boolean success flag —
- * "refused because no validated model exists" and "rejected because the image is
- * not assessable" are different operational situations with different fixes, and
- * collapsing them loses the distinction the whole platform is built around.
+ * `outcome` is one of: analysed, refused_no_model, refused_no_consent,
+ * rejected_input, rejected_upload, saturated, error. Deliberately not a boolean
+ * success flag — "refused because no validated model exists" and "rejected
+ * because the image is not assessable" are different operational situations with
+ * different fixes, and collapsing them loses the distinction the whole platform
+ * is built around.
+ *
+ * `refused_no_consent` is not a fault condition and must not be alerted on as
+ * one: it is a patient exercising a choice, and the scan still reached a human.
+ * It is counted so that the take-up rate of automated analysis is observable —
+ * a sudden move in it usually means the consent copy or its placement changed,
+ * not that anything broke.
  */
 export const scanOutcomes = new client.Counter({
   name: 'healthai_scan_submissions_total',
@@ -76,6 +83,38 @@ export const oodRejections = new client.Counter({
   name: 'healthai_ood_rejections_total',
   help: 'Inputs refused as outside the model training distribution',
   labelNames: ['modality'] as const,
+  registers: [registry],
+});
+
+/**
+ * What the models actually called, in aggregate.
+ *
+ * The most dangerous failure available to this system is a model that keeps
+ * answering while having silently become wrong: latency stays flat, the error
+ * rate stays zero, and every dashboard above looks healthy while the verdicts
+ * reaching radiologists have stopped meaning anything. Nothing else exported
+ * here would move.
+ *
+ * There is no ground truth at inference time, so the only signal available in
+ * real time is the rate at which the model says "positive". On a stable
+ * population that rate is stable, and a collapse towards zero or a saturation
+ * towards one is the signature of a wrong artifact, a preprocessing regression,
+ * or a threshold misconfiguration — all of which have happened to this codebase
+ * before and none of which any existing counter would reveal.
+ *
+ * `predicted` is the model's binary call, not a patient's condition. It is an
+ * aggregate count with no subject, which is what keeps it inside the rule at
+ * the top of this file: the series says "the lung model returned positive
+ * 41 times this hour", never who any of them were.
+ *
+ * This does not measure whether the model is *right*. Only adjudicated outcomes
+ * do that, and they live at GET /api/models/performance because they arrive
+ * days later and belong in the database, not in a scrape.
+ */
+export const scanPredictions = new client.Counter({
+  name: 'healthai_scan_predictions_total',
+  help: 'Model calls by modality and predicted class',
+  labelNames: ['modality', 'predicted'] as const,
   registers: [registry],
 });
 

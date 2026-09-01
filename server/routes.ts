@@ -5,7 +5,7 @@ import { insertUserSchema, insertScanSchema, insertTermSchema, erasureRequests }
 import { and, eq } from "drizzle-orm";
 import { db } from "./db";
 import { verifyUpload } from "./upload-validation";
-import { scanOutcomes, inferenceDuration, oodRejections, breakGlassUses, careRelationshipDenials } from "./metrics";
+import { scanOutcomes, scanPredictions, inferenceDuration, oodRejections, breakGlassUses, careRelationshipDenials } from "./metrics";
 import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
@@ -1340,6 +1340,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
     await recordExternalAiConsent(patientId, granted);
     res.json({ scope: 'external_ai_assistant', version: DISCLOSURE_VERSION, granted });
   });
+
+  /**
+   * What a model does to a scan, and how often it is wrong.
+   *
+   * Public for the same reason the chatbot disclosure is: a person deciding
+   * whether to agree has to be able to read the terms before authenticating,
+   * and the error rates in it are already published in the model cards.
+   */
+  app.get("/api/scans/analysis-disclosure", async (_req, res) => {
+    const { DISCLOSURE_TEXT: T, DISCLOSURE_VERSION: V, AI_ANALYSIS_SCOPE } =
+      await import('./privacy/ai-analysis-consent');
+    res.json({
+      scope: AI_ANALYSIS_SCOPE,
+      version: V,
+      disclosure: T,
+      revocable: true,
+      automatedDecisionMaking: true,
+      humanReviewGuaranteed: true,
+      note:
+        'Declining does not stop your scan being stored or reviewed by a ' +
+        'clinician. It only stops the automated step.',
+    });
+  });
+
+  app.get("/api/scans/analysis-consent", requireAuth, async (req: AuthenticatedRequest, res) => {
+    const patientId = (req.session as any)?.user?.id;
+    const { getAiAnalysisConsent, AI_ANALYSIS_SCOPE } =
+      await import('./privacy/ai-analysis-consent');
+    const current = await getAiAnalysisConsent(patientId);
+    res.json({ scope: AI_ANALYSIS_SCOPE, ...current });
+  });
+
+  app.post(
+    "/api/scans/analysis-consent",
+    auditLog('AI_ANALYSIS_CONSENT_RECORDED'),
+    requireAuth,
+    async (req: AuthenticatedRequest, res) => {
+      const patientId = (req.session as any)?.user?.id;
+      const { granted } = req.body ?? {};
+      if (typeof granted !== 'boolean') {
+        return res.status(400).json({ error: 'granted must be a boolean' });
+      }
+      const { recordAiAnalysisConsent, DISCLOSURE_VERSION: V, AI_ANALYSIS_SCOPE } =
+        await import('./privacy/ai-analysis-consent');
+      await recordAiAnalysisConsent(patientId, granted);
+      res.json({ scope: AI_ANALYSIS_SCOPE, version: V, granted });
+    }
+  );
 
   // Chatbot symptom analysis.
   //
@@ -3336,6 +3384,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid patient ID" });
       }
 
+      // Has this person agreed to a model reading their image at all?
+      //
+      // Checked here rather than at upload so that declining costs nothing
+      // clinically: the bytes are still stored and a radiologist still reviews
+      // them. Consent gates the automated step, not the care.
+      const { hasAiAnalysisConsent, DISCLOSURE_VERSION: ANALYSIS_CONSENT_VERSION } =
+        await import('./privacy/ai-analysis-consent');
+      if (!(await hasAiAnalysisConsent(patientId))) {
+        scanOutcomes.inc({ modality: String(scanType ?? 'unknown'), outcome: 'refused_no_consent' });
+
+        const imagePathNoAi = await persistScanImage(imageBuffer, file, patientId, scanType);
+        const queued = await storage.createScan({
+          patientId,
+          scanType,
+          imagePath: imagePathNoAi,
+          imageSize: file.size ?? imageBuffer.length,
+          result: 'Awaiting clinician review - automated analysis not consented',
+          aiConfidence: 'N/A',
+          status: 'pending_manual_review',
+          notes: 'Automated analysis did not run: no consent on record for AI image analysis.',
+        } as any);
+
+        enhancedWsManager?.sendToRole('radiologist', {
+          type: 'scan_completed',
+          data: { scanId: (queued as any)?.id, scanType, riskLevel: null, requiresReview: true },
+        });
+
+        deliverInBackground(
+          user,
+          'Your scan has been received',
+          'Your scan has been stored and queued for clinician review.',
+          '/'
+        );
+
+        const { recordAuditEvent: auditNoConsent } = await import('./security-middleware');
+        await auditNoConsent({
+          action: 'SCAN_ANALYSIS_SKIPPED_NO_CONSENT',
+          actorUserId: sessionUserId,
+          actorUsername: req.session!.user!.username,
+          actorRole: sessionRole,
+          method: req.method,
+          path: '/api/scans/analyze',
+          statusCode: 200,
+          detail: `modality=${scanType}; scan=${(queued as any)?.id}; queued for human review`,
+        });
+
+        return res.json({
+          success: true,
+          analysed: false,
+          scan: queued,
+          // Said plainly, for the same reason respondModelUnavailable says it:
+          // an absent result must never read as a negative one.
+          message:
+            'No automated analysis was performed, because there is no consent on record for it. ' +
+            'This is NOT a negative finding. Your scan has been queued for clinician review.',
+          consent: { scope: 'ai_image_analysis', granted: false, version: ANALYSIS_CONSENT_VERSION },
+        });
+      }
+
       console.log(`Performing real-time analysis for ${scanType} scan...`);
       const analysisStartedAt = Date.now();
       const analysisResult = await performRealTimeAnalysis(imageBuffer, scanType);
@@ -3344,6 +3451,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         (Date.now() - analysisStartedAt) / 1000
       );
       scanOutcomes.inc({ modality: String(scanType ?? 'unknown'), outcome: 'analysed' });
+      scanPredictions.inc({
+        modality: String(scanType ?? 'unknown'),
+        predicted: analysisResult.hasCancer ? 'positive' : 'negative',
+      });
 
       const imagePath = await persistScanImage(imageBuffer, file, patientId, scanType);
 
@@ -3371,6 +3482,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       const savedScan = await storage.createScan(scanData);
+
+      /**
+       * The automated decision itself, in the audit trail.
+       *
+       * Every read path here was already audited, and the scan row already
+       * pins `model_version` and `predicted_positive`. What neither gave was an
+       * immutable record that a model *made a call about a person* at a moment
+       * in time — the scan row is mutable and can be re-reviewed, edited or
+       * erased, so reconstructing "what was this patient told, by which model,
+       * on which consent" from it alone is not possible after the fact.
+       *
+       * Non-identifying by the same rule as the rest of the table: ids and
+       * model metadata, never the finding text.
+       */
+      const { recordAuditEvent: auditAnalysis } = await import('./security-middleware');
+      await auditAnalysis({
+        action: 'SCAN_ANALYSED',
+        actorUserId: sessionUserId,
+        actorUsername: req.session!.user!.username,
+        actorRole: sessionRole,
+        method: req.method,
+        path: '/api/scans/analyze',
+        statusCode: 200,
+        detail:
+          `scan=${(savedScan as any)?.id}; patient=${patientId}; modality=${scanType}; ` +
+          `model=${analysisResult.advancedMetrics?.modelVersion ?? 'unrecorded'}; ` +
+          `predictedPositive=${analysisResult.hasCancer}; ` +
+          `confidence=${Math.round(analysisResult.confidence)}; ` +
+          `consentVersion=${ANALYSIS_CONSENT_VERSION}`,
+      });
 
       // Every automated result needs a human; a high-risk one needs one sooner.
       enhancedWsManager?.sendToRole('radiologist', {
@@ -3766,8 +3907,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/scan/upload", requireAuth, upload.single('image'), handleScanAnalysis);
-  app.post("/api/scans/analyze", requireAuth, upload.single('image'), handleScanAnalysis);
+  // auditLog wraps both: these are the only clinical write paths that produce a
+  // record about a patient without a human author, and they were the only ones
+  // reaching the database with no audit event naming who submitted what.
+  app.post("/api/scan/upload", auditLog('SCAN_SUBMITTED'), requireAuth, upload.single('image'), handleScanAnalysis);
+  app.post("/api/scans/analyze", auditLog('SCAN_SUBMITTED'), requireAuth, upload.single('image'), handleScanAnalysis);
 
 
   // New route for /api/scans/analyze to fix client-server mismatch

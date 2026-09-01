@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { submitScan, describeRejection } from '@/lib/submit-scan';
+import { submitScan, describeRejection, describeNotAnalysed } from '@/lib/submit-scan';
 import { 
   Upload, 
   Eye, 
@@ -146,6 +146,10 @@ export default function MultiCancerDetectionSystem() {
 
       if (outcome.kind === 'queued') return outcome;
 
+      // Stored and routed to a clinician, but no model ran. Returned rather
+      // than thrown: nothing failed, so this is not an error state.
+      if (outcome.kind === 'not_analysed') return outcome;
+
       if (outcome.kind === 'rejected') {
         const { title, description } = describeRejection(outcome.status, outcome.body);
         throw new Error(`${title}. ${description}`);
@@ -166,6 +170,18 @@ export default function MultiCancerDetectionSystem() {
           description:
             'You are offline, so nothing has been analysed yet. This scan will upload automatically when you have a connection.',
         });
+        return;
+      }
+
+      // No consent on record, so nothing was assessed. Handled with the same
+      // care as the offline case: no result panel, no confidence figure, and
+      // wording that cannot be read as a negative finding.
+      if (outcome.kind === 'not_analysed') {
+        const { title, description } = describeNotAnalysed(outcome.body);
+        setIsAnalyzing(false);
+        setAnalysisProgress(0);
+        setAnalysisResult(null);
+        toast({ title, description });
         return;
       }
 
