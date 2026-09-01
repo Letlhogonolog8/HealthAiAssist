@@ -22,6 +22,7 @@ Softmax is shift-invariant, so softmax(log(p)/T) is exactly temperature scaling.
 
 Outputs dataset/data/skin_model_calibration.json, which inference then applies.
 """
+import csv
 import json
 import os
 import sys
@@ -62,11 +63,39 @@ MODELS = {
         'val_fraction': 0.15,
         'seed': 4242,
     },
+    'lung_nodule': {
+        'model': os.path.join(
+            ROOT, 'dataset', 'lung_nodule_model', 'resnet50v2_lung_nodule_model.h5'),
+        'cache': os.path.join(ROOT, 'dataset', 'lung_nodule_model', '.feature_cache'),
+        'out': os.path.join(
+            ROOT, 'dataset', 'lung_nodule_model', 'lung_nodule_model_calibration.json'),
+        'classes': ['cancer', 'no_cancer'],
+        # The split is READ, not reproduced. The other two entries re-derive it
+        # from directory listings and a seed, which works only while the listing
+        # order, the file set and the shuffle all stay identical — a silent
+        # mismatch there mislabels every calibration sample. The nodule pipeline
+        # records the split per patch when it writes them, so there is nothing
+        # to re-derive and nothing to drift.
+        'split': 'manifest',
+        'manifest': os.path.join(ROOT, 'dataset', 'lidc-ct', 'patches.csv'),
+    },
 }
 
 
 def split_labels(config):
-    """Reproduces the training split so cached features can be labelled."""
+    """Labels for the cached validation and test features, in cache order."""
+    if config['split'] == 'manifest':
+        rows = list(csv.DictReader(open(config['manifest'], encoding='utf-8')))
+        # Manifest order is the order the training script extracted features in,
+        # so these line up positionally with val_r0.npy and test_r0.npy. The
+        # length check in main() catches it if that ever stops being true.
+        return (
+            np.array([config['classes'].index(r['label'])
+                      for r in rows if r['split'] == 'val']),
+            np.array([config['classes'].index(r['label'])
+                      for r in rows if r['split'] == 'test']),
+        )
+
     val, test = [], []
     for label, cls in enumerate(config['classes']):
         if config['split'] == 'holdout':

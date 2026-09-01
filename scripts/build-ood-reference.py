@@ -43,19 +43,38 @@ N_COMPONENTS = 64
 PERCENTILE = 99.5
 IMG_SIZE = (224, 224)
 
-# Per-model paths, plus the domains used to check the detector actually
-# separates in- from out-of-distribution. The "wrong modality" source for each
-# model is the other model's data, which is the most realistic confusion.
+# What the detector has to achieve, written down before it is measured so the
+# bar cannot drift to wherever the result lands.
+#
+# MAX_ACCEPT is generous against the 0.5% the threshold percentile implies,
+# because refusing real images a clinic submits is itself a failure — a tool
+# that rejects one in twenty valid captures gets switched off.
+# MIN_REFUSE is not 100%: the detector is one layer, with pixel-level checks and
+# an explicit modality refusal in front of it, and a bar of 100% would be met by
+# a threshold that also refuses everything else.
+MAX_ACCEPT_FLAG_RATE = 0.05
+MIN_REFUSE_FLAG_RATE = 0.90
+
+# Per-model paths, plus the domains the detector is measured against. Each
+# domain carries what it is FOR: 'accept' means a flag is a false refusal,
+# 'refuse' means a miss would let the model answer a question it cannot answer.
+#
+# Both directions are required. Measuring only 'refuse' domains rewards a
+# detector that refuses everything, which is the easiest way to look safe and
+# the fastest way to be uninstalled.
 MODELS = {
     'skin': {
         'model': os.path.join(ROOT, 'dataset', 'data', 'resnet50v2_skin_cancer_model.h5'),
         'cache': os.path.join(ROOT, 'dataset', 'data', '.feature_cache'),
         'npz': os.path.join(ROOT, 'dataset', 'data', 'skin_ood_reference.npz'),
         'json': os.path.join(ROOT, 'dataset', 'data', 'skin_model_ood.json'),
-        'in_distribution': os.path.join(ROOT, 'dataset', 'dataset', 'data', 'test', 'benign'),
-        'wrong_modality': os.path.join(
-            ROOT, 'dataset', 'dataset', 'lung_cancer_MRI_dataset', 'validate', 'cancer'),
-        'wrong_modality_label': 'chest images (wrong modality)',
+        'domains': [
+            {'dir': os.path.join(ROOT, 'dataset', 'dataset', 'data', 'test', 'benign'),
+             'label': 'held-out dermoscopy (same modality)', 'expect': 'accept'},
+            {'dir': os.path.join(ROOT, 'dataset', 'dataset', 'lung_cancer_MRI_dataset',
+                                 'validate', 'cancer'),
+             'label': 'chest images (wrong modality)', 'expect': 'refuse'},
+        ],
     },
     'lung': {
         'model': os.path.join(
@@ -63,10 +82,33 @@ MODELS = {
         'cache': os.path.join(ROOT, 'dataset', 'lung_cancer_MRI_dataset', '.feature_cache'),
         'npz': os.path.join(ROOT, 'dataset', 'lung_cancer_MRI_dataset', 'lung_ood_reference.npz'),
         'json': os.path.join(ROOT, 'dataset', 'lung_cancer_MRI_dataset', 'lung_model_ood.json'),
-        'in_distribution': os.path.join(
-            ROOT, 'dataset', 'dataset', 'lung_cancer_MRI_dataset', 'validate', 'no_cancer'),
-        'wrong_modality': os.path.join(ROOT, 'dataset', 'dataset', 'data', 'test', 'benign'),
-        'wrong_modality_label': 'skin lesions (wrong modality)',
+        'domains': [
+            {'dir': os.path.join(ROOT, 'dataset', 'dataset', 'lung_cancer_MRI_dataset',
+                                 'validate', 'no_cancer'),
+             'label': 'held-out chest images (same modality)', 'expect': 'accept'},
+            {'dir': os.path.join(ROOT, 'dataset', 'dataset', 'data', 'test', 'benign'),
+             'label': 'skin lesions (wrong modality)', 'expect': 'refuse'},
+        ],
+    },
+    # The nodule characteriser. Its failure mode is not a wrong modality — it is
+    # the RIGHT modality at the wrong scale, which is far likelier to happen by
+    # accident and looks entirely plausible on the way in.
+    'lung_nodule': {
+        'model': os.path.join(
+            ROOT, 'dataset', 'lung_nodule_model', 'resnet50v2_lung_nodule_model.h5'),
+        'cache': os.path.join(ROOT, 'dataset', 'lung_nodule_model', '.feature_cache'),
+        'npz': os.path.join(ROOT, 'dataset', 'lung_nodule_model', 'lung_nodule_ood_reference.npz'),
+        'json': os.path.join(ROOT, 'dataset', 'lung_nodule_model', 'lung_nodule_model_ood.json'),
+        'domains': [
+            {'dir': os.path.join(ROOT, 'dataset', 'lidc-ct', 'test', 'no_cancer'),
+             'label': 'held-out benign nodule patches', 'expect': 'accept'},
+            {'dir': os.path.join(ROOT, 'dataset', 'lidc-ood', 'off-nodule'),
+             'label': 'off-nodule lung parenchyma (right scale)', 'expect': 'accept'},
+            {'dir': os.path.join(ROOT, 'dataset', 'lidc-ood', 'whole-slice'),
+             'label': 'whole CT slices (right modality, wrong scale)', 'expect': 'refuse'},
+            {'dir': os.path.join(ROOT, 'dataset', 'dataset', 'data', 'test', 'benign'),
+             'label': 'skin lesions (wrong modality)', 'expect': 'refuse'},
+        ],
     },
 }
 
@@ -154,17 +196,40 @@ def main():
                 'flaggedRate': round(flagged, 4)}
 
     print('\nValidation:', file=sys.stderr)
-    checks = {}
-    checks['inDistribution'] = rate_for(
-        load_images(config['in_distribution'], limit=120), 'held-out, same modality')
-    checks['wrongModality'] = rate_for(
-        load_images(config['wrong_modality'], limit=120), config['wrong_modality_label'])
+    checks = []
+    failures = []
+    for domain in config['domains']:
+        images = load_images(domain['dir'], limit=120)
+        if not len(images):
+            print(f"  {domain['label']:44} MISSING: {domain['dir']}", file=sys.stderr)
+            failures.append(f"{domain['label']}: no images at {domain['dir']}")
+            continue
+        result = rate_for(images, domain['label'])
+        result['expect'] = domain['expect']
+        if domain['expect'] == 'accept':
+            result['pass'] = result['flaggedRate'] <= MAX_ACCEPT_FLAG_RATE
+            bar = f'<= {MAX_ACCEPT_FLAG_RATE:.0%}'
+        else:
+            result['pass'] = result['flaggedRate'] >= MIN_REFUSE_FLAG_RATE
+            bar = f'>= {MIN_REFUSE_FLAG_RATE:.0%}'
+        print(f"      expect {domain['expect']:6} {bar:8} -> "
+              f"{'PASS' if result['pass'] else 'FAIL'}", file=sys.stderr)
+        if not result['pass']:
+            failures.append(f"{domain['label']}: flagged {result['flaggedRate']:.1%}, "
+                            f"required {bar}")
+        checks.append(result)
 
     rng = np.random.RandomState(0)
-    checks['randomNoise'] = rate_for(
-        rng.randint(0, 256, size=(60, *IMG_SIZE, 3)).astype(np.float32), 'random noise')
-    checks['blankGrey'] = rate_for(
-        np.full((60, *IMG_SIZE, 3), 128.0, dtype=np.float32), 'blank grey frames')
+    for images, label in [
+        (rng.randint(0, 256, size=(60, *IMG_SIZE, 3)).astype(np.float32), 'random noise'),
+        (np.full((60, *IMG_SIZE, 3), 128.0, dtype=np.float32), 'blank grey frames'),
+    ]:
+        # Reported, not required. A blank frame sits near the feature-space mean
+        # and reconstructs cleanly, so it scores as in-distribution by design —
+        # the pixel-level checks in the inference scripts catch those, not this.
+        result = rate_for(images, label)
+        result['expect'] = 'reported only'
+        checks.append(result)
 
     report = {
         'model': os.path.basename(config['model']),
@@ -174,18 +239,38 @@ def main():
         'thresholdPercentile': PERCENTILE,
         'threshold': round(threshold, 4),
         'fittedOn': f'{len(train_features)} training images',
+        'requirements': {
+            'maxFlagRateWhereExpectAccept': MAX_ACCEPT_FLAG_RATE,
+            'minFlagRateWhereExpectRefuse': MIN_REFUSE_FLAG_RATE,
+            'setBeforeMeasurement': True,
+        },
         'validation': checks,
+        'meetsRequirements': not failures,
+        'failures': failures,
         'interpretation': (
-            'Flagged rate should be near the expected false-positive rate on held-out '
-            'images of the same modality, and high on inputs from other domains. A '
-            'flagged image is refused rather than classified. Blank frames are caught '
-            'by pixel-level checks, not by this detector.'
+            'Each domain carries what it is for. "accept" domains are inputs the model '
+            'is supposed to answer, and flagging them is a false refusal; "refuse" '
+            'domains are inputs it cannot answer, and missing them lets it produce a '
+            'confident number for a question outside its competence. Both directions '
+            'are required: a detector measured only on "refuse" domains is best served '
+            'by refusing everything. Blank frames are caught by pixel-level checks, not '
+            'by this detector.'
         ),
     }
     with open(config['json'], 'w') as f:
         json.dump(report, f, indent=2)
         f.write('\n')
     print(f"\nWrote {config['json']}", file=sys.stderr)
+
+    if failures:
+        print(f'\n{len(failures)} requirement(s) NOT met:', file=sys.stderr)
+        for line in failures:
+            print(f'  - {line}', file=sys.stderr)
+        print('\nThe reference was written anyway so the numbers can be inspected, but '
+              'this detector does not meet its stated bar and the model it guards must '
+              'not serve until it does.', file=sys.stderr)
+        sys.exit(1)
+    print('\nAll domain requirements met.', file=sys.stderr)
 
 
 if __name__ == '__main__':
