@@ -595,11 +595,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
         humanReviewRequired: true
       })),
       reproduce: 'python scripts/evaluate-model.py <model.h5> <data_dir> <class0> <class1>',
+      // The headline figures above are pooled across the whole test set. How
+      // they break down by skin tone — and where the data cannot answer that
+      // at all — is a separate measurement, published rather than summarised.
+      subgroupPerformance: '/api/models/fairness',
       // These figures describe a held-out dataset, not this deployment. How the
       // models behave on the patients actually seen here is a separate
       // measurement, taken from confirmed outcomes.
       productionPerformance: '/api/models/performance'
     });
+  });
+
+  /**
+   * Stratified performance, and where the data cannot answer.
+   *
+   * Public for the same reason the model cards are: a figure a person is asked
+   * to rely on has to be checkable before they rely on it. The `reliable` flag
+   * on each bin is the load-bearing field — a bin of four images with no benign
+   * controls yields a sensitivity of 1.0, and that number without its n reads
+   * as the model working perfectly on dark skin, which is the opposite of what
+   * the data supports.
+   */
+  app.get("/api/models/fairness", async (_req, res) => {
+    try {
+      const { fairnessStatus } = await import('./fairness');
+      const statuses = await Promise.all(
+        Object.keys(MODEL_REGISTRY).map((m) => fairnessStatus(m))
+      );
+
+      res.json({
+        modalities: statuses,
+        method:
+          'Individual Typology Angle estimated from perilesional skin, binned on ' +
+          'Chardon/Del Bino cut points. A proxy for skin tone, not a Fitzpatrick ' +
+          'score: affected by lighting, white balance and dermoscopy artefacts.',
+        reproduce: 'python scripts/measure-skin-tone-performance.py',
+        // Stated at the top level so it is not something a reader has to
+        // assemble from the bins themselves.
+        readThisFirst:
+          'A bin marked reliable:false does not mean the model performs badly ' +
+          'there. It means the measurement cannot say. Treat an unreliable bin ' +
+          'as unmeasured, never as passing.',
+      });
+    } catch (error) {
+      console.error('Failed to build fairness report:', error);
+      res.status(500).json({ error: 'Could not load subgroup performance' });
+    }
   });
 
   /**

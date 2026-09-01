@@ -35,6 +35,7 @@ as darker than they are. It is a defensible way to detect a large disparity; it
 is not a substitute for labelled data. Bins with few images are reported with
 their counts so a reader can see when an estimate is not worth much.
 """
+import hashlib
 import json
 import os
 import sys
@@ -63,6 +64,22 @@ TONE_BINS = [
     ('light',         41.0,    55.0),
     ('very_light',    55.0,    np.inf),
 ]
+
+
+def artifact_fingerprint(path):
+    """First 12 hex of SHA-256, matching server/model-fingerprint.ts.
+
+    The report used to name the artifact by filename. A filename does not change
+    when the file does, so a stale report kept claiming to describe whatever
+    happened to be sitting at that path — the same defect the model registry had
+    before its figures were bound to a digest. A content hash cannot drift from
+    its content.
+    """
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b''):
+            h.update(chunk)
+    return h.hexdigest()[:12]
 
 
 def srgb_to_lab(rgb):
@@ -254,6 +271,10 @@ def main():
 
     report = {
         'model': os.path.basename(MODEL_PATH),
+        # Which artifact these numbers describe. Checked at serve time against
+        # the deployed model, so a stale report cannot be published as current.
+        'artifactFingerprint': artifact_fingerprint(MODEL_PATH),
+        'measuredAt': __import__('datetime').date.today().isoformat(),
         'method': 'Individual Typology Angle from perilesional skin (border ring, '
                   'non-skin pixels excluded), binned on Chardon/Del Bino cut points',
         'operatingPoint': 'argmax for sensitivity/specificity; outright-benign uses '
