@@ -131,6 +131,19 @@ export const ENCRYPTED_FIELDS: EncryptedField[] = [
  */
 export const EXCLUDED_FIELDS: Array<{ field: string; reason: string }> = [
   {
+    field: 'medical_scans.skin_tone_bin',
+    reason:
+      'It exists to be grouped by. Stratified performance is a GROUP BY over the ' +
+      'bin joined to adjudicated outcomes, and randomised encryption makes that ' +
+      'impossible — the same constraint that keeps users.email in plaintext. ' +
+      'Mitigated by minimisation rather than by encryption: the stored value is ' +
+      'one of six coarse buckets rather than the continuous angle, it is derived ' +
+      'from an image the system already holds so it adds no new information, and ' +
+      'no clinical view exposes it. It is nonetheless an ethnicity-adjacent ' +
+      'inference in plaintext and is treated as special personal information ' +
+      'under POPIA s26; see docs/DPIA.md.',
+  },
+  {
     field: 'users.email, users.username',
     reason:
       'Both are equality lookups on the authentication path — getUserByEmail and ' +

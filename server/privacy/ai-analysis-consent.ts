@@ -40,7 +40,7 @@ export const AI_ANALYSIS_SCOPE = 'ai_image_analysis';
  * Bump whenever DISCLOSURE_TEXT changes — including when the performance
  * figures in it change, because those are the substance of what was agreed to.
  */
-export const DISCLOSURE_VERSION = '2026-09-01.v1';
+export const DISCLOSURE_VERSION = '2026-09-02.v2';
 
 /**
  * Shown before a model may read the person's image.
@@ -56,7 +56,8 @@ export const DISCLOSURE_TEXT = [
   'It gets things wrong. For lung scans it misses about 1 in 5 cancers, and wrongly flags about 1 in 4 healthy scans. For skin images it misses about 1 in 30 cancers.',
   'It has not been approved by any medical regulator, in South Africa or elsewhere.',
   'It was trained mostly on light skin. For darker skin, how well it works has not been established.',
-  'If you say no, your scan is still stored and still reviewed by a clinician. Only the automated step is skipped.',
+  'For skin images, the program also estimates a rough skin-tone category from the picture. This is used only to check whether it works equally well for everyone. It is never shown to your doctor and never used to decide anything about your care.',
+  'If you say no, your scan is still stored and still reviewed by a clinician. Only the automated step is skipped, and no skin-tone estimate is made.',
   'You can change your mind at any time, and it takes effect on your next scan.',
 ];
 

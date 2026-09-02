@@ -139,6 +139,31 @@ export const adverseEventsReported = new client.Counter({
   registers: [registry],
 });
 
+/**
+ * Skin-tone distribution of what is actually being submitted.
+ *
+ * The offline measurement says the test set cannot establish performance on
+ * darker skin: its dark bin holds four images and no benign controls. That is a
+ * statement about the test set. This is the other half — whether the population
+ * being served looks anything like it.
+ *
+ * If submissions cluster in bins the model was never measured on, the published
+ * sensitivities do not describe this deployment at all, and that is knowable on
+ * day one rather than after enough outcomes accrue to measure performance
+ * directly.
+ *
+ * `bin` is one of six coarse buckets, or `unestimated`. It describes an image,
+ * not a person, and carries no identifier — the rule at the top of this file
+ * holds. It is nonetheless the closest thing here to a demographic series, so
+ * it is deliberately coarse and deliberately unjoined to anything.
+ */
+export const skinToneSubmissions = new client.Counter({
+  name: 'healthai_skin_tone_submissions_total',
+  help: 'Analysed skin scans by estimated tone bin',
+  labelNames: ['bin'] as const,
+  registers: [registry],
+});
+
 export const breakGlassUses = new client.Counter({
   name: 'healthai_break_glass_total',
   help: 'Emergency accesses opened outside a recorded care relationship',

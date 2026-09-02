@@ -203,3 +203,116 @@ export async function fairnessStatus(modality: string): Promise<FairnessStatus> 
     headline,
   };
 }
+
+/**
+ * Stratified performance on the patients this deployment has actually seen.
+ *
+ * ── Why this is the point of recording the bin ────────────────────────────
+ *
+ * The offline measurement establishes only that the *test set* cannot answer
+ * how the model performs on darker skin: its dark bin holds four images and no
+ * benign controls. No amount of re-analysis fixes that, because the data is not
+ * there. This is the other route to an answer — the population being served,
+ * against confirmed outcomes, accumulated over time.
+ *
+ * It will report almost nothing for a long while. Adjudications arrive days to
+ * weeks after a scan, and a bin needs both classes before it means anything.
+ * Reporting an honest "not yet" for months is the correct behaviour, and is why
+ * `summarise` is reused rather than a looser rule invented here: the same
+ * minimum-per-class floor that governs the pooled figure governs each stratum.
+ *
+ * ── The comparison that matters ───────────────────────────────────────────
+ *
+ * Not each bin against a target, but bins against each other. A model that is
+ * uniformly mediocre is a different problem from one that is excellent on light
+ * skin and poor on dark, and only the second is a fairness failure. The spread
+ * across bins with enough data is therefore computed and returned, and is null
+ * — not zero — while fewer than two bins qualify.
+ */
+export interface StratifiedPerformance {
+  bin: string;
+  scansAnalysed: number;
+  adjudicated: number;
+  performance: ReturnType<typeof import('./production-performance').summarise> | null;
+}
+
+export async function productionFairness(scanType = 'skin'): Promise<{
+  scanType: string;
+  strata: StratifiedPerformance[];
+  binsWithEnoughData: string[];
+  sensitivitySpread: number | null;
+  note: string;
+}> {
+  const { pool } = await import('./db');
+  const { summarise } = await import('./production-performance');
+
+  // Newest adjudication per scan, joined to the stratum recorded at analysis.
+  // Scans with no model call or no outcome contribute to neither column, which
+  // is why `scansAnalysed` and `adjudicated` are both reported: the gap between
+  // them is how much of the answer is still outstanding.
+  const { rows } = await pool.query(`
+    SELECT
+      s.skin_tone_bin                                   AS bin,
+      count(*)::int                                     AS analysed,
+      count(o.outcome)::int                             AS adjudicated,
+      count(*) FILTER (WHERE s.predicted_positive AND o.outcome = 'malignant')::int      AS tp,
+      count(*) FILTER (WHERE s.predicted_positive AND o.outcome = 'benign')::int         AS fp,
+      count(*) FILTER (WHERE NOT s.predicted_positive AND o.outcome = 'benign')::int     AS tn,
+      count(*) FILTER (WHERE NOT s.predicted_positive AND o.outcome = 'malignant')::int  AS fn,
+      count(*) FILTER (WHERE o.outcome = 'indeterminate')::int                           AS indeterminate
+    FROM medical_scans s
+    LEFT JOIN LATERAL (
+      SELECT outcome FROM scan_outcomes
+       WHERE scan_id = s.id
+       ORDER BY recorded_at DESC, id DESC
+       LIMIT 1
+    ) o ON true
+    WHERE s.scan_type ILIKE '%' || $1 || '%'
+      AND s.skin_tone_bin IS NOT NULL
+      AND s.predicted_positive IS NOT NULL
+    GROUP BY s.skin_tone_bin
+  `, [scanType]);
+
+  const strata: StratifiedPerformance[] = (rows ?? []).map((r: any) => ({
+    bin: r.bin,
+    scansAnalysed: Number(r.analysed),
+    adjudicated: Number(r.adjudicated),
+    performance:
+      Number(r.adjudicated) > 0
+        ? summarise({
+            scanType: `${scanType}:${r.bin}`,
+            truePositives: Number(r.tp),
+            falsePositives: Number(r.fp),
+            trueNegatives: Number(r.tn),
+            falseNegatives: Number(r.fn),
+            indeterminate: Number(r.indeterminate),
+            unadjudicated: Number(r.analysed) - Number(r.adjudicated),
+          })
+        : null,
+  }));
+
+  const usable = strata.filter((s) => s.performance?.sufficientForInference);
+  const sensitivities = usable
+    .map((s) => s.performance!.sensitivity.value)
+    .filter((v): v is number => v !== null);
+
+  const spread =
+    sensitivities.length > 1
+      ? Number((Math.max(...sensitivities) - Math.min(...sensitivities)).toFixed(4))
+      : null;
+
+  return {
+    scanType,
+    strata: strata.sort((a, b) => b.scansAnalysed - a.scansAnalysed),
+    binsWithEnoughData: usable.map((s) => s.bin),
+    sensitivitySpread: spread,
+    note:
+      usable.length < 2
+        ? 'Not enough adjudicated outcomes per stratum to compare bins. This is ' +
+          'the expected state until outcomes accumulate, and it means the ' +
+          'question is unanswered here — not that no disparity exists.'
+        : 'Compare bins against each other rather than against a target. Uniformly ' +
+          'mediocre performance is a different problem from performance that is ' +
+          'good on light skin and poor on dark; only the second is a fairness failure.',
+  };
+}

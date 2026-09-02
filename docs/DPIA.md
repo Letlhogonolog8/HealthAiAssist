@@ -197,6 +197,82 @@ provider. **R-13**
 
 ---
 
+## 5A. Skin-tone estimation — a deliberate special-category inference
+
+Added 2 September 2026. This is the only place where the platform *derives* a
+new special personal information attribute rather than storing one it was
+given, so it is assessed on its own.
+
+### What is processed
+
+For skin images only, and only after the patient has consented to automated
+analysis, the system estimates Individual Typology Angle from the healthy skin
+at the border of the image and records **one of six coarse bins** on the scan
+row (`medical_scans.skin_tone_bin`). The continuous angle is discarded.
+
+Nothing is derived for lung scans, for images with too little visible skin to
+judge, or for scans where the patient declined automated analysis.
+
+### Why this is special personal information
+
+Skin tone is a proxy for race. POPIA §26 prohibits processing race information
+except on a §27 ground, and it makes no difference that the value is inferred
+rather than declared — an inference used to make decisions about groups is the
+thing the section exists to govern.
+
+### The §27 ground relied on
+
+§27(1)(d): processing necessary for historical, statistical or research
+purposes, where the purpose serves a public interest and it is impossible to
+ask for consent in each case — read together with the patient's specific
+consent to automated analysis, which now discloses this derivation in terms
+(`DISCLOSURE_VERSION 2026-09-02.v2`).
+
+The public interest is direct and documented: the model card records that the
+test set is 96% light-skinned and **cannot** establish performance on darker
+skin. Its dark bin holds four images and no benign controls. If sensitivity is
+materially lower on darker skin, the platform under-detects melanoma in exactly
+the population already facing worse outcomes, while appearing to work. There is
+no route to detecting that without recording the stratum.
+
+### Why the alternatives were rejected
+
+- **Not recording it.** Leaves the largest known clinical risk permanently
+  unmeasurable. Disclosure without measurement is what the platform already had,
+  and it is what this change exists to end.
+- **Asking patients to self-report.** More accurate and more respectful, and it
+  should replace this when there is a UI and a clinical partner to design it.
+  It is not available today and the measurement cannot wait for it.
+- **Encrypting the column.** Stratification is a `GROUP BY` over the bin;
+  randomised encryption makes that impossible. Same constraint as
+  `users.email`. Recorded in `EXCLUDED_FIELDS` with this reasoning.
+
+### Minimisation and controls
+
+| Control | Detail |
+|---|---|
+| Granularity | Six bins, not the continuous angle. Nothing here needs 41.2° distinguished from 41.8°. |
+| New information | None. Derived from an image the system already stores; it changes what is *queryable*, not what is held. |
+| Consent | Gated on `ai_image_analysis`. Declining means no estimate is made at all. |
+| Clinical visibility | **None.** No clinical view exposes it. A clinician who saw it might, consciously or not, let it move a decision. |
+| Erasure | Deleted with the scan row under the existing clinical-retention rules. |
+| Aggregate export | The Prometheus series is bin-level counts with no identifier and no join key. |
+| Accuracy claim | ITA is stated everywhere as a proxy affected by lighting, white balance, dermoscopy artefacts and tanning — defensible in aggregate, indefensible about an individual. |
+
+### Residual risk
+
+An ethnicity-adjacent attribute now sits in plaintext against clinical records,
+queryable by anyone with database access. That is a real increase in exposure
+and is not fully mitigated. It is accepted because the alternative is a
+permanent inability to detect the disparity the model card already warns about,
+and because the attribute is coarse, derived, consented, and invisible to the
+people making clinical decisions.
+
+**This assessment should be revisited the moment self-reported skin tone is
+available**, which is both more accurate and a better basis than inference.
+
+---
+
 ## 6. Risk register
 
 Severity reflects the risk to the **data subject**, not to the project.
@@ -206,7 +282,7 @@ Severity reflects the risk to the **data subject**, not to the project.
 | **R-01** | No Information Officer registered with the Information Regulator | High | Open | Appoint and register. Non-discretionary under §55. |
 | **R-02** | Any clinician could read any patient record; no care-relationship check, no break-glass justification | **High** | **Mitigated, shadow mode** | `server/care-relationship.ts`. Relationships derived from appointments and scan assignments; explicit grants and time-boxed break-glass in `care_relationships`; every override audited and notified to administrators. Enforcement is behind `CARE_RELATIONSHIP_ENFORCE` and currently **off** — denials are recorded as `CARE_RELATIONSHIP_WOULD_BLOCK` so the derivation can be measured before it starts refusing clinicians. **Not closed until that flag is on.** |
 | **R-03** | No retention schedule; no deletion mechanism | High | **Partially mitigated** | [RETENTION.md](RETENTION.md) and `server/erasure.ts`. Schedule published, erasure implemented and adjudicated per category. **No automatic expiry job**, so §14 is only partly met: records outlive their period until someone requests erasure. |
-| **R-04** | Consent for image processing is not as granular as genomic consent | Medium | Open | Extend the `processing_consents` scope model to imaging |
+| **R-04** | Consent for image processing is not as granular as genomic consent | Medium | **Mitigated** | `processing_consents` scope `ai_image_analysis` (`server/privacy/ai-analysis-consent.ts`). Versioned disclosure stating the measured miss rates, the absence of regulatory clearance, and the skin-tone derivation. Declining does not withhold care: the scan is stored and queued for a clinician. |
 | **R-05** | No data subject access, correction or erasure request flow; no general privacy notice | High | **Partially mitigated** | Erasure implemented end to end, with an assessment endpoint that states what would be kept and why *before* a request is made. §23 access (a machine-readable export) and a general privacy notice are still absent. |
 | **R-06** | Emergency contact details held about a third party who never consented | Medium | Partially mitigated | Encrypted at rest. Needs a retention rule and a notice at capture. |
 | **R-07** | No MFA on accounts that can read any patient record | **High** | **Mitigated, shadow mode** | `server/mfa.ts`. Enrolment, challenge, single-use recovery codes, secret encrypted at rest. Enforcement is behind `MFA_ENFORCE` and currently **off** so existing clinicians are not locked out mid-deploy. **Not closed until that flag is on.** |
@@ -219,6 +295,8 @@ Severity reflects the risk to the **data subject**, not to the project.
 | **R-14** | No independent penetration test | Medium | Open | Commission one from a recognised South African firm |
 | **R-15** | Development and production share one database | Medium | **Mitigated** | Test suite now refuses to run destructively against a remote database without explicit opt-in (`tests/helpers/server.ts`). Separate instances still to be provisioned. |
 | **R-16** | Scan images could be written to ephemeral container storage and lost | Medium | **Mitigated** | Production now refuses to start without durable object storage (`server/index.ts`) |
+| **R-17** | Skin-tone bin is an ethnicity-adjacent inference held in plaintext and queryable | **High** | **Accepted with controls** | See §5A. Coarse six-bin value, derived from an already-stored image, gated on consent, never shown to clinicians, deleted with the scan. Cannot be encrypted because stratification is a `GROUP BY` over it. Revisit when self-reported tone is available. |
+| **R-18** | Fairness measurement could be read as establishing equal performance | **High** | **Mitigated** | `reliable: false` survives to the API, the headline states the dataset *cannot* establish performance on darker skin, and production stratification reports an explicit "not yet" rather than an empty pass. Tests pin all three. |
 
 ---
 

@@ -181,6 +181,31 @@ uploaded something and nothing exists.
 
 ---
 
+## ServingUnmeasuredSkinTones
+
+**Means:** over a fifth of skin submissions in the last week fall in tone bins
+the model has no reliable measurement for, across at least 100 estimated scans.
+
+**This is a data gap, not a fault.** Nothing here says the model is performing
+worse on those patients. It says nobody knows, and that the published
+sensitivity and specificity — reliable only for `light` and `very_light` —
+do not describe the population being served.
+
+1. Confirm it is real and not an artefact. ITA is shifted by lighting and white
+   balance, so a new clinic with different capture conditions can move the
+   distribution without the patients changing. Compare against
+   `GET /api/models/fairness` and check whether one site dominates.
+2. If it is real, this is the strongest evidence available for prioritising
+   representative data collection, and it should go to whoever owns that.
+3. Check `production.strata` on the fairness endpoint. Once enough adjudicated
+   outcomes accrue in those bins, the question stops being unanswerable — that
+   is the whole reason the stratum is recorded.
+4. **Do not narrow the indication silently.** If the platform should not be
+   serving this population until it is measured, that is a clinical decision
+   taken openly, not a threshold quietly changed.
+
+---
+
 ## SevereHarmReported
 
 **Means:** a person filed an adverse event graded `severe_harm` — serious or

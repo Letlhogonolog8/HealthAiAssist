@@ -94,6 +94,39 @@ export const medicalScans = pgTable("medical_scans", {
    * those rows are excluded from measurement rather than guessed at.
    */
   predictedPositive: boolean("predicted_positive"),
+  /**
+   * Estimated skin-tone bin of the submitted image, for fairness measurement.
+   *
+   * One of the six Chardon/Del Bino bins, or null. Null is the normal answer
+   * for lung scans, for images with too little visible skin to judge (149 of
+   * the 660 test images), and for scans where no model ran.
+   *
+   * ── Why the bin and not the angle ────────────────────────────────────────
+   *
+   * Data minimisation. Six buckets are enough to stratify performance; the
+   * continuous angle is a finer-grained inference about a person than the
+   * question requires. Nothing here needs to distinguish 41.2 from 41.8
+   * degrees.
+   *
+   * ── Why this is stored at all ────────────────────────────────────────────
+   *
+   * Without it, whether the models perform worse on darker skin in this
+   * deployment is unanswerable — the single largest clinical risk the model
+   * card names. The offline measurement says the test set cannot establish
+   * performance on darker skin; only production data can, and only if the
+   * stratum is recorded when the scan is analysed.
+   *
+   * ── What it is not ───────────────────────────────────────────────────────
+   *
+   * Not a race or ethnicity field, and not reliable about any individual: ITA
+   * is shifted by lighting, white balance, dermoscopy artefacts and tanning.
+   * It is defensible in aggregate and indefensible as a fact about a person,
+   * which is why no clinical view exposes it — a clinician who saw it might,
+   * consciously or not, let it move a decision.
+   *
+   * See docs/DPIA.md for the POPIA analysis.
+   */
+  skinToneBin: text("skin_tone_bin"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow(),
   reviewedAt: timestamp("reviewed_at"),

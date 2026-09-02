@@ -290,12 +290,83 @@
     },
     {
       "type": "row",
-      "title": "Capacity",
+      "title": "Who is being served",
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 31
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Skin-tone distribution of submissions",
+      "description": "The offline measurement says the TEST SET cannot establish performance on darker skin (dark bin: 4 images, no benign controls). This is the other half — whether the population being served resembles it. Published sensitivity is reliable only for light and very_light.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum by (bin) (increase(healthai_skin_tone_submissions_total[7d]))",
+          "legendFormat": "{{bin}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Share in bins never reliably measured",
+      "description": "dark + brown + tan + intermediate, as a fraction of estimated scans. Above 20% fires ServingUnmeasuredSkinTones. A data gap, NOT evidence the model performs worse there — that is precisely what is unknown.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(increase(healthai_skin_tone_submissions_total{bin=~\"dark|brown|tan|intermediate\"}[7d])) / clamp_min(sum(increase(healthai_skin_tone_submissions_total{bin!=\"unestimated\"}[7d])), 1)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.2
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Capacity",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 40
       }
     },
     {
@@ -306,7 +377,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 32
+        "y": 41
       },
       "datasource": "Prometheus",
       "targets": [
@@ -346,7 +417,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 32
+        "y": 41
       },
       "datasource": "Prometheus",
       "targets": [
@@ -376,7 +447,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 40
+        "y": 49
       }
     },
     {
@@ -387,7 +458,7 @@
         "h": 7,
         "w": 12,
         "x": 0,
-        "y": 41
+        "y": 50
       },
       "datasource": "Prometheus",
       "targets": [
@@ -423,7 +494,7 @@
         "h": 7,
         "w": 12,
         "x": 12,
-        "y": 41
+        "y": 50
       },
       "datasource": "Prometheus",
       "targets": [

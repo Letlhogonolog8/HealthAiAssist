@@ -13,8 +13,23 @@
  */
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const TIMEOUT = 60_000;
+
+/**
+ * The model artifacts are gitignored, so CI runs without them.
+ *
+ * The binding assertions below are about the *shape* of the governance record
+ * and hold everywhere; the ones that compare a recorded fingerprint against a
+ * deployed file need the file. Those skip rather than fail, because "the
+ * artifact is absent" is a property of the checkout, not a governance defect —
+ * and a test that fails in CI for that reason gets deleted.
+ */
+const ARTIFACTS_PRESENT = fs.existsSync(
+  path.join(process.cwd(), 'dataset', 'data', 'resnet50v2_skin_cancer_model.h5')
+);
 
 describe('measurement bindings', { timeout: TIMEOUT }, () => {
   test('every registered modality has a binding', async () => {
@@ -55,7 +70,8 @@ describe('measurement bindings', { timeout: TIMEOUT }, () => {
     assert.match(lung.note, /NOT re-measured/i);
   });
 
-  test('the deployed artifacts match their bindings', async () => {
+  test('the deployed artifacts match their bindings', async (t) => {
+    if (!ARTIFACTS_PRESENT) return t.skip('model artifacts absent (gitignored)');
     const { allGovernanceStatuses } = await import('../server/model-governance.ts');
     const statuses = await allGovernanceStatuses();
 
@@ -71,7 +87,8 @@ describe('measurement bindings', { timeout: TIMEOUT }, () => {
 });
 
 describe('drift', { timeout: TIMEOUT }, () => {
-  test('a modality whose artifact is not the measured one may not serve', async () => {
+  test('a modality whose artifact is not the measured one may not serve', async (t) => {
+    if (!ARTIFACTS_PRESENT) return t.skip('model artifacts absent (gitignored)');
     const { MEASUREMENT_BINDINGS, governanceStatus } = await import(
       '../server/model-governance.ts'
     );

@@ -5,7 +5,7 @@ import { insertUserSchema, insertScanSchema, insertTermSchema, erasureRequests }
 import { and, eq } from "drizzle-orm";
 import { db } from "./db";
 import { verifyUpload } from "./upload-validation";
-import { scanOutcomes, scanPredictions, inferenceDuration, oodRejections, breakGlassUses, careRelationshipDenials, adverseEventsReported } from "./metrics";
+import { scanOutcomes, scanPredictions, inferenceDuration, oodRejections, breakGlassUses, careRelationshipDenials, adverseEventsReported, skinToneSubmissions } from "./metrics";
 import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
@@ -623,8 +623,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         Object.keys(MODEL_REGISTRY).map((m) => fairnessStatus(m))
       );
 
+      // What this deployment has actually seen, as distinct from the test set.
+      // The offline measurement can only ever say the test set cannot answer;
+      // this is the route to an answer, and reports an honest "not yet" until
+      // adjudicated outcomes accumulate.
+      const { productionFairness } = await import('./fairness');
+      let production: Awaited<ReturnType<typeof productionFairness>> | null = null;
+      try {
+        production = await productionFairness('skin');
+      } catch (error) {
+        console.error('Could not compute production fairness:', error);
+      }
+
       res.json({
         modalities: statuses,
+        production,
         method:
           'Individual Typology Angle estimated from perilesional skin, binned on ' +
           'Chardon/Del Bino cut points. A proxy for skin tone, not a Fitzpatrick ' +
@@ -3727,6 +3740,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const imagePath = await persistScanImage(imageBuffer, file, patientId, scanType);
 
+      /**
+       * Which skin-tone stratum this scan belongs to.
+       *
+       * Only for skin: a chest CT has no perilesional skin, and asking would
+       * produce a number that means nothing. Only after consent, because it is
+       * derived as part of the automated analysis the patient agreed to — a
+       * declined scan is stored and queued without ever being measured.
+       *
+       * Best-effort. An image that cannot be decoded, or has too little visible
+       * skin, yields null and the scan proceeds normally: this is a measurement
+       * of the population, not a precondition for care.
+       */
+      let skinToneBin: string | null = null;
+      if (governedModality === 'skin') {
+        try {
+          const { estimateSkinTone } = await import('./skin-tone');
+          const tone = await estimateSkinTone(imageBuffer);
+          skinToneBin = tone?.bin ?? null;
+          skinToneSubmissions.inc({ bin: skinToneBin ?? 'unestimated' });
+        } catch (error) {
+          console.warn('Skin tone estimation failed; recording none:', error);
+        }
+      }
+
       const scanData = {
         patientId: patientId,
         scanType: scanType,
@@ -3747,6 +3784,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // outcome, and recovering it later by searching `result` for the word
         // "cancer" would make the confusion matrix depend on copy-editing.
         predictedPositive: analysisResult.hasCancer,
+        // Recorded for fairness measurement only. No clinical view reads it.
+        skinToneBin,
         notes: analysisResult.findings ? analysisResult.findings.join('. ') : 'Analysis completed'
       };
 

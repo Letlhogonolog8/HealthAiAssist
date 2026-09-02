@@ -448,3 +448,61 @@ tests:
                 version or clinic before treating them separately. Note that these are
                 counts of what was *reported* — under-reporting is the normal state, so
                 a rise may be better reporting rather than worse care.
+
+  # ── ServingUnmeasuredSkinTones ───────────────────────────────────────────
+  #
+  # A data gap, not a fault. It fires so the gap is noticed early enough to
+  # collect representative data, rather than after a year of serving a
+  # population nobody measured.
+  - interval: 1m
+    name: a population outside the measured bins fires
+    input_series:
+      - series: 'healthai_skin_tone_submissions_total{bin="brown"}'
+        values: '0+1x10100'
+      - series: 'healthai_skin_tone_submissions_total{bin="very_light"}'
+        values: '0+1x10100'
+    alert_rule_test:
+      - eval_time: 7h
+        alertname: ServingUnmeasuredSkinTones
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              domain: clinical
+            exp_annotations:
+              summary: "50% of skin scans fall in bins the model was never reliably measured on"
+              runbook: "ops/RUNBOOK.md#servingunmeasuredskintones"
+              description: >-
+                Published sensitivity and specificity are reliable only for the light
+                and very_light bins; the test set holds too few images elsewhere, and
+                the dark bin has four images and no benign controls. A large share of
+                submissions outside those bins means the model card does not describe
+                this population. This is a data gap, not a fault: collect
+                representative data and re-measure. Do not read it as the model
+                performing worse — that is exactly what is unknown.
+
+  # A population matching the measured bins must stay silent.
+  - interval: 1m
+    name: a population inside the measured bins stays silent
+    input_series:
+      - series: 'healthai_skin_tone_submissions_total{bin="very_light"}'
+        values: '0+1x10100'
+      - series: 'healthai_skin_tone_submissions_total{bin="light"}'
+        values: '0+1x10100'
+    alert_rule_test:
+      - eval_time: 7h
+        alertname: ServingUnmeasuredSkinTones
+        exp_alerts: []
+
+  # Images the estimator refused must not count towards the denominator or the
+  # numerator: "we could not tell" is not "an unmeasured tone".
+  - interval: 1m
+    name: unestimated images do not trigger it
+    input_series:
+      - series: 'healthai_skin_tone_submissions_total{bin="unestimated"}'
+        values: '0+1x10100'
+      - series: 'healthai_skin_tone_submissions_total{bin="very_light"}'
+        values: '0+1x10100'
+    alert_rule_test:
+      - eval_time: 7h
+        alertname: ServingUnmeasuredSkinTones
+        exp_alerts: []

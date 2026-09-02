@@ -132,6 +132,65 @@ after(async () => {
 
 // ---------------------------------------------------------------------------
 
+describe('skin-tone stratum is recorded', { timeout: TIMEOUT }, () => {
+  const SKIN_DIR = 'dataset/dataset/data/test/benign';
+
+  test('an analysed skin scan carries a tone bin', async (t) => {
+    if (!fs.existsSync(SKIN_DIR)) return t.skip('skin dataset not present');
+    const file = fs.readdirSync(SKIN_DIR).find((f) => /\.(jpe?g|png)$/i.test(f));
+    if (!file) return t.skip('no skin images');
+
+    const form = new FormData();
+    form.append('image', new Blob([fs.readFileSync(`${SKIN_DIR}/${file}`)], { type: 'image/jpeg' }), file);
+    form.append('scanType', 'skin');
+
+    const res = await patient.session.postForm('/api/scans/analyze', form);
+    // A refusal is a legitimate outcome here (OOD screen, model unavailable);
+    // what must not happen is an analysed scan with no stratum recorded.
+    if (res.status !== 200 || res.json?.analysed === false) {
+      return t.skip(`skin analysis did not run: ${res.status}`);
+    }
+
+    const pool = db();
+    try {
+      const { rows } = await pool.query(
+        'SELECT skin_tone_bin, predicted_positive FROM medical_scans WHERE id = $1',
+        [res.json.scan.id]
+      );
+      assert.equal(rows.length, 1);
+      assert.notEqual(rows[0].predicted_positive, null, 'the model ran');
+      // The estimator may legitimately refuse on an image with too little
+      // visible skin, so null is allowed — but if set it must be a real bin.
+      if (rows[0].skin_tone_bin !== null) {
+        assert.ok(
+          ['dark', 'brown', 'tan', 'intermediate', 'light', 'very_light', 'unclassified']
+            .includes(rows[0].skin_tone_bin),
+          `unexpected bin ${rows[0].skin_tone_bin}`
+        );
+      }
+    } finally {
+      await pool.end();
+    }
+  });
+
+  test('a lung scan never carries one', async () => {
+    const pool = db();
+    try {
+      const { rows } = await pool.query(
+        'SELECT skin_tone_bin FROM medical_scans WHERE id = ANY($1)',
+        [scanIds]
+      );
+      // A chest CT has no perilesional skin; asking would produce a number
+      // that means nothing.
+      for (const r of rows) {
+        assert.equal(r.skin_tone_bin, null, 'lung scans must not be given a tone');
+      }
+    } finally {
+      await pool.end();
+    }
+  });
+});
+
 describe('consent to automated analysis', { timeout: TIMEOUT }, () => {
   test('the disclosure states the error rates, not just that AI is used', async () => {
     const res = await new Session().get('/api/scans/analysis-disclosure');
