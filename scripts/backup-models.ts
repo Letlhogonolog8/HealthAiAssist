@@ -7,11 +7,32 @@
  *
  * WHY THIS EXISTS
  *
- * `dataset/` is gitignored, so the .h5 files are not version controlled. The skin
- * model can be rebuilt from scripts/train-skin-cancer-model.py. **The lung model
- * cannot** — its training script references a class that no longer exists, and no
- * equivalent remains in the repository. If that file is lost, the model is gone
- * permanently and the lung modality goes with it.
+ * `dataset/` is gitignored, so none of this is version controlled. A clean
+ * checkout gives you the code and no models, and the governance gate means an
+ * unmeasured model does not serve — so losing this directory takes both
+ * modalities offline until they are retrained, re-measured and re-bound.
+ *
+ * Both models are now rebuildable: scripts/train-skin-cancer-model.py and
+ * scripts/train-lung-cancer-model.py. (This file used to say the lung script
+ * referenced a class that no longer existed. That was true of an older script
+ * and is no longer: the current one is self-contained, and its SEED, CLASSES
+ * and split fractions reproduce exactly the 2575/551/554 recorded in
+ * lung_model_training.json and lung_splits.json.)
+ *
+ * **Rebuildable is not the same as free to lose.** A retrain produces a
+ * different artifact with a different fingerprint, so MEASUREMENT_BINDINGS stops
+ * matching, the modality refuses to serve, and it stays off until someone
+ * re-measures and re-binds it. Restoring a backup costs minutes; retraining
+ * costs a training run plus a full re-measurement.
+ *
+ * ── What is backed up, and why it is more than the .h5 files ──────────────
+ *
+ * The weights alone do not reproduce the deployed behaviour. The calibration
+ * temperature, the decision threshold, the OOD reference and the split manifest
+ * are each load-bearing, and each fails quietly rather than loudly when absent:
+ * a missing lung_model_calibration.json drops the temperature to 1.0 and moves
+ * the operating point without any error, and a missing lung_splits.json makes
+ * the published figures unverifiable again.
  *
  * Each artifact is copied and hashed, and the manifest records the hash, so a
  * silently corrupted backup is detectable rather than discovered at restore time.
@@ -50,6 +71,41 @@ const ARTIFACTS: Artifact[] = [
     source: 'dataset/data/skin_model_training.json',
     reproducible: true,
     note: 'Training metadata for the skin model; regenerated alongside it.',
+  },
+  {
+    source: 'dataset/lung_cancer_MRI_dataset/lung_model_calibration.json',
+    reproducible: true,
+    note: 'Temperature 1.125, applied before thresholding. Absent, the service falls back to 1.0 and the deployed operating point moves silently.',
+  },
+  {
+    source: 'dataset/lung_cancer_MRI_dataset/lung_splits.json',
+    reproducible: true,
+    note: 'The 554 held-out test paths. Without it the published lung figures are unverifiable and the binding drops to asserted.',
+  },
+  {
+    source: 'dataset/lung_cancer_MRI_dataset/lung_model_ood.json',
+    reproducible: true,
+    note: 'Out-of-distribution screen threshold for lung.',
+  },
+  {
+    source: 'dataset/data/skin_model_calibration.json',
+    reproducible: true,
+    note: 'Records that temperature scaling was fitted and deliberately NOT applied.',
+  },
+  {
+    source: 'dataset/data/skin_model_ood.json',
+    reproducible: true,
+    note: 'Out-of-distribution screen threshold for skin.',
+  },
+  {
+    source: 'dataset/data/skin_ood_reference.npz',
+    reproducible: true,
+    note: 'Reference distribution the skin OOD screen compares against. Absent, the screen cannot run and wrong-modality images reach the classifier.',
+  },
+  {
+    source: 'dataset/data/skin_tone_performance.json',
+    reproducible: true,
+    note: 'The stratified fairness measurement, fingerprint-bound to the artifact. Regenerable with npm run fairness:measure, given the test set.',
   },
 ];
 
@@ -154,7 +210,8 @@ function backup(destination: string): number {
     console.warn(
       '\nWARNING: the backup is on the same volume as the source. That protects ' +
       'against an accidental delete, but not against a disk failure — which is the ' +
-      'failure mode that would lose the lung model for good. Copy this directory ' +
+      'failure mode that takes both modalities offline until they are retrained, ' +
+      're-measured and re-bound. Copy this directory ' +
       'to external or cloud storage.'
     );
   }
