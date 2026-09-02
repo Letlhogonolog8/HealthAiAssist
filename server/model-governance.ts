@@ -31,12 +31,17 @@
  *
  * ── Verification levels are stated, not implied ───────────────────────────
  *
- * `re_measured` means someone ran scripts/evaluate-model.py against this exact
- * file and the figures reproduced. `asserted_at_introduction` means the binding
- * was recorded from whatever was deployed when this module was written, and the
- * figures were inherited rather than re-derived. The second is weaker and says
- * so, because a governance record that cannot distinguish "checked" from
- * "assumed" is not a governance record.
+ * `re_measured` means the published figures were reproduced against this exact
+ * file, by a named script, at the operating point the service actually uses.
+ * That last clause matters: evaluate-model.py scores at argmax, and the lung
+ * model does not run at argmax — it thresholds calibrated P(cancer) at 0.30.
+ * Reproducing argmax confirms the weights, not the deployed behaviour, so lung
+ * is additionally verified by scripts/verify-lung-operating-point.py.
+ *
+ * `asserted_at_introduction` means the binding was recorded from whatever was
+ * deployed when this module was written, and the figures were inherited rather
+ * than re-derived. It is weaker and says so, because a governance record that
+ * cannot distinguish "checked" from "assumed" is not a governance record.
  */
 import { modelVersionFor, type Modality } from './model-fingerprint';
 import { MODEL_REGISTRY } from './model-availability';
@@ -77,15 +82,20 @@ export const MEASUREMENT_BINDINGS: Record<string, MeasurementBinding> = {
   },
   lung: {
     artifactFingerprint: '31315d6a059a',
-    boundAt: '2026-09-01',
-    verification: 'asserted_at_introduction',
+    boundAt: '2026-09-02',
+    verification: 're_measured',
     note:
-      'NOT re-measured. The model card cites a held-out split of 554 images ' +
-      '(282 cancer / 272 no_cancer) which is not present in this working copy — ' +
-      'only the train and validate splits are — so the published figures cannot ' +
-      'be reproduced here. The binding records what is deployed now, which makes ' +
-      'future drift detectable; it does not confirm the figures describe this ' +
-      'file. Re-measuring requires restoring the test split.',
+      'Re-measured against this artifact at the deployed operating point, not ' +
+      'only at argmax. The 554-image held-out split (282 cancer / 272 no_cancer) ' +
+      'was rebuilt from lung_splits.json, which records every test path — see ' +
+      'scripts/materialise-lung-test-split.py. evaluate-model.py reproduces the ' +
+      'argmax figures exactly (balanced accuracy 0.8383, 86 cancers missed), and ' +
+      'scripts/verify-lung-operating-point.py reproduces the published figures ' +
+      'exactly at temperature 1.125 and threshold 0.30: sensitivity 0.8121, ' +
+      'specificity 0.7574, 53 cancers missed. ' +
+      'One limitation stands: the manifest records only the test list, not the ' +
+      'train and val lists, so that the test entries were excluded from training ' +
+      'is asserted by the manifest rather than checkable by intersection.',
   },
 };
 

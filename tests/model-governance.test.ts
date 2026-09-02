@@ -61,13 +61,37 @@ describe('measurement bindings', { timeout: TIMEOUT }, () => {
 
   test('an inherited binding says so rather than implying measurement', async () => {
     const { MEASUREMENT_BINDINGS } = await import('../server/model-governance.ts');
-    const lung = MEASUREMENT_BINDINGS.lung;
 
-    // The lung test split is absent from this working copy, so the published
-    // figures cannot be reproduced here. That has to be stated, not hidden
-    // behind a binding that looks as strong as the skin one.
-    assert.equal(lung.verification, 'asserted_at_introduction');
-    assert.match(lung.note, /NOT re-measured/i);
+    // Written as an invariant rather than pinned to a modality, because both
+    // are now `re_measured` and a test asserting otherwise would have to be
+    // deleted the next time one is verified — which is the moment a weaker
+    // binding could slip in unnoticed.
+    for (const [modality, b] of Object.entries(MEASUREMENT_BINDINGS)) {
+      if (b.verification === 'asserted_at_introduction') {
+        assert.match(
+          b.note,
+          /NOT re-measured/i,
+          `${modality} inherited its figures without saying so`
+        );
+      }
+    }
+  });
+
+  test('a re-measured binding names how it was reproduced', async () => {
+    const { MEASUREMENT_BINDINGS } = await import('../server/model-governance.ts');
+
+    // "Re-measured" is the strongest claim this record makes. It has to point
+    // at the thing that did the measuring, or it is just a different word for
+    // asserted.
+    for (const [modality, b] of Object.entries(MEASUREMENT_BINDINGS)) {
+      if (b.verification === 're_measured') {
+        assert.match(
+          b.note,
+          /scripts\/[\w-]+\.(py|ts)|evaluate-model\.py/,
+          `${modality} claims re-measurement without naming the script`
+        );
+      }
+    }
   });
 
   test('the deployed artifacts match their bindings', async (t) => {

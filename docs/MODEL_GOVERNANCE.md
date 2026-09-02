@@ -34,7 +34,7 @@ distinction matters and is published:
 
 | Level | Meaning |
 |---|---|
-| `re_measured` | `scripts/evaluate-model.py` was run against this exact artifact and the published figures reproduced. |
+| `re_measured` | The published figures were reproduced against this exact artifact, by a named script, **at the operating point the service actually uses**. See the lung note below: reproducing argmax alone confirms the weights, not the deployed behaviour. |
 | `asserted_at_introduction` | The binding was recorded from whatever was deployed when governance was introduced. The figures were inherited, not re-derived. |
 
 A governance record that cannot tell "checked" from "assumed" is not a
@@ -46,16 +46,41 @@ in the source.
 - **skin** — `re_measured` on 2026-09-01. Re-running the evaluation against the
   deployed artifact reproduced sensitivity 0.9133, specificity 0.8139 and
   balanced accuracy 0.8636 exactly as published.
-- **lung** — `asserted_at_introduction`. The model card cites a held-out split
-  of 554 images (282 cancer / 272 no_cancer) which **is not present in this
-  working copy** — only `train/` and `validate/` are. The published figures
-  therefore cannot be reproduced here, and the `reproduce` command on
-  `/api/models/cards` will not work for lung until the split is restored. The
-  binding records what is deployed so that future drift is detectable; it does
-  not confirm the figures describe this file.
+- **lung** — `re_measured` on 2026-09-02. The split was never lost: the images
+  live in the original `train/` and `validate/` directories and
+  `lung_splits.json` records exactly which 554 were held out. It simply had
+  never been assembled into a directory the evaluator could read.
+  `scripts/materialise-lung-test-split.py` rebuilds it (282 cancer / 272
+  no_cancer, matching the published counts exactly), and both figures reproduce:
+  argmax at balanced accuracy 0.8383 with 86 cancers missed, and the deployed
+  operating point at sensitivity 0.8121, specificity 0.7574, 53 cancers missed.
 
-Restoring the lung test split and re-measuring is the single highest-value
-governance task outstanding.
+**One limitation stands.** The manifest records only the test list, not the
+train and val lists, so "the test entries were used only for final evaluation"
+is asserted by the manifest rather than checkable by intersection. Recording all
+three lists on the next retrain would close it.
+
+### Verifying lung is not the same as verifying skin
+
+`evaluate-model.py` scores at argmax — a threshold of 0.5, which implicitly says
+a missed cancer and a false alarm cost the same. The lung model does not run
+that way: it applies temperature scaling and thresholds calibrated P(cancer) at
+0.30, and the figures in `MODEL_REGISTRY` are the figures at *that* point.
+
+So argmax reproduction is necessary and not sufficient — it confirms the
+weights, not the deployed behaviour.
+`scripts/verify-lung-operating-point.py` reproduces the serving path end to end
+(softmax, temperature, threshold) and fails if the result drifts from what
+`MODEL_REGISTRY` publishes.
+
+### A trap in the evaluator, for whoever runs it next
+
+For lung, **index 0 is cancer**, the reverse of skin. `evaluate-model.py` treats
+its `class1` argument as the positive class, so invoked as
+`... test cancer no_cancer` it reports "sensitivity" as recall on *no_cancer*
+and "specificity" as recall on *cancer* — the opposite of the clinical
+convention. The numbers are correct; the labels are not. Read the confusion
+matrix.
 
 ## Deploying a new model
 

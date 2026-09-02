@@ -23,6 +23,8 @@
     "fairness:measure": "python scripts/measure-skin-tone-performance.py",
     "fairness:dump-reference": "python scripts/dump-ita-reference.py",
     "fairness:verify-port": "tsx scripts/verify-skin-tone-port.ts",
+    "lung:materialise-test-split": "python scripts/materialise-lung-test-split.py",
+    "lung:verify-operating-point": "python scripts/verify-lung-operating-point.py",
     "translation-worksheet": "tsx scripts/translation-worksheet.ts",
     "db:migrate-all": "npm run db:migrate-genomics && npm run db:migrate-traceability && npm run db:migrate-chatbot-privacy && npm run db:migrate-notifications && npm run db:migrate-appointments && npm run db:migrate-outcomes && npm run db:migrate-mfa && npm run db:migrate-care && npm run db:migrate-adverse-events && npm run db:migrate-skin-tone",
     "crypto:status": "tsx scripts/crypto-rotate.ts status",

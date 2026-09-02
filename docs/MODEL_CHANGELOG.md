@@ -48,7 +48,7 @@ rather than tuned, because a model at chance is not a model.
 
 ## lung — `31315d6a059a`
 
-**Bound 2026-09-01, verification `asserted_at_introduction`. Currently serving.**
+**Bound 2026-09-02, verification `re_measured`. Currently serving.**
 
 | Measure | Value |
 |---|---|
@@ -60,12 +60,24 @@ rather than tuned, because a model at chance is not a model.
 | Preprocessing | `raw_0_255` |
 | Decision threshold | 0.30 on the calibrated P(cancer), not argmax |
 
-**These figures have not been reproduced against this artifact.** The cited test
-split is not present in this working copy — only `train/` and `validate/` — so
-the `reproduce` command published on `/api/models/cards` does not currently work
-for lung. The binding records the deployed fingerprint so future drift is
-detectable; it does not confirm the figures describe this file. Restoring the
-split and re-measuring is the outstanding governance task.
+**Reproduced against this artifact on 2026-09-02**, at both operating points:
+
+| Point | Sensitivity | Specificity | Balanced accuracy | Cancers missed |
+|---|---|---|---|---|
+| argmax | 0.6950 | 0.9816 | 0.8383 | 86 of 282 |
+| deployed (T=1.125, threshold 0.30) | **0.8121** | **0.7574** | **0.7847** | **53 of 282** |
+
+Both match the published figures exactly. The test split was rebuilt from
+`lung_splits.json` with `scripts/materialise-lung-test-split.py` — 282 cancer /
+272 no_cancer, as published — and the deployed point verified with
+`scripts/verify-lung-operating-point.py`.
+
+The table is the clearest statement of the trade the threshold buys: argmax has
+the better balanced accuracy and misses 33 more cancers.
+
+**Still asserted rather than checked:** the manifest records only the test list,
+so the claim that those entries were excluded from training cannot be verified
+by intersection. Record all three lists on the next retrain.
 
 **What is worse than the numbers suggest.**
 
