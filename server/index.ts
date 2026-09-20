@@ -184,33 +184,6 @@ installProcessHandlers();
     // Before anything else that could accept a request.
     await assertScanStorageConfigured();
 
-    /**
-     * Pull googleapis into the module cache before a patient needs it.
-     *
-     * Four appointment routes reach the calendar through
-     * `await import('./google-calendar-service')` on the request path, and that
-     * import costs roughly twelve seconds on a cold process — not the API call,
-     * the *module load*. googleapis is enormous, and under tsx the whole surface
-     * is compiled on first require.
-     *
-     * That is what produced the intermittent twenty-second timeouts on
-     * POST /api/patient/appointments and the dermatologist-slot routes. It was
-     * twice misattributed: first to database latency, then to the calendar API
-     * itself. Measuring the route from the inside settled it —
-     * `imported calendar: 11834ms`, `calendar checked: 12714ms`. The call was
-     * 880ms; the import was everything else.
-     *
-     * Warmed rather than imported eagerly, and deliberately not awaited: an
-     * eager top-level import would move the twelve seconds into boot, where it
-     * delays readiness and every deploy. Fired here, the cost overlaps startup
-     * and the first request pays only whatever is left.
-     */
-    void import('./google-calendar-service').catch((error) => {
-      // Not fatal. The routes import it again on demand and fail open if it
-      // cannot be loaded, so a warm-up failure costs latency, not correctness.
-      console.warn('Calendar module warm-up failed; first booking will be slow:', error?.message);
-    });
-
     // Which model artifacts are deployed, and whether the published figures
     // describe them. A drifted artifact is a deployment mistake, and the moment
     // to say so is before it has served anything.
@@ -219,12 +192,15 @@ installProcessHandlers();
       await reportGovernanceAtStartup();
     })();
 
+    /** Which store holds sessions. Reported by /api/ready; 'memory' is not ready. */
+    let sessionStoreKind: 'postgres' | 'memory' = 'memory';
+
     // Test database connection before starting server
     let dbConnected = false;
     try {
       const { testDbConnection } = await import("./db");
       dbConnected = await testDbConnection();
-      
+
       // Setup PostgreSQL session store
       if (dbConnected) {
         const { pool } = await import("./db");
@@ -233,17 +209,44 @@ installProcessHandlers();
           pool,
           tableName: 'session'
         });
+        sessionStoreKind = 'postgres';
         log("Using PostgreSQL session store");
       }
     } catch (dbError) {
       console.error('Database connection error:', dbError);
       dbConnected = false;
     }
-    
+
     if (!dbConnected) {
-      log("Using memory session store (database connection failed)");
+      /**
+       * This fallback is a different application, not a degraded one.
+       *
+       * With sessions in memory, "sign out everywhere" revokes nothing, a
+       * restart logs everyone out, and two instances behind a balancer do not
+       * share a login. All of that used to happen behind a single log line
+       * that nothing read — the test harness discards stdout — and it was
+       * found only because one test lists sessions from the table and got
+       * zero. The trigger was a boot-time event-loop stall long enough for
+       * the pool's connect timeout to fire while the database was fine.
+       *
+       * Production refuses. Development keeps the fallback so the app can be
+       * poked at without a database, and /api/ready says which store is live.
+       */
+      if (process.env.NODE_ENV === 'production' && process.env.ALLOW_MEMORY_SESSIONS !== 'true') {
+        throw new Error(
+          'Database unreachable at startup and sessions would fall back to memory. ' +
+            'Refusing to start: in-memory sessions do not survive a restart, are not shared ' +
+            'between instances, and make "sign out everywhere" a no-op. Fix the database ' +
+            'connection, or set ALLOW_MEMORY_SESSIONS=true to run degraded on purpose.'
+        );
+      }
+      sessionStoreKind = 'memory';
+      console.warn(
+        '⚠️  Using memory session store (database connection failed). ' +
+          'Sessions will not survive a restart and are not shared between instances.'
+      );
     }
-    
+
     // Kept as a reference so the WebSocket upgrade handler can run the exact same
     // middleware and recover the same session. Sockets authenticate from the
     // session cookie; without this they would have to trust whatever identity the
@@ -392,6 +395,16 @@ installProcessHandlers();
         } catch (error) {
           detail = { database: 'unreachable', error: (error as Error).message };
         }
+
+        // A reachable database with sessions held in memory is the contradiction
+        // state: the store was chosen when the database was not answering, and
+        // only a restart changes it. Not ready, and the reason is named.
+        detail.sessionStore = sessionStoreKind;
+        if (sessionStoreKind === 'memory' && process.env.ALLOW_MEMORY_SESSIONS !== 'true') {
+          ok = false;
+          detail.sessionStoreProblem =
+            'sessions are in memory: the database was unreachable at startup. Restart the instance.';
+        }
         readinessCache = { at: now, ok, detail };
       }
 
@@ -491,6 +504,34 @@ installProcessHandlers();
       log(`serving on port ${port}`);
       log(`Local: http://localhost:${port}`);
       log(`Mobile: http://192.168.0.160:${port}`);
+
+      /**
+       * Pull googleapis into the module cache before a patient needs it.
+       *
+       * Four appointment routes reach the calendar through
+       * `await import('./google-calendar-service')` on the request path, and
+       * that import costs roughly twelve seconds on a cold process — not the
+       * API call, the *module load*. googleapis is enormous, and under tsx the
+       * whole surface is compiled on first require. That is what produced the
+       * intermittent twenty-second timeouts on POST /api/patient/appointments
+       * and the dermatologist-slot routes, after two wrong diagnoses.
+       *
+       * ── Why it is here and not earlier ──────────────────────────────────
+       *
+       * The first version fired this before the database check. Module
+       * compilation is synchronous: for the ten-odd seconds it took, no I/O
+       * callback ran, the pool's connect timeout fired against a database that
+       * was fine, and the server silently fell back to in-memory sessions. Two
+       * runs with, two without: the warm-up was the cause. It now runs once
+       * the session store is decided and the socket is open. Requests that
+       * arrive during the compile wait on it, which is the same cost the first
+       * booking used to pay, spread over a window nobody is booking in.
+       */
+      void import('./google-calendar-service').catch((error) => {
+        // Not fatal. The routes import it again on demand and fail open if it
+        // cannot be loaded, so a warm-up failure costs latency, not correctness.
+        console.warn('Calendar module warm-up failed; first booking will be slow:', error?.message);
+      });
     });
   } catch (error) {
     console.error("Failed to start server:", error);

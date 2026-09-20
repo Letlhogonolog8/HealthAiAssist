@@ -250,6 +250,31 @@ export async function startServer(timeoutMs = 90_000): Promise<void> {
   })();
 
   await Promise.race([healthy, exited]);
+
+  /**
+   * Healthy is not the same as running the application under test.
+   *
+   * When the database check at boot times out, the server starts anyway with
+   * sessions in memory and a warning on a stdout this harness discards. Every
+   * suite then runs against a server whose "sign out everywhere" revokes
+   * nothing and whose session table stays empty — and only the one test that
+   * counts sessions notices, failing with "got 0" and no hint why. That is
+   * how a boot-time event-loop stall was found: two hours after it was
+   * introduced, by a test about something else.
+   *
+   * /api/ready names the store. Refuse here, once, with the cause.
+   */
+  const ready = await fetch(`${BASE}/api/ready`);
+  const readiness: any = await ready.json().catch(() => null);
+  if (readiness?.sessionStore !== 'postgres') {
+    await stopServer();
+    throw new Error(
+      `server under test is not using the PostgreSQL session store ` +
+        `(sessionStore=${readiness?.sessionStore ?? 'unknown'}, database=${readiness?.database ?? 'unknown'}). ` +
+        (readiness?.sessionStoreProblem ? `${readiness.sessionStoreProblem} ` : '') +
+        'The database check at boot failed or timed out; the suites would run against in-memory sessions.'
+    );
+  }
 }
 
 export async function stopServer(): Promise<void> {
