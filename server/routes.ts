@@ -4063,6 +4063,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   /**
+   * Appends an adjudicated outcome and tells the patient.
+   *
+   * Shared by the two places an outcome can be recorded — the outcome queue,
+   * and the radiology report itself — so that both leave the same row, the
+   * same notification and the same answer to "was the model right?". Two
+   * copies of this drifted once; the report path is the one people actually
+   * use, and it is the one that must not be the lesser.
+   */
+  async function recordOutcomeAndNotify(input: {
+    scan: { id: number; patientId: number; scanType: string; predictedPositive: boolean | null };
+    outcome: string;
+    method: string;
+    recordedBy: number;
+    notes: string;
+  }) {
+    const { scan, outcome, method, recordedBy, notes } = input;
+    const scanId = scan.id;
+
+    const recorded = await storage.recordScanOutcome({
+      scanId,
+      outcome,
+      method,
+      recordedBy,
+      notes,
+    });
+
+    // Tell the patient their result was confirmed, and by what.
+    await storage
+      .createNotification({
+        recipientId: scan.patientId,
+        actorId: recordedBy,
+        type: 'scan_result',
+        title: 'A clinician confirmed your scan result',
+        body: `Your ${scan.scanType} scan was reviewed and confirmed by ${method.replace(/_/g, ' ')}.`,
+        link: '/',
+      })
+      .catch((error) => console.error('Failed to record outcome notification:', error));
+
+    enhancedWsManager?.sendToUser(scan.patientId, {
+      type: 'scan_completed',
+      data: { scanId, adjudicated: true },
+    });
+
+    // Reach them off-platform too. A patient who closed the tab a week ago
+    // learns nothing from an in-app notification, and a confirmed result is
+    // exactly the case where that matters.
+    //
+    // The message says a result is ready and nothing about what it says: email
+    // and SMS are not confidential channels, and a lock-screen preview naming
+    // a diagnosis discloses it to whoever is holding the phone.
+    const patient = await storage.getUser(scan.patientId);
+    if (patient) {
+      deliverInBackground(
+        patient,
+        'A result is ready in your HealthAI account',
+        'A clinician has confirmed the result of a recent scan.',
+        '/'
+      );
+    }
+
+    // Whether the model was right about this one. Stated plainly, because the
+    // point of collecting these is to find out. Null when there is nothing to
+    // compare: no model call, or an outcome that does not settle it either way.
+    const modelWasCorrect =
+      scan.predictedPositive === null || outcome === 'indeterminate'
+        ? null
+        : scan.predictedPositive === (outcome === 'malignant');
+
+    return { recorded, modelWasCorrect };
+  }
+
+  /**
    * Records what a scan turned out to be.
    *
    * The single change that makes production accuracy measurable at all. Before
@@ -4104,58 +4176,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: 'Scan not found' });
       }
 
-      const recorded = await storage.recordScanOutcome({
-        scanId,
+      const { recorded, modelWasCorrect } = await recordOutcomeAndNotify({
+        scan,
         outcome,
         method,
         recordedBy: req.session!.user!.id,
         notes: typeof notes === 'string' ? notes.slice(0, 2000) : '',
       });
 
-      // Tell the patient their result was confirmed, and by what.
-      await storage
-        .createNotification({
-          recipientId: scan.patientId,
-          actorId: req.session!.user!.id,
-          type: 'scan_result',
-          title: 'A clinician confirmed your scan result',
-          body: `Your ${scan.scanType} scan was reviewed and confirmed by ${method.replace(/_/g, ' ')}.`,
-          link: '/',
-        })
-        .catch((error) => console.error('Failed to record outcome notification:', error));
-
-      enhancedWsManager?.sendToUser(scan.patientId, {
-        type: 'scan_completed',
-        data: { scanId, adjudicated: true },
-      });
-
-      // Reach them off-platform too. A patient who closed the tab a week ago
-      // learns nothing from an in-app notification, and a confirmed result is
-      // exactly the case where that matters.
-      //
-      // The message says a result is ready and nothing about what it says: email
-      // and SMS are not confidential channels, and a lock-screen preview naming
-      // a diagnosis discloses it to whoever is holding the phone.
-      const patient = await storage.getUser(scan.patientId);
-      if (patient) {
-        deliverInBackground(
-          patient,
-          'A result is ready in your HealthAI account',
-          'A clinician has confirmed the result of a recent scan.',
-          '/'
-        );
-      }
-
-      res.status(201).json({
-        success: true,
-        outcome: recorded,
-        // Whether the model was right about this one. Stated plainly, because
-        // the point of collecting these is to find out.
-        modelWasCorrect:
-          scan.predictedPositive === null || outcome === 'indeterminate'
-            ? null
-            : scan.predictedPositive === (outcome === 'malignant'),
-      });
+      res.status(201).json({ success: true, outcome: recorded, modelWasCorrect });
     } catch (error) {
       console.error('Failed to record scan outcome:', error);
       res.status(500).json({ error: 'Failed to record outcome' });
@@ -5146,9 +5175,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: 'Invalid scan ID' });
       }
 
-      const { findings, recommendation } = req.body;
+      const { findings, recommendation, outcome } = req.body ?? {};
       if (!findings || !recommendation) {
         return res.status(400).json({ error: 'Findings and recommendation are required' });
+      }
+
+      // Optional, and validated rather than dropped: a misspelt outcome that
+      // silently vanished would leave the radiologist believing it was recorded.
+      const hasOutcome = outcome !== undefined && outcome !== null && outcome !== '';
+      if (hasOutcome && !OUTCOME_VALUES.includes(outcome)) {
+        return res.status(400).json({ error: 'Invalid outcome', allowed: OUTCOME_VALUES });
+      }
+
+      const scan = await storage.getScanById(scanId);
+      if (!scan) {
+        return res.status(404).json({ error: 'Scan not found' });
       }
 
       const updated = await storage.updateScan(scanId, {
@@ -5161,6 +5202,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!updated) {
         return res.status(404).json({ error: 'Scan not found' });
+      }
+
+      /**
+       * The report is the adjudication.
+       *
+       * A radiologist who has just written findings knows what the scan is,
+       * and the outcome queue asked them to say so again, later, in another
+       * tab, having found the scan a second time. That is the chore that
+       * keeps production accuracy at "not yet" indefinitely. Recorded here as
+       * `specialist_review` — which is exactly what it is — so that a biopsy or
+       * pathology result later appends a stronger row rather than competing.
+       *
+       * Recorded after the report is saved. If this step fails the report
+       * stands and the response says which half happened; it is not a reason
+       * to make the radiologist write the report twice.
+       */
+      if (hasOutcome) {
+        try {
+          const { recorded, modelWasCorrect } = await recordOutcomeAndNotify({
+            scan,
+            outcome,
+            method: 'specialist_review',
+            recordedBy: req.session!.user!.id,
+            notes: 'Recorded with the radiology report.',
+          });
+          return res.json({
+            success: true,
+            message: 'Report submitted and outcome recorded',
+            report: updated,
+            outcome: recorded,
+            modelWasCorrect,
+          });
+        } catch (error) {
+          console.error('Report saved but outcome not recorded:', error);
+          return res.status(500).json({
+            success: false,
+            reportSaved: true,
+            outcomeRecorded: false,
+            error: 'The report was saved, but the outcome could not be recorded. Record it from the outcome queue.',
+          });
+        }
       }
 
       res.json({

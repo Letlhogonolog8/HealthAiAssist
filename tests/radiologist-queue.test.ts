@@ -339,3 +339,129 @@ describe('the outcome queue identifies its rows', { timeout: TIMEOUT }, () => {
     assert.ok(row.createdAt, 'createdAt was dropped');
   });
 });
+
+// ---------------------------------------------------------------------------
+
+describe('the report is the adjudication', { timeout: TIMEOUT }, () => {
+  /** A fresh analysed scan in the review queue, with the model's call as given. */
+  async function pendingScan(predictedPositive: boolean): Promise<number> {
+    const pool = db();
+    try {
+      const { rows } = await pool.query(
+        `INSERT INTO medical_scans
+           (patient_id, scan_type, result, ai_confidence, risk_level,
+            predicted_positive, model_version, status, created_at)
+         VALUES ($1, 'lung', $2, '88%', $3, $4, 'lung-v2', 'pending', now())
+         RETURNING id`,
+        [
+          patient.id,
+          predictedPositive ? 'Lung Cancer detected - high risk' : 'No malignancy detected',
+          predictedPositive ? 'high' : 'low',
+          predictedPositive,
+        ]
+      );
+      return rows[0].id;
+    } finally {
+      await pool.end();
+    }
+  }
+
+  async function outcomesFor(scanId: number) {
+    const pool = db();
+    try {
+      const { rows } = await pool.query(
+        'SELECT outcome, method, recorded_by, notes FROM scan_outcomes WHERE scan_id = $1 ORDER BY id',
+        [scanId]
+      );
+      return rows;
+    } finally {
+      await pool.end();
+    }
+  }
+
+  test('a report with a call records a specialist_review outcome in the same request', async () => {
+    const id = await pendingScan(true);
+
+    const res = await radSession.post(`/api/radiologist/scans/${id}/report`, {
+      findings: 'Spiculated nodule, right upper lobe.',
+      recommendation: 'MDT referral.',
+      outcome: 'malignant',
+    });
+    assert.equal(res.status, 200, res.text.slice(0, 200));
+    assert.equal(res.json.success, true);
+    assert.ok(res.json.outcome, 'no outcome in the response');
+    assert.equal(res.json.modelWasCorrect, true);
+
+    const rows = await outcomesFor(id);
+    assert.equal(rows.length, 1, 'exactly one outcome row');
+    assert.equal(rows[0].outcome, 'malignant');
+    // What it is: the radiologist's read. Not tissue, and not pretending to be.
+    assert.equal(rows[0].method, 'specialist_review');
+    assert.equal(rows[0].recorded_by, radiologist.id);
+
+    // And it has left the outcome queue, because the question is answered.
+    const queue = await radSession.get('/api/radiologist/awaiting-outcome');
+    assert.ok(!queue.json.some((r: any) => r.id === id), 'still awaiting an outcome after one was recorded');
+  });
+
+  test('the answer to "was the model right?" is computed against the stored call', async () => {
+    const id = await pendingScan(false);
+    const res = await radSession.post(`/api/radiologist/scans/${id}/report`, {
+      findings: 'Ground-glass opacity, left lower lobe.',
+      recommendation: 'Biopsy.',
+      outcome: 'malignant',
+    });
+    assert.equal(res.status, 200, res.text.slice(0, 200));
+    assert.equal(res.json.modelWasCorrect, false, 'the model cleared a scan the radiologist called malignant');
+  });
+
+  test('indeterminate is recorded but settles nothing', async () => {
+    const id = await pendingScan(true);
+    const res = await radSession.post(`/api/radiologist/scans/${id}/report`, {
+      findings: 'Equivocal.',
+      recommendation: 'Repeat imaging in 3 months.',
+      outcome: 'indeterminate',
+    });
+    assert.equal(res.status, 200, res.text.slice(0, 200));
+    assert.equal(res.json.modelWasCorrect, null);
+    assert.equal((await outcomesFor(id)).length, 1);
+  });
+
+  test('an outcome outside the vocabulary is refused, and the report is not saved either', async () => {
+    const id = await pendingScan(true);
+    const res = await radSession.post(`/api/radiologist/scans/${id}/report`, {
+      findings: 'x',
+      recommendation: 'y',
+      outcome: 'probably fine',
+    });
+    assert.equal(res.status, 400, res.text.slice(0, 200));
+    assert.deepEqual(res.json.allowed, ['malignant', 'benign', 'indeterminate']);
+
+    // Validated before the write: a 400 must not leave a half-filed report
+    // that the radiologist believes was rejected.
+    const pool = db();
+    try {
+      const { rows } = await pool.query('SELECT status, findings FROM medical_scans WHERE id = $1', [id]);
+      assert.equal(rows[0].status, 'pending');
+      assert.ok(!rows[0].findings, `findings were written: ${rows[0].findings}`);
+    } finally {
+      await pool.end();
+    }
+    assert.equal((await outcomesFor(id)).length, 0);
+  });
+
+  test('a report without a call still files, and records no outcome', async () => {
+    const id = await pendingScan(true);
+    const res = await radSession.post(`/api/radiologist/scans/${id}/report`, {
+      findings: 'Nodule noted.',
+      recommendation: 'Follow up.',
+    });
+    assert.equal(res.status, 200, res.text.slice(0, 200));
+    assert.equal(res.json.outcome, undefined);
+    assert.equal((await outcomesFor(id)).length, 0);
+
+    // Not adjudicated, so it is still owed an answer.
+    const queue = await radSession.get('/api/radiologist/awaiting-outcome');
+    assert.ok(queue.json.some((r: any) => r.id === id), 'an unadjudicated completed scan must stay in the outcome queue');
+  });
+});

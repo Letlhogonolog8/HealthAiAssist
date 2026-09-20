@@ -109,6 +109,8 @@ export default function RadiologistDashboard({
   const [selectedScan, setSelectedScan] = useState<ScanReview | null>(null);
   const [reportText, setReportText] = useState('');
   const [findings, setFindings] = useState('');
+  /** The radiologist's own call, recorded as a specialist_review outcome with the report. */
+  const [reportOutcome, setReportOutcome] = useState<'malignant' | 'benign' | 'indeterminate' | ''>('');
   const [showStatsModal, setShowStatsModal] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -199,33 +201,46 @@ export default function RadiologistDashboard({
 
   // Enhanced submit report mutation with proper error handling
   const submitReportMutation = useMutation({
-    mutationFn: async ({ scanId, findings, recommendation }: { 
-      scanId: number; 
-      findings: string; 
-      recommendation: string 
+    mutationFn: async ({ scanId, findings, recommendation, outcome }: {
+      scanId: number;
+      findings: string;
+      recommendation: string;
+      outcome?: string;
     }) => {
       const response = await fetch(`/api/radiologist/scans/${scanId}/report`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ findings, recommendation })
+        body: JSON.stringify({ findings, recommendation, ...(outcome ? { outcome } : {}) })
       });
+      const body = await response.json().catch(() => null);
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to submit report: ${response.status} ${errorText}`);
+        // The one partial case: report in, outcome not. Say so, rather than
+        // "failed", which would send them to write the report again.
+        if (body?.reportSaved) {
+          throw new Error(body.error);
+        }
+        throw new Error(`Failed to submit report: ${response.status} ${body?.error ?? ''}`);
       }
-      return response.json();
+      return body;
     },
-    onSuccess: () => {
+    onSuccess: (body: any) => {
       queryClient.invalidateQueries({ queryKey: ['/api/radiologist/pending-reviews'] });
       queryClient.invalidateQueries({ queryKey: ['/api/radiologist/completed-today'] });
       queryClient.invalidateQueries({ queryKey: ['/api/radiologist/stats'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/radiologist/awaiting-outcome'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/models/performance'] });
       setSelectedScan(null);
       setReportText('');
       setFindings('');
-      toast({ 
-        title: 'Success', 
-        description: 'Report submitted successfully' 
+      setReportOutcome('');
+      const verdict =
+        body?.modelWasCorrect === true ? ' The model agreed with you.'
+        : body?.modelWasCorrect === false ? ' The model disagreed with you; that is now on record.'
+        : '';
+      toast({
+        title: body?.outcome ? 'Report and outcome recorded' : 'Report submitted',
+        description: (body?.outcome ? 'Your read is recorded as a specialist review.' : 'Report submitted successfully') + verdict,
       });
     },
     onError: (error: unknown) => {
@@ -895,7 +910,7 @@ export default function RadiologistDashboard({
       </Tabs>
 
       {/* Enhanced Scan Review Modal */}
-      <Dialog open={!!selectedScan} onOpenChange={() => setSelectedScan(null)}>
+      <Dialog open={!!selectedScan} onOpenChange={() => { setSelectedScan(null); setReportOutcome(''); }}>
         <DialogContent aria-describedby={undefined} className="bg-slate-800 border-slate-600 max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-white flex items-center">
@@ -1011,12 +1026,47 @@ export default function RadiologistDashboard({
                     rows={3}
                   />
                 </div>
+
+                {/*
+                  What is it? Asked here, once, at the moment the radiologist
+                  knows — not later in another tab. This is the row the
+                  production-accuracy figures are computed from; without it
+                  they stay at "not yet" forever.
+                */}
+                <div>
+                  <Label className="text-white">What is it? <span className="text-slate-400 font-normal">(optional — recorded as your specialist review)</span></Label>
+                  <div className="grid grid-cols-3 gap-2 mt-2">
+                    {([
+                      ['malignant', 'Malignant', 'bg-red-900/50 text-red-200 border-red-700'],
+                      ['benign', 'Benign', 'bg-emerald-900/50 text-emerald-200 border-emerald-700'],
+                      ['indeterminate', 'Indeterminate', 'bg-amber-900/50 text-amber-200 border-amber-700'],
+                    ] as const).map(([value, label, tone]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        aria-pressed={reportOutcome === value}
+                        onClick={() => setReportOutcome(reportOutcome === value ? '' : value)}
+                        className={`rounded border px-3 py-2 text-sm transition-colors ${
+                          reportOutcome === value
+                            ? tone
+                            : 'border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1.5">
+                    Append-only. A biopsy or pathology result recorded later outranks this and does
+                    not replace it. Leave blank if you are not making a call.
+                  </p>
+                </div>
               </div>
 
               <div className="flex justify-end space-x-2 pt-4 border-t border-slate-600">
                 <Button
                   variant="outline"
-                  onClick={() => setSelectedScan(null)}
+                  onClick={() => { setSelectedScan(null); setReportOutcome(''); }}
                   className="border-slate-600 text-slate-300"
                 >
                   Cancel
@@ -1027,7 +1077,8 @@ export default function RadiologistDashboard({
                       submitReportMutation.mutate({
                         scanId: selectedScan.id,
                         findings,
-                        recommendation: reportText
+                        recommendation: reportText,
+                        ...(reportOutcome ? { outcome: reportOutcome } : {}),
                       });
                     } else {
                       toast({
