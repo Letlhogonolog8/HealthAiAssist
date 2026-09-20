@@ -91,7 +91,8 @@ export function warnIfFallingBack(modality: string): void {
 export async function infer(
   modality: 'skin' | 'lung',
   imageBuffer: Buffer,
-  filename = 'scan'
+  filename = 'scan',
+  options: { explain?: boolean } = {}
 ): Promise<any> {
   const base = baseUrl();
   if (!base) {
@@ -113,6 +114,12 @@ export async function infer(
       new Blob([new Uint8Array(imageBuffer)], { type: 'application/octet-stream' }),
       filename
     );
+    // Opt-in only. A Grad-CAM pass is a second forward-and-backward run and a
+    // PNG in the payload; the submission path never asks for it, and
+    // scan-explanation.ts asks for it on a clinician's request.
+    if (options.explain) {
+      form.append('explain', 'true');
+    }
 
     const response = await fetch(`${base}/infer/${modality}`, {
       method: 'POST',

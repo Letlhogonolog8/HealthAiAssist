@@ -3998,6 +3998,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   /**
+   * Where the model looked, for clinical staff reviewing a scored scan.
+   *
+   * Clinicians only. The heatmap comes with a caveat that it is not a lesion
+   * boundary and a plausible-looking one is not confirmation; that caveat is
+   * for a reader trained to hold it, and a patient shown "where the model
+   * looked" over their own image has been handed evidence they cannot weigh.
+   * The patient's own view stays the result and its stated error rates.
+   *
+   * Generated on request rather than stored: see server/scan-explanation.ts
+   * for why, and for the list of scans it refuses to explain.
+   */
+  app.get(
+    "/api/scans/:id/explanation",
+    auditLog('READ_SCAN_EXPLANATION'),
+    requireAuth,
+    requireMedicalAccess,
+    requireCareRelationship(async (req) => {
+      const scanId = parseInt(req.params.id, 10);
+      if (!Number.isInteger(scanId)) return null;
+      const scan = await storage.getScanById(scanId);
+      return scan?.patientId ?? null;
+    }),
+    async (req: AuthenticatedRequest, res) => {
+      try {
+        const scanId = parseInt(req.params.id, 10);
+        if (!Number.isInteger(scanId)) {
+          return res.status(400).json({ error: 'Invalid scan id' });
+        }
+
+        const scan = await storage.getScanById(scanId);
+        if (!scan) {
+          return res.status(404).json({ error: 'Scan not found' });
+        }
+
+        const { explainScan } = await import('./scan-explanation');
+        const outcome = await explainScan({
+          id: scan.id,
+          patientId: scan.patientId,
+          scanType: scan.scanType,
+          imagePath: scan.imagePath ?? null,
+          modelVersion: scan.modelVersion ?? null,
+          predictedPositive: scan.predictedPositive ?? null,
+        });
+
+        if (!outcome.ok) {
+          return res.status(outcome.status).json({
+            success: false,
+            code: outcome.code,
+            message: outcome.message,
+            ...(outcome.detail ? { detail: outcome.detail } : {}),
+          });
+        }
+
+        // The overlay is regenerated on every request and tied to the deployed
+        // artifact; a cached copy could outlive the model that drew it.
+        res.setHeader('Cache-Control', 'private, no-store');
+        return res.json({ success: true, ...outcome });
+      } catch (error) {
+        console.error('Failed to explain scan:', error);
+        res.status(500).json({ success: false, message: 'Failed to generate an explanation' });
+      }
+    }
+  );
+
+  /**
    * Records what a scan turned out to be.
    *
    * The single change that makes production accuracy measurable at all. Before

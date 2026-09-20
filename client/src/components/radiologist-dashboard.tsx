@@ -1,5 +1,6 @@
 import { useState } from "react";
 import OutcomeReviewPanel from "./outcome-review-panel";
+import ScanExplanation from "./scan-explanation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -963,6 +964,18 @@ export default function RadiologistDashboard({
                   />
                 )}
               </div>
+
+              {/*
+                Where the model looked. Built into the inference service from
+                the start and never requested by any client until this. Hidden
+                when there is no image, since there is nothing to draw over.
+              */}
+              {selectedScan.hasImage !== false && (
+                <ScanExplanation
+                  scanId={selectedScan.id}
+                  hasModelResult={!selectedScan.awaitingManualReview && selectedScan.aiConfidence != null}
+                />
+              )}
 
               <div className="bg-blue-900/20 p-4 rounded border border-blue-700">
                 <div className="flex items-center gap-2 mb-2">
