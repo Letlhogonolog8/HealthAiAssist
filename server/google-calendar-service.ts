@@ -24,6 +24,60 @@ interface TimeSlotCheck {
   conflictingEvent?: CalendarEvent;
 }
 
+/**
+ * How long a calendar lookup may take before it is abandoned.
+ *
+ * There was no bound at all, and that is a request-hanging bug rather than a
+ * slow-response one. `googleCalendarService` is called from inside the
+ * appointment handlers, so an unresponsive Google endpoint held the HTTP request
+ * open for as long as the socket stayed up — the booking never returned, and the
+ * patient saw a spinner rather than an error.
+ *
+ * ── This is not what caused the 20-second timeouts ───────────────────────
+ *
+ * Worth recording, because the wrong cause was published twice. The
+ * intermittent 20-second failures on POST /api/patient/appointments and the
+ * dermatologist-slot routes were attributed first to database latency and then
+ * to this API call. Both were wrong. Timing the route from the inside gave
+ * `imported calendar: 11834ms` against `calendar checked: 12714ms` — the call
+ * took 880ms and the *module import* took the rest. googleapis is loaded lazily
+ * on the request path, and that is the hang; it is warmed at boot in
+ * server/index.ts.
+ *
+ * Unsetting GOOGLE_CALENDAR_CREDENTIALS appeared to fix it, which is what made
+ * the wrong diagnosis convincing. It did not: the import happens either way, and
+ * a passing run only meant the module was already warm or the run was lucky.
+ * A single passing run does not establish a cause.
+ *
+ * The deadline below is still worth having — an unbounded outbound call inside a
+ * booking handler is a real exposure — but it was not the bug.
+ *
+ * Five seconds is chosen against what the call is worth, not what the API
+ * usually takes: the answer only decides whether to warn about a clash, and both
+ * callers already treat a failure as "available". Waiting longer buys a slightly
+ * better warning at the cost of a booking that never completes.
+ */
+const CALENDAR_TIMEOUT_MS = Number(process.env.GOOGLE_CALENDAR_TIMEOUT_MS ?? 5000);
+
+/**
+ * Rejects if `work` has not settled within `ms`.
+ *
+ * Wraps the whole operation rather than passing a timeout to googleapis alone,
+ * because the first call after startup also fetches an OAuth token — a separate
+ * outbound request that a per-request timeout on events.list does not cover.
+ * Both are bounded here.
+ */
+function withDeadline<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: NodeJS.Timeout;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${what} did not respond within ${ms}ms`)),
+      ms
+    );
+  });
+  return Promise.race([work, deadline]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
+
 export class GoogleCalendarService {
   private calendar: any;
   private isConfigured: boolean = false;
@@ -110,17 +164,30 @@ export class GoogleCalendarService {
       return [];
     }
 
+    // Every calendar lookup in this service funnels through here — the batch
+    // path collapses its slots into one range query — so bounding this one call
+    // bounds all of them.
     try {
-      const response = await this.calendar.events.list({
-        calendarId: process.env.GOOGLE_CALENDAR_ID,
-        timeMin: startTime.toISOString(),
-        timeMax: endTime.toISOString(),
-        singleEvents: true,
-        orderBy: 'startTime'
-      });
+      const response = await withDeadline<{ data: { items?: CalendarEvent[] } }>(
+        this.calendar.events.list({
+          calendarId: process.env.GOOGLE_CALENDAR_ID,
+          timeMin: startTime.toISOString(),
+          timeMax: endTime.toISOString(),
+          singleEvents: true,
+          orderBy: 'startTime',
+          // Defence in depth: bounds the HTTP request itself, while the
+          // withDeadline wrapper bounds auth and everything else.
+          timeout: CALENDAR_TIMEOUT_MS,
+        }),
+        CALENDAR_TIMEOUT_MS,
+        'Google Calendar events.list'
+      );
 
       return response.data.items || [];
     } catch (error) {
+      // Deliberately not rethrown. Both callers treat an empty result as "no
+      // known conflict" and proceed, which is the right posture: a calendar
+      // outage must not stop someone booking an appointment.
       console.error('Error fetching calendar events:', error);
       return [];
     }

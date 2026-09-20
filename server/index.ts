@@ -184,6 +184,33 @@ installProcessHandlers();
     // Before anything else that could accept a request.
     await assertScanStorageConfigured();
 
+    /**
+     * Pull googleapis into the module cache before a patient needs it.
+     *
+     * Four appointment routes reach the calendar through
+     * `await import('./google-calendar-service')` on the request path, and that
+     * import costs roughly twelve seconds on a cold process — not the API call,
+     * the *module load*. googleapis is enormous, and under tsx the whole surface
+     * is compiled on first require.
+     *
+     * That is what produced the intermittent twenty-second timeouts on
+     * POST /api/patient/appointments and the dermatologist-slot routes. It was
+     * twice misattributed: first to database latency, then to the calendar API
+     * itself. Measuring the route from the inside settled it —
+     * `imported calendar: 11834ms`, `calendar checked: 12714ms`. The call was
+     * 880ms; the import was everything else.
+     *
+     * Warmed rather than imported eagerly, and deliberately not awaited: an
+     * eager top-level import would move the twelve seconds into boot, where it
+     * delays readiness and every deploy. Fired here, the cost overlaps startup
+     * and the first request pays only whatever is left.
+     */
+    void import('./google-calendar-service').catch((error) => {
+      // Not fatal. The routes import it again on demand and fail open if it
+      // cannot be loaded, so a warm-up failure costs latency, not correctness.
+      console.warn('Calendar module warm-up failed; first booking will be slow:', error?.message);
+    });
+
     // Which model artifacts are deployed, and whether the published figures
     // describe them. A drifted artifact is a deployment mistake, and the moment
     // to say so is before it has served anything.
