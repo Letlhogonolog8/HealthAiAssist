@@ -109,15 +109,25 @@ catch, so `clinicallyReviewed` is set by a person and never derived.
 
 ## Installing a completed translation
 
+isiZulu (`zu`) and Afrikaans (`af`) are already listed in `LANGUAGE_MANIFEST`
+with an empty resource, so that the admin coverage panel shows them as
+**not started · 0 of 33** rather than not at all. Before they were listed, the
+panel reported English offered and Spanish withheld, and nothing about the two
+languages this deployment is for — the gap was invisible because nobody had
+begun on it. Listing them is not a translation and does not offer them; it
+makes the absence a row.
+
 1. Create `client/src/locales/<code>/translation.json` with the reviewed strings.
-2. Add an entry to `LANGUAGE_MANIFEST` in `language-availability.ts`, with
-   `clinicallyReviewed: true`, `reviewedBy` and `reviewedOn` filled from the
-   worksheet's sign-off block.
-3. Use the endonym for `label` — what speakers call the language, not what
-   English calls it. `isiZulu`, not `Zulu`.
-4. Run `npm test`. The wiring test refuses a reviewed non-English language while
-   no component consumes translations.
-5. Check `LanguageCoverage` in the admin dashboard reports it as available.
+2. In the language's existing `LANGUAGE_MANIFEST` entry, replace `resource: {}`
+   with an import of that file, set `clinicallyReviewed: true`, and fill
+   `reviewedBy` and `reviewedOn` from the worksheet's sign-off block. For a
+   language not yet listed, add an entry; use the endonym for `label` — what
+   speakers call the language, not what English calls it. `isiZulu`, not `Zulu`.
+3. Run `npm test`. The wiring test refuses a reviewed non-English language while
+   no component consumes translations, and `tests/i18n-wiring.test.ts` asserts
+   that `zu` and `af` read as *not started* — that assertion is the one to
+   update when the first strings land.
+4. Check `LanguageCoverage` in the admin dashboard reports it as available.
 
 ---
 

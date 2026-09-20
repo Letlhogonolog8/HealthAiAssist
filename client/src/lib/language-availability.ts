@@ -63,8 +63,24 @@ export interface LanguageManifest {
   clinicallyReviewed: boolean;
   reviewedBy?: string;
   reviewedOn?: string;
+  /** Where a translator starts. Repo-relative path to the blank worksheet. */
+  worksheet?: string;
 }
 
+/**
+ * ── The languages this deployment needs are the ones with no strings ───────
+ *
+ * isiZulu and Afrikaans are listed with an empty resource, on purpose. Until
+ * they were, the coverage panel showed English offered and Spanish withheld,
+ * and nothing about the two languages a South African deployment is actually
+ * for — the gap was invisible precisely because nobody had started on it. An
+ * entry with zero strings makes it a row that says "not started", with the
+ * worksheet a translator would use, instead of an absence nobody sees.
+ *
+ * They are not machine-translated to fill the gap. The worksheets say why: a
+ * blank keeps the language unavailable, which is the safe state, and a guess
+ * at "this is not a diagnosis" does not.
+ */
 export const LANGUAGE_MANIFEST: LanguageManifest[] = [
   {
     code: 'en',
@@ -74,6 +90,22 @@ export const LANGUAGE_MANIFEST: LanguageManifest[] = [
     reviewedBy: 'source language',
   },
   {
+    code: 'zu',
+    label: 'isiZulu',
+    resource: {},
+    clinicallyReviewed: false,
+    worksheet: 'docs/translation-worksheet-zu.md',
+  },
+  {
+    code: 'af',
+    label: 'Afrikaans',
+    resource: {},
+    clinicallyReviewed: false,
+    worksheet: 'docs/translation-worksheet-af.md',
+  },
+  {
+    // Not a target language for this deployment. Kept because the file exists
+    // and the gate handles it correctly; listed after the languages that matter.
     code: 'es',
     label: 'Español',
     resource: esTranslation,
@@ -102,30 +134,56 @@ export interface LanguageStatus {
   label: string;
   available: boolean;
   reason?: string;
+  /** Non-empty strings present, against the English total. */
+  coverage: { translated: number; total: number };
+  worksheet?: string;
+}
+
+/** Dotted paths of every leaf string in a resource. */
+function leafKeys(resource: Record<string, unknown>, prefix = ''): string[] {
+  const out: string[] = [];
+  for (const [k, v] of Object.entries(resource)) {
+    const key = prefix ? `${prefix}.${k}` : k;
+    if (v && typeof v === 'object') out.push(...leafKeys(v as Record<string, unknown>, key));
+    else out.push(key);
+  }
+  return out;
+}
+
+const EN_KEYS = leafKeys(enTranslation as Record<string, unknown>);
+
+function coverageOf(resource: Record<string, unknown>): { translated: number; total: number } {
+  const translated = EN_KEYS.filter((key) => {
+    const value = lookup(resource, key);
+    return typeof value === 'string' && value.trim() !== '';
+  }).length;
+  return { translated, total: EN_KEYS.length };
 }
 
 /** Every known language and whether it may be offered, with the reason if not. */
 export function languageStatuses(): LanguageStatus[] {
   return LANGUAGE_MANIFEST.map((entry) => {
+    const coverage = coverageOf(entry.resource);
+    const base = { code: entry.code, label: entry.label, coverage, worksheet: entry.worksheet };
     const missing = missingSafetyKeys(entry.resource);
 
+    if (coverage.translated === 0) {
+      // Distinct from "partly done": nothing exists yet, and the row should
+      // say so rather than count nine untranslated strings as if work were
+      // in progress.
+      return { ...base, available: false, reason: 'not started: no strings translated' };
+    }
     if (missing.length > 0) {
       return {
-        code: entry.code,
-        label: entry.label,
+        ...base,
         available: false,
         reason: `${missing.length} safety-critical string(s) untranslated`,
       };
     }
     if (!entry.clinicallyReviewed) {
-      return {
-        code: entry.code,
-        label: entry.label,
-        available: false,
-        reason: 'awaiting review by a clinical speaker',
-      };
+      return { ...base, available: false, reason: 'awaiting review by a clinical speaker' };
     }
-    return { code: entry.code, label: entry.label, available: true };
+    return { ...base, available: true };
   });
 }
 

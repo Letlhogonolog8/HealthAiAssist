@@ -156,3 +156,52 @@ describe('translation files', () => {
     }
   });
 });
+
+describe('the languages this deployment needs are visible, not absent', () => {
+  /**
+   * isiZulu and Afrikaans have no translation files. Before they were listed
+   * in the manifest that showed up as nothing: the coverage panel reported
+   * English offered and Spanish withheld, and a reader had no way to see that
+   * the two languages a South African deployment is for had not been started.
+   * The manifest now carries them with an empty resource so the gap is a row.
+   */
+  test('zu and af are listed, withheld, and marked not started', async () => {
+    const { languageStatuses } = await import('../client/src/lib/language-availability.ts');
+    for (const code of ['zu', 'af']) {
+      const status = languageStatuses().find((l) => l.code === code);
+      assert.ok(status, `${code} is not in the manifest`);
+      assert.equal(status!.available, false);
+      assert.match(status!.reason!, /not started/);
+      assert.equal(status!.coverage.translated, 0);
+      assert.ok(status!.coverage.total >= 33, 'the English total is the denominator');
+    }
+  });
+
+  test('each points at a worksheet that exists', async () => {
+    const { languageStatuses } = await import('../client/src/lib/language-availability.ts');
+    for (const code of ['zu', 'af']) {
+      const status = languageStatuses().find((l) => l.code === code)!;
+      assert.ok(status.worksheet, `${code} has no worksheet path`);
+      assert.ok(fs.existsSync(status.worksheet!), `${status.worksheet} does not exist`);
+      // The worksheet is blank on purpose; a filled one is a different state.
+      const text = fs.readFileSync(status.worksheet!, 'utf8');
+      assert.match(text, /a blank string keeps the language unavailable/i);
+    }
+  });
+
+  test('a partly translated language is distinguished from one not started', async () => {
+    const { languageStatuses } = await import('../client/src/lib/language-availability.ts');
+    const es = languageStatuses().find((l) => l.code === 'es')!;
+    assert.ok(es.coverage.translated > 0, 'Spanish has navigation strings');
+    assert.doesNotMatch(es.reason!, /not started/);
+    assert.match(es.reason!, /safety-critical/);
+  });
+
+  test('English is the only language offered, and the runtime is therefore not loaded', async () => {
+    const { availableLanguages, translationRuntimeNeeded } = await import(
+      '../client/src/lib/language-availability.ts'
+    );
+    assert.deepEqual(availableLanguages().map((l) => l.code), ['en']);
+    assert.equal(translationRuntimeNeeded(), false);
+  });
+});

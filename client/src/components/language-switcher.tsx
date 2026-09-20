@@ -64,6 +64,14 @@ export function LanguageCoverage() {
               {status.label} <span className="text-slate-500 font-mono text-xs">{status.code}</span>
             </p>
             {status.reason && <p className="text-xs text-amber-300 mt-0.5">{status.reason}</p>}
+            <p className="text-xs text-slate-500 mt-0.5 tabular-nums">
+              {status.coverage.translated} of {status.coverage.total} strings
+              {status.worksheet && (
+                <>
+                  {' '}· worksheet: <code className="font-mono">{status.worksheet}</code>
+                </>
+              )}
+            </p>
           </div>
           <span
             className={`text-xs font-mono uppercase tracking-wide px-2 py-1 rounded shrink-0 ${
@@ -72,7 +80,7 @@ export function LanguageCoverage() {
                 : 'bg-slate-700 text-slate-300'
             }`}
           >
-            {status.available ? 'offered' : 'withheld'}
+            {status.available ? 'offered' : status.coverage.translated === 0 ? 'not started' : 'withheld'}
           </span>
         </div>
       ))}
