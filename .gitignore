@@ -96,3 +96,6 @@ inference/__pycache__/
 # so the derived label table is tracked and the source folder is not.
 TCIA Folder/
 dataset/lidc-subset.tcia
+
+# pytest
+.pytest_cache/

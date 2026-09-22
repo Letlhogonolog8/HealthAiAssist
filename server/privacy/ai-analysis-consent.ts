@@ -40,20 +40,33 @@ export const AI_ANALYSIS_SCOPE = 'ai_image_analysis';
  * Bump whenever DISCLOSURE_TEXT changes — including when the performance
  * figures in it change, because those are the substance of what was agreed to.
  */
-export const DISCLOSURE_VERSION = '2026-09-02.v2';
+export const DISCLOSURE_VERSION = '2026-09-21.v4';
 
 /**
  * Shown before a model may read the person's image.
  *
  * Figures are the measured held-out values from MODEL_REGISTRY, stated as
- * frequencies rather than percentages of accuracy: "misses about 1 in 5" is
- * a claim a person can act on, "79% balanced accuracy" is not.
+ * frequencies rather than percentages of accuracy: "misses about 1 in 30" is
+ * a claim a person can act on, "86% balanced accuracy" is not.
+ *
+ * v3 (2026-09-20): the lung sentence was removed, because the lung model was.
+ * It was withdrawn after being found to answer real CT it had never been
+ * measured on. The skin false-alarm rate is stated as well as the miss rate —
+ * at the banded operating point roughly one harmless lesion in four is flagged
+ * or marked uncertain, and that is a cost to the person too.
+ *
+ * v4 (2026-09-21): a lung model reads CT again, and it is a different one. It
+ * looks only at a nodule a clinician has marked, and its figures come from 29
+ * malignant nodules — so the sentence says what it does, what it missed on
+ * that small set (4 of 29), and that the interval is wide. "1 in 7" is the
+ * observed rate; the true rate could easily be twice that.
  */
 export const DISCLOSURE_TEXT = [
   'If you agree, a computer program will look at your scan before a doctor does.',
   'It does not make a diagnosis. It sorts scans so that concerning ones are looked at sooner.',
   'A human clinician reviews every scan either way. The program cannot sign off a result.',
-  'It gets things wrong. For lung scans it misses about 1 in 5 cancers, and wrongly flags about 1 in 4 healthy scans. For skin images it misses about 1 in 30 cancers.',
+  'For skin images, the program looks at the whole photograph. For lung CT, it looks only at one nodule that a clinician has marked; it does not search the scan for nodules, and a chest CT uploaded without a mark is stored for a radiologist and not read by any program.',
+  'It gets things wrong. For skin images it misses about 1 in 30 cancers, and flags or marks as uncertain about 1 in 4 harmless lesions. For a marked lung nodule it missed 4 of 29 malignant nodules in testing (about 1 in 7) and wrongly flagged about 1 in 3 harmless ones - and 29 is a small number, so the real rates could be noticeably worse.',
   'It has not been approved by any medical regulator, in South Africa or elsewhere.',
   'It was trained mostly on light skin. For darker skin, how well it works has not been established.',
   'For skin images, the program also estimates a rough skin-tone category from the picture. This is used only to check whether it works equally well for everyone. It is never shown to your doctor and never used to decide anything about your care.',

@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import { triageLabel, triageClass } from '@/lib/triage';
 import { 
   Brain, 
   Shield, 
@@ -76,10 +77,10 @@ export const AnalysisResultsDisplay: React.FC<AnalysisResultsProps> = ({ analysi
               <div className="text-sm text-muted-foreground">Confidence</div>
             </div>
             <div className="p-3 bg-white rounded-lg">
-              <Badge className={`${getRiskColor(analysisData.riskLevel)} text-sm`}>
-                {analysisData.riskLevel.toUpperCase()}
+              <Badge className={`${triageClass(analysisData.riskLevel)} text-sm border`}>
+                {triageLabel(analysisData.riskLevel)}
               </Badge>
-              <div className="text-sm text-muted-foreground mt-1">Risk Level</div>
+              <div className="text-sm text-muted-foreground mt-1">Triage</div>
             </div>
             <div className="p-3 bg-white rounded-lg">
               <div className="text-lg font-bold text-purple-600">
@@ -165,10 +166,11 @@ export const AnalysisResultsDisplay: React.FC<AnalysisResultsProps> = ({ analysi
                 <Shield className="w-8 h-8 text-white" />
               </div>
             </div>
-            <Badge className={`${getRiskColor(analysisData.riskLevel)} text-xl px-6 py-3 mb-3 shadow-lg`}>
-              {analysisData.riskLevel.toUpperCase()} RISK
+            <Badge className={`${triageClass(analysisData.riskLevel)} text-xl px-6 py-3 mb-3 shadow-lg border`}>
+              {triageLabel(analysisData.riskLevel)}
             </Badge>
-            <p className="text-foreground font-semibold text-lg">Risk Assessment</p>
+            <p className="text-foreground font-semibold text-lg">Queue position</p>
+            <p className="text-xs text-muted-foreground mt-1">A threshold on one probability, not a clinical risk stratum.</p>
           </CardContent>
         </Card>
 

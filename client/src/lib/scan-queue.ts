@@ -36,6 +36,12 @@ export interface QueuedScan {
   fileName: string;
   /** Whose scan this is. Staff may capture on a patient's behalf. */
   patientId?: number;
+  /**
+   * Extra form fields the analysis needs — the clinician's mark (cx, cy) for
+   * the nodule characteriser. Kept with the upload so a queued scan replays
+   * exactly the request that was made, mark included.
+   */
+  extra?: Record<string, string>;
   capturedAt: number;
   status: QueuedScanStatus;
   attempts: number;
@@ -91,6 +97,7 @@ export async function enqueue(entry: {
   image: Blob;
   fileName: string;
   patientId?: number;
+  extra?: Record<string, string>;
 }): Promise<QueuedScan> {
   const queued: QueuedScan = {
     id:
@@ -101,6 +108,7 @@ export async function enqueue(entry: {
     image: entry.image,
     fileName: entry.fileName,
     patientId: entry.patientId,
+    extra: entry.extra,
     capturedAt: Date.now(),
     status: 'pending',
     attempts: 0,
@@ -209,6 +217,9 @@ export async function flushQueue(): Promise<FlushResult> {
         form.append('scanType', scan.scanType);
         if (scan.patientId !== undefined) {
           form.append('patientId', String(scan.patientId));
+        }
+        for (const [key, value] of Object.entries(scan.extra ?? {})) {
+          form.append(key, value);
         }
 
         const response = await fetch('/api/scan/upload', {

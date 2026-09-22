@@ -59,8 +59,9 @@ product — than a professor who lends a name.
 > - The skin test set is **96% light-skinned**, and I have published the finding
 >   that it therefore cannot establish performance on darker skin. That is the
 >   limitation I would most like a dermatologist's view on.
-> - Training data provenance for the lung model is weak, and I say so in the
->   documentation.
+> - The lung model was **withdrawn on 20 September** after I found it would
+>   answer real CT it had never been measured on; its replacement, trained on
+>   LIDC-IDRI, is not yet serving. I say so in the documentation.
 >
 > What I am asking for is 30 minutes: upload a few images, tell me where the
 > workflow is wrong, and tell me what would make it unusable in a real clinic. If
@@ -111,21 +112,30 @@ be**, so its real-world performance becomes measurable rather than assumed.
 
 ### Measured performance
 
-| | Skin | Lung |
+| | Skin — serving | Lung — withdrawn 2026-09-20 |
 |---|---|---|
 | Balanced accuracy | 0.864 | 0.785 |
 | Sensitivity | 0.913 | 0.812 |
 | Specificity | 0.814 | 0.757 |
-| Test set | 660 held-out images | 554 held-out images |
+| Test set | 660 held-out images | 554 held-out **web-sourced** images, not CT |
 | Calibration (ECE) | 0.024 | 0.017 |
 
-The lung threshold is 0.30, not argmax. Argmax scores better on balanced
-accuracy (0.838) and misses 86 of 282 cancers; the deployed threshold misses 53.
-That trade is deliberate for screening.
+The skin model bands its output rather than taking argmax: strict sensitivity
+would be 0.78, but the outright-miss rate falls to 3.3%, and everything in the
+uncertain band (about 1 scan in 6) reaches a clinician.
 
-**Roughly 1 in 5 lung cancers is still missed and 1 in 4 healthy scans is still
-flagged.** For skin, 3.3% of malignant lesions receive an outright benign
-result — the only outcome that actively reassures someone who has cancer.
+**For skin, 3.3% of malignant lesions receive an outright benign result** — the
+only outcome that actively reassures someone who has cancer — **and about 1 in
+4 harmless lesions is flagged or marked uncertain.**
+
+**No lung model is serving.** The one in the table was trained on web-sourced
+chest images and its figures describe those images. Pointed at real CT it had
+never been measured on, it produced verdicts anyway, so it was switched off.
+The replacement is a nodule characteriser trained on LIDC-IDRI CT — on 97
+held-out nodules it flagged 25 of 29 malignant and cleared 47 of 68 benign,
+which with 29 positives is an interval too wide to headline. A radiologist's
+view on whether a "characterise the nodule I have marked" workflow is useful at
+all would be the most valuable thing I could receive.
 
 ### What I most want your opinion on
 

@@ -121,9 +121,10 @@ a { color: var(--accent); text-decoration: none; }
 <blockquote>
 <p><strong>Artifacts are not in git.</strong> <code>dataset/</code> is gitignored (it was stripped from
 history), so the <code>.h5</code> files these cards describe are not version-controlled and
-must be provisioned onto any machine that serves them. Both are now rebuildable
-from source — <code>scripts/train-skin-cancer-model.py</code> and
-<code>scripts/train-lung-cancer-model.py</code> — so losing one costs a training run rather
+must be provisioned onto any machine that serves them. All three are rebuildable
+from source — <code>scripts/train-skin-cancer-model.py</code>,
+<code>scripts/train-lung-cancer-model.py</code> and <code>scripts/train-lung-nodule-model.py</code>
+(after the <code>lidc_*</code> extraction) — so losing one costs a training run rather
 than the modality. Back them up anyway: <code>npm run backup:models</code>.</p>
 </blockquote>
 <p>Every model this system can serve, what it was measured at, and what it must not
@@ -138,7 +139,21 @@ metric, not raw accuracy. On an imbalanced set, a model that answers "negative"
 for every image scores the majority-class rate while detecting nothing; balanced
 accuracy scores that degenerate case at 0.5, which is chance.</p>
 <hr />
-<h2>Lung cancer — ResNet50V2 — <strong>ENABLED</strong> (retrained 2026-08-18)</h2>
+<h2>Lung cancer — ResNet50V2 — <strong>WITHDRAWN 2026-09-20</strong> (retrained 2026-08-18)</h2>
+<blockquote>
+<p><strong>This model no longer serves.</strong> It was withdrawn after being found to
+accept real chest CT — which it had never been measured on — and to issue
+verdicts on it. The account is in
+This model cannot read real clinical imaging
+below; the short version is that the earlier claim on this card, that the
+out-of-distribution screen refused every clinical acquisition, was measured
+on the wrong object and is false for chest CT. <code>lung</code> scans are stored and
+queued for a radiologist with no automated result. Its replacement, the
+LIDC-IDRI nodule characteriser, was bound on 2026-09-21 and has its own card
+below; it answers a narrower question and only for a clinician-marked nodule.</p>
+<p>The figures below are unchanged. They are true of this artifact on its own
+held-out set. They were never true of CT, and that is the point.</p>
+</blockquote>
 <table>
 <thead>
 <tr>
@@ -284,111 +299,232 @@ is auditable.</p>
 measured on data the model had been tuned on and never meant what it said.</p>
 <h3>Limitations</h3>
 <ul>
-<li>Input screening is active: PCA reconstruction error in feature space flags
-  skin images at <strong>100%</strong> and held-out chest images at <strong>0.8%</strong>; pixel checks
+<li>Input screening: PCA reconstruction error in feature space flags skin images
+  at <strong>100%</strong>, held-out chest images at <strong>0.8%</strong> — and <strong>real CT slices at only
+  3.4%</strong>, which is why the model was withdrawn (next section). Pixel checks
   catch blank and blurred frames, which the feature detector scores as
   in-distribution.</li>
+<li><strong>No measured performance on CT.</strong> The training and test images are web
+  PNGs of unrecorded provenance. Nothing above says anything about how this
+  model behaves on a scanner's output.</li>
 <li>Demographic composition of the training data is unrecorded.</li>
 <li>Not clinically validated. Not cleared by any regulator.</li>
 </ul>
-<h3>This model cannot currently read real clinical imaging</h3>
-<p>Measured, not inferred. DICOM ingestion was added in August 2026, and the first
-thing it established is that <strong>this model refuses genuine radiology objects</strong>:</p>
+<h3>This model cannot read real clinical imaging — and was withdrawn when that turned out to be the wrong way round</h3>
+<p><strong>What this card said until 2026-09-20.</strong> DICOM ingestion was added in August
+2026, and the first object put through it — pydicom's bundled <code>CT_small.dcm</code> —
+scored 22.88 against the 16.51 out-of-distribution threshold and was refused.
+Re-windowing it did not change that (lung window 25.04, mediastinal 30.35,
+bone 20.32). This card, the application text, the device-integration plan and
+the demo script all concluded from those four numbers that <strong>the model refuses
+every clinical acquisition</strong>, that the DICOM gate in the inference service was
+belt-and-braces, and that the lung modality was therefore safe to leave
+serving until a CT-trained model replaced it.</p>
+<p><strong>What was actually measured on 2026-09-20.</strong> <code>CT_small.dcm</code> is a 128×128 GE
+RHAPSODE acquisition from the 1990s. It is not what a chest CT looks like. The
+LIDC-IDRI series in <code>dataset/</code> are, and run through the serving code they give
+a different answer:</p>
 <table>
 <thead>
 <tr>
-<th>Input</th>
-<th>OOD score</th>
-<th>Threshold</th>
-<th>Outcome</th>
+<th>Input, through the serving path</th>
+<th>n</th>
+<th>Passed the screen</th>
+<th>Median score (threshold 16.51)</th>
+<th>Verdicts issued</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Held-out <code>Lung MRI (n).png</code> from its own training distribution</td>
-<td>~10.9</td>
-<td>16.51</td>
-<td>classified</td>
+<td>Whole LIDC CT slices, lung window, 224×224 (<code>dataset/lidc-ood/whole-slice</code>)</td>
+<td>87</td>
+<td><strong>84 (96.6%)</strong></td>
+<td><strong>12.26</strong> (min 9.9, max 18.0)</td>
+<td>cancer and no_cancer, roughly evenly</td>
 </tr>
 <tr>
-<td>Real CT DICOM (<code>pydicom</code> CT_small, GE RHAPSODE)</td>
-<td><strong>22.88</strong></td>
-<td>16.51</td>
-<td><strong>refused</strong></td>
+<td>Real LIDC DICOM objects via <code>inference/dicom_ingest.dicom_to_png_bytes</code></td>
+<td>12</td>
+<td><strong>11</strong></td>
+<td>14.2 (min 9.4, max 17.2)</td>
+<td>3 cancer / 8 no_cancer</td>
 </tr>
 <tr>
-<td>Real MR DICOM (<code>pydicom</code> MR_small)</td>
-<td><strong>27.16</strong></td>
-<td>16.51</td>
-<td><strong>refused</strong></td>
+<td>Its own held-out web-PNG test set, for comparison</td>
+<td>40</td>
+<td>40</td>
+<td>11.3</td>
+<td>—</td>
 </tr>
 </tbody>
 </table>
-<p><strong>Windowing was investigated as a possible cause, and ruled out.</strong> A DICOM
-carrying no VOI LUT was being rendered across its full stored range, which for
-CT compresses lung parenchyma into the bottom fifth of the greyscale — a
-genuine defect, since no radiologist reads a chest that way. Correcting it
-changes nothing about the refusal:</p>
-<table>
-<thead>
-<tr>
-<th>Window applied to the same CT</th>
-<th>OOD score</th>
-<th>Outcome</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Full stored range (the old fallback)</td>
-<td>22.88</td>
-<td>refused</td>
-</tr>
-<tr>
-<td><strong>Lung, WC −600 / WW 1500</strong> (radiologically correct)</td>
-<td><strong>25.04</strong></td>
-<td><strong>refused</strong></td>
-</tr>
-<tr>
-<td>Mediastinal, WC 40 / WW 400</td>
-<td>30.35</td>
-<td>refused</td>
-</tr>
-<tr>
-<td>Bone, WC 500 / WW 2000</td>
-<td>20.32</td>
-<td>refused</td>
-</tr>
-</tbody>
-</table>
-<p>The correct window is <em>worse</em> than the wrong one. There is no presentation of a
-real acquisition that this model accepts, and tuning the window until one passed
-would be fitting the preprocessing to defeat the safety check rather than fixing
-anything. The windowing was corrected because it was wrong, not because it
-helped.</p>
-<p>The refusal is the out-of-distribution detector working correctly — it is doing
-precisely what it exists to do, and the alternative (a confident verdict on an
-image type the model has never seen) would be far worse.</p>
-<p>But read what it means. The training set is small RGBA PNGs named
-<code>Lung MRI (n).png</code>, of unrecorded provenance, at inconsistent dimensions —
-consistent with web-scraped or screenshot material rather than DICOM exports.
-A properly windowed clinical acquisition does not resemble them. So:</p>
+<p>Real chest CT sits <strong>inside</strong> this model's training distribution in feature
+space — the training set is web-scraped chest imagery, and a windowed CT slice
+resembles it well enough — so a screen built on reconstruction error has
+nothing to separate. Raising the threshold would not be a fix; it would be
+tuning the safety check to defeat itself, and the bar in
+<code>scripts/build-ood-reference.py</code> was set before measurement precisely so that
+it could not be moved to wherever the result landed.</p>
+<p>The record is machine-checked, not prose:</p>
+<pre><code>python scripts/build-ood-reference.py lung --measure-only
+  held-out chest images (same modality)                n=120  median 10.579  flagged   0.8%  expect accept  PASS
+  skin lesions (wrong modality)                        n=120  median 29.740  flagged 100.0%  expect refuse  PASS
+  real CT slices, LIDC-IDRI (no measured performance)  n= 87  median 12.258  flagged   3.4%  expect refuse  FAIL
+1 requirement(s) NOT met  →  exit 1
+</code></pre>
+<p><code>dataset/lung_cancer_MRI_dataset/lung_model_ood.json</code> records the failed
+domain, and <code>tests/withdrawn-modality.test.ts</code> checks that the registry's
+withdrawal reason quotes the same counts.</p>
+<p><strong>What this means.</strong> The only thing that stopped a DICOM object was the
+explicit DICOM-file gate in <code>inference/server.py</code>. Nothing stopped a PNG or
+JPEG export of the same slice — the ordinary way an image leaves a PACS viewer
+— and such an image received a cancer / no_cancer verdict from a model with
+<strong>no measured performance on CT at all</strong>. That is a guess presented as a
+result. The rule this project runs on is to refuse rather than guess, so the
+model was withdrawn from serving the day this was measured, by setting
+<code>MODEL_REGISTRY.lung.enabled = false</code> with the measurement as the reason.
+Governance reports the modality as <code>withdrawn</code>; scans are stored and queued for
+a radiologist with no automated result, exactly as for a modality that has no
+model.</p>
+<p>The earlier windowing correction stands on its own merits: rendering a CT
+across its full stored range was wrong regardless of what any model did with
+the result. But the sentence that used to follow it here — that the correct
+window "scores worse", so windowing could not be the cause — was reasoning
+from a single unrepresentative object, and it is retracted.</p>
+<p><strong>What stays true.</strong> The pipeline around the model — ingest, de-identify,
+window, screen, classify, explain, review, adjudicate — works end to end.
+The model at the end of it was the wrong model for the input, and the
+platform's own safety machinery is what found that out: the OOD script's
+both-direction bar, applied to the domain it should have been applied to in
+August. Retraining on a documented CT dataset with patient-level splits was
+already the first item of clinical work; it is now the only route by which a
+lung result can be produced at all. That work exists —
+<code>dataset/lung_nodule_model/</code>, trained on LIDC-IDRI, calibrated, with a
+both-direction OOD reference that <em>does</em> refuse whole slices at 90.8% — and it
+was bound and given its own card on 2026-09-21 (next section).</p>
+<p><strong>Lesson recorded for the next modality.</strong> A refuse-domain measured on a
+convenience sample is not a measurement. Every future OOD reference is
+validated against real acquisitions of the modality it is meant to refuse, from
+the dataset the replacement model will be trained on, before the model behind
+it is allowed to serve.</p>
+<hr />
+<h2>Lung nodule characteriser — ResNet50V2 on LIDC-IDRI — <strong>VALIDATION</strong> (bound 2026-09-21)</h2>
 <blockquote>
-<p><strong>The lung modality cannot today be pointed at a hospital PACS.</strong> The pipeline
-around it works end to end — ingest, de-identify, window, screen, classify —
-and the model at the end of it declines every real object it is shown.</p>
+<p><strong>Research / internal validation.</strong> Serving under validation terms: the
+evidence is real and small, every figure carries the interval that 29
+malignant nodules imply, and every result goes to a radiologist. Not
+clinically validated. Not cleared by any regulator.</p>
 </blockquote>
-<p>This is the concrete form of the provenance concern already recorded above, and
-it is the reason retraining on a documented CT dataset with patient-level splits
-(LIDC-IDRI, NLST) is the first item of clinical work, not a later refinement.</p>
-<p>The inference service therefore refuses DICOM for this modality <strong>explicitly</strong>,
-ahead of the out-of-distribution screen, with a message naming the reason. The
-screen would catch it anyway, but its wording — "does not resemble the chest
-images the model was trained on" — reads as though the submitted image were
-unusual. It is not: every clinical acquisition is refused, always. A radiology
-department evaluating this needs to hear "this modality cannot read your
-scanner's output yet", not "try a different image".
-Until that happens the lung modality is demonstrable only on data shaped like
-its own training set, and that should be stated plainly wherever it is shown.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Model name / version</td>
+<td><code>resnet50v2-lung_nodule-9faf49cdca48</code></td>
+</tr>
+<tr>
+<td>Artifact</td>
+<td><code>dataset/lung_nodule_model/resnet50v2_lung_nodule_model.h5</code></td>
+</tr>
+<tr>
+<td>Evidence class</td>
+<td><code>INTERNAL_VALIDATION</code> — held-out internal test set only</td>
+</tr>
+<tr>
+<td>Intended use</td>
+<td>Characterise <strong>one nodule a clinician has marked</strong> on a chest CT slice, as the probability that a radiologist would rate it malignant, to inform the order of review. Route 1 of <code>scripts/lidc_extract_patches.py</code>.</td>
+</tr>
+<tr>
+<td>Does not do</td>
+<td>Find nodules. Read a whole slice (refused by its OOD screen at 90.8%). Check that the marked region contains a nodule. Diagnose.</td>
+</tr>
+<tr>
+<td>Input</td>
+<td>The <strong>DICOM object</strong> of one CT slice plus a marked centre (pixels). Rendered at the lung window (WC −600 / WW 1500) by <code>inference/dicom_ingest.training_window</code>, 64 px crop centred on the mark (<code>inference/nodule_patch.crop</code>), bicubic to 224×224, raw RGB 0–255. <strong>Raster exports are refused</strong>: a PNG carries no pixel scale, and the crop's physical size is what the model was trained on.</td>
+</tr>
+<tr>
+<td>Architecture</td>
+<td>ResNet50V2 ImageNet trunk, <strong>frozen</strong>; trained Dense head; normalisation fused into the graph</td>
+</tr>
+<tr>
+<td>Training data</td>
+<td>LIDC-IDRI (TCIA, CC BY 3.0). 229 series / 228 patients downloaded of 1,010. Labels: median malignancy rating across up to four radiologists, median exactly 3 excluded — <strong>a rating is an impression, not histology</strong>. <code>scripts/lidc_build_labels.py</code>; duplicates and the superseded annotation handled as recorded there.</td>
+</tr>
+<tr>
+<td>Split</td>
+<td><strong>By patient, before extraction.</strong> Train 160 patients / 580 nodules (192 malignant), val 39 / 145 (41), test 29 / 97 (29). Five slices per nodule. All three lists recorded in <code>dataset/lidc-ct/patches.csv</code>, so exclusion is checkable by intersection.</td>
+</tr>
+<tr>
+<td>Operating point</td>
+<td>Threshold <strong>0.30</strong> on P(malignant), chosen on validation nodules as the most specific threshold reaching 0.85 sensitivity. Temperature scaling fitted (T = 1.265) and <strong>not applied</strong> — validation ECE 0.061 → 0.059, not a meaningful gain.</td>
+</tr>
+<tr>
+<td><strong>Test, per nodule</strong> (mean over slices; the published figure)</td>
+<td><strong>Sensitivity 0.862 (25/29), 95% CI 0.69–0.95. Specificity 0.691 (47/68), 95% CI 0.57–0.79. Balanced accuracy 0.777.</strong> n = 97 nodules.</td>
+</tr>
+<tr>
+<td>Test, per patch (closer to single-slice serving; interval optimistic)</td>
+<td>Sensitivity 0.841, specificity 0.662, n = 485 patches</td>
+</tr>
+<tr>
+<td>Test at argmax (not deployed)</td>
+<td>Sensitivity 0.724, specificity 0.853</td>
+</tr>
+<tr>
+<td>Calibration</td>
+<td>ECE 0.040, Brier 0.153 on the held-out set (<code>lung_nodule_model_calibration.json</code>)</td>
+</tr>
+<tr>
+<td>OOD reference</td>
+<td>PCA reconstruction error, 64 components, threshold 23.87 at the 99.5th percentile of training features. <strong>Validated in both directions</strong> with bars set before measurement: held-out benign patches accepted (3.3% flagged), off-nodule parenchyma accepted (0.8%), whole CT slices refused (90.8%), skin lesions refused (92.5%).</td>
+</tr>
+<tr>
+<td>Quality gate</td>
+<td>Pixel floors measured on the training patches (std ≥ 4.0, Laplacian variance ≥ 1.0, level 15–240), below the training minimum so no valid crop is refused by them.</td>
+</tr>
+<tr>
+<td>Subgroups</td>
+<td><strong>None possible.</strong> LIDC records sex for 29% of patients, age for 20%, ethnic group for 4%. There is no equivalent of the skin-tone analysis, and for a South African deployment that is a gap this dataset cannot close.</td>
+</tr>
+<tr>
+<td>Failure modes</td>
+<td>A region marked away from a nodule receives a probability about that region (the screen checks scale and modality, not content). A miss rate of 4 in 29 on the test set could be double that in truth. A single marked slice is scored where the published figure averaged five. Inter-reader agreement is the ceiling.</td>
+</tr>
+<tr>
+<td>Binding</td>
+<td><code>MEASUREMENT_BINDINGS.lung_nodule</code>, <code>re_measured</code> 2026-09-21 by <code>scripts/verify-lung-nodule-operating-point.py</code>, which reproduced the per-nodule figures exactly and wrote <code>lung_nodule_verification.json</code>.</td>
+</tr>
+<tr>
+<td>Validation status</td>
+<td>Internal held-out only. No external test set, no clinical study, no regulator.</td>
+</tr>
+</tbody>
+</table>
+<p>Reproduce: <code>python scripts/verify-lung-nodule-operating-point.py</code> (per-nodule and
+per-patch, at the deployed operating point). Rebuild: the <code>lidc_*</code> scripts then
+<code>scripts/train-lung-nodule-model.py</code>, <code>scripts/calibrate-model.py lung_nodule</code>,
+<code>scripts/build-ood-reference.py lung_nodule</code>.</p>
+<h3>What a clinician receives</h3>
+<p>Not a badge. The probability, the threshold it was compared to, the temperature
+(1.0) and whether calibration was applied, the OOD score against its threshold,
+the quality-gate outcome, the artifact fingerprint, the evidence class, and the
+sentence "clinical validation: NOT ESTABLISHED" — recorded as numbers on the
+scan row (<code>calibrated_probability</code>, <code>decision_threshold</code>, <code>ood_score</code>, …) and
+rendered by <code>client/src/components/ai-result-summary.tsx</code>. The mark itself is
+recorded in <code>scan_regions</code>, because the probability is about that region.</p>
+<h3>Why this replaces the withdrawn model, and what it does not replace</h3>
+<p>The withdrawn model answered "does this chest image contain cancer" from web
+images. This one answers a narrower question from real CT, and only when
+somebody qualified points. The lung modality has therefore gone from a
+whole-image screen with no CT evidence to a marked-region characteriser with a
+small amount of CT evidence. That is a smaller claim and a better-founded one.
+A detector that proposes the candidates a clinician marks today is roadmap P2,
+and is not implied by anything here.</p>
 <hr />
 <h2>Skin cancer — ResNet50V2 — <strong>ENABLED</strong> (retrained 2026-08-13)</h2>
 <table>
@@ -609,6 +745,43 @@ cannot silently disagree with training about normalisation again.</p>
 Requests return HTTP 503 and queue the scan for manual review. Until an artifact
 exists and passes evaluation, they should be removed from the interface rather
 than presented as capabilities.</p>
+<h2>Serving status, in one place</h2>
+<table>
+<thead>
+<tr>
+<th>Modality</th>
+<th>Status</th>
+<th>Since</th>
+<th>What a request gets</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>skin</td>
+<td><strong>Serving</strong></td>
+<td>2026-08-13</td>
+<td>A banded result, reviewed by a clinician</td>
+</tr>
+<tr>
+<td>lung</td>
+<td><strong>Withdrawn</strong></td>
+<td>2026-09-20</td>
+<td>503, stored and queued for a radiologist — see the lung card</td>
+</tr>
+<tr>
+<td>lung_nodule (LIDC-IDRI)</td>
+<td><strong>Serving — VALIDATION</strong></td>
+<td>2026-09-21</td>
+<td>A calibrated probability for one clinician-marked nodule on a DICOM CT slice, with the structured record; raster and unmarked input refused; reviewed by a radiologist</td>
+</tr>
+<tr>
+<td>breast, colon, prostate</td>
+<td><strong>No model</strong></td>
+<td>—</td>
+<td>503, stored and queued</td>
+</tr>
+</tbody>
+</table>
 <hr />
 <h2>What a 503 means</h2>
 <p>When automated analysis cannot run, the API returns 503 with no diagnostic content

@@ -27,6 +27,7 @@ interface EnhancedHeroSectionProps {
 interface ModelCard {
   scanType: string;
   enabled: boolean;
+  status: "CURRENT" | "VALIDATION" | "DISABLED";
   evaluation: {
     balancedAccuracy: number;
     sensitivity: number;
@@ -40,23 +41,34 @@ export default function EnhancedHeroSection({ onLoginClick }: EnhancedHeroSectio
     queryFn: async () => (await fetch("/api/models/cards")).json(),
   });
 
-  const enabled = data?.models.filter((m) => m.enabled) ?? [];
-  const disabled = data?.models.filter((m) => !m.enabled) ?? [];
-  const best = enabled
+  // Status comes from the server's capability computation (registry plus
+  // governance), not from the `enabled` flag alone: a model that is enabled but
+  // whose deployed artifact is not the measured one is DISABLED here too.
+  const current = data?.models.filter((m) => m.status === "CURRENT") ?? [];
+  const validation = data?.models.filter((m) => m.status === "VALIDATION") ?? [];
+  const disabled = data?.models.filter((m) => m.status === "DISABLED") ?? [];
+  const serving = [...current, ...validation];
+  const best = current
     .map((m) => m.evaluation?.sensitivity ?? 0)
     .reduce((max, value) => Math.max(max, value), 0);
 
+  // Counted, not written. This detail line used to read "three more have no
+  // classifier at all" and "disabled after evaluation" — the first a literal
+  // that would survive any change to the registry, the second a reason that
+  // was wrong the first time a model was withdrawn for a different one.
+  const detailParts = [
+    validation.length ? `${validation.length} under validation terms` : null,
+    disabled.length ? `${disabled.length} withdrawn — the reason is on its model card` : null,
+  ].filter(Boolean);
   const facts = [
     {
-      value: enabled.length ? String(enabled.length) : "—",
-      label: "modalities with a working model",
-      detail: disabled.length
-        ? `${disabled.length} disabled after evaluation`
-        : "three more have no classifier at all",
+      value: serving.length ? String(serving.length) : "—",
+      label: serving.length === 1 ? "modality with a serving model" : "modalities with a serving model",
+      detail: detailParts.length ? detailParts.join("; ") : "every registered model is serving",
     },
     {
       value: best ? `${(best * 100).toFixed(1)}%` : "—",
-      label: "best measured sensitivity",
+      label: "best measured sensitivity (current models)",
       detail: "on a held-out test set, never used in training",
     },
     {
@@ -111,9 +123,11 @@ export default function EnhancedHeroSection({ onLoginClick }: EnhancedHeroSectio
             </h1>
 
             <p className="mt-6 text-lg text-slate-400 leading-relaxed max-w-xl">
-              Two imaging models and a consented genomics pipeline. Every number this
-              system reports traces to a measurement you can reproduce, and it refuses
-              to answer where it has no basis to.
+              Imaging models with their measurements attached, and a consented genomics
+              pipeline. Every number this system reports traces to a measurement you can
+              reproduce, and it refuses to answer where it has no basis to — including
+              withdrawing a model it found answering questions it had never been measured
+              on.
             </p>
 
             <div className="mt-9 flex flex-wrap gap-3">

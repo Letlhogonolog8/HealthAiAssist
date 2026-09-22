@@ -1,5 +1,5 @@
 import { storage } from './storage';
-import { aiEngine } from './ai-engine';
+import { allOperationalMetrics } from './model-operational-metrics';
 
 interface AnalyticsMetric {
   name: string;
@@ -324,22 +324,18 @@ export class AnalyticsEngine {
     };
   }
 
+  /**
+   * Per registered modality only. This used to enumerate the four model names
+   * declared in server/ai-engine.ts — two of which ("breast-cancer-detection",
+   * "eye-disease-detection") never existed anywhere — and report them as the
+   * platform's model status. The registry is the only list of models.
+   */
   private async getAIModelMetrics(): Promise<any> {
     try {
-      const modelStatus = await aiEngine.getModelStatus();
-      const metrics: any = {};
-
-      for (const [modelType] of Object.entries(modelStatus)) {
-        metrics[modelType] = await aiEngine.getModelPerformanceMetrics(modelType);
-      }
-
-      return {
-        models: metrics,
-        totalModels: Object.keys(modelStatus).length,
-        loadedModels: Object.values(modelStatus).filter((status: any) => status.loaded).length
-      };
+      const { models, totalModels, servingModels } = await allOperationalMetrics();
+      return { models, totalModels, servingModels };
     } catch (error) {
-      return { error: 'Failed to fetch AI metrics', models: {} };
+      return { error: 'Failed to fetch AI metrics', models: {}, totalModels: 0, servingModels: 0 };
     }
   }
 
@@ -595,8 +591,9 @@ export class AnalyticsEngine {
   private calculateOverallHealthScore(ai: any, db: any, api: any): number {
     let score = 100;
 
-    // AI health
-    if (ai.loadedModels < ai.totalModels) score -= 20;
+    // AI health: a registered model that is not serving. A withdrawn model
+    // counts here too — that is a real reduction in what the platform does.
+    if ((ai.servingModels ?? 0) < (ai.totalModels ?? 0)) score -= 20;
 
     // Database and API health are only scored where telemetry actually exists.
     // Treating an uninstrumented metric as "passing" reports a healthy system we

@@ -80,6 +80,21 @@ export const MEASUREMENT_BINDINGS: Record<string, MeasurementBinding> = {
       'set named in the model card (360 benign / 300 malignant), at the ' +
       'raw_0_255 preprocessing the serving path uses.',
   },
+  lung_nodule: {
+    artifactFingerprint: '9faf49cdca48',
+    boundAt: '2026-09-21',
+    verification: 're_measured',
+    note:
+      'scripts/verify-lung-nodule-operating-point.py re-run against this artifact on ' +
+      '2026-09-21 over the test rows of dataset/lidc-ct/patches.csv (97 nodules, 29 ' +
+      'malignant; patient-level split recorded in the manifest), at the deployed operating ' +
+      'point: temperature 1.0 (fitted, not applied), threshold 0.30 on P(malignant), mean ' +
+      'over each nodule’s slices. Reproduced sensitivity 0.8621 and specificity 0.6912 ' +
+      'exactly, confusion TP 25 / FN 4 / TN 47 / FP 21. The report is written to ' +
+      'dataset/lung_nodule_model/lung_nodule_verification.json. ' +
+      'Unlike the legacy lung binding, all three split lists are in the manifest, so ' +
+      '"the test patients were excluded from training" is checkable by intersection.',
+  },
   lung: {
     artifactFingerprint: '31315d6a059a',
     boundAt: '2026-09-02',
@@ -107,7 +122,13 @@ export type BindingState =
   /** The artifact could not be fingerprinted, so nothing can be concluded. */
   | 'unknown'
   /** No binding is recorded for this modality. */
-  | 'unbound';
+  | 'unbound'
+  /**
+   * The registry has switched this modality off. The binding may well still
+   * match — the figures describe the artifact — but the artifact has been
+   * found unfit to serve for a reason the figures do not capture.
+   */
+  | 'withdrawn';
 
 export interface GovernanceStatus {
   modality: string;
@@ -165,6 +186,24 @@ export async function governanceStatus(modality: string): Promise<GovernanceStat
     };
   }
 
+  // Checked after fingerprinting, not before, so the response still says which
+  // artifact is deployed and which was measured. A withdrawal is a decision
+  // about a specific file, and the record should show that it is that file.
+  const registered = MODEL_REGISTRY[modality];
+  if (registered && !registered.enabled) {
+    return {
+      modality,
+      state: 'withdrawn',
+      deployedFingerprint: deployed,
+      measuredFingerprint: binding.artifactFingerprint,
+      verification: binding.verification,
+      mayServe: false,
+      explanation:
+        registered.disabledReason ??
+        'This modality has been switched off in MODEL_REGISTRY and does not serve.',
+    };
+  }
+
   if (deployed !== binding.artifactFingerprint) {
     return {
       modality,
@@ -215,6 +254,13 @@ export async function reportGovernanceAtStartup(): Promise<void> {
         console.log(
           `[governance] ${s.modality}: artifact ${s.deployedFingerprint} matches its ` +
             `measurement binding (${s.verification}).`
+        );
+      } else if (s.state === 'withdrawn') {
+        // Expected, not an error: the operator switched it off on purpose.
+        // Logged at warning level so it is still visible in every boot.
+        console.warn(
+          `[governance] ${s.modality}: WITHDRAWN — stored and queued for a human, ` +
+            `not analysed. ${s.explanation.split('.')[0]}.`
         );
       } else {
         console.error(

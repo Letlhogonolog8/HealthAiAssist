@@ -58,6 +58,41 @@ interface MulterRequest extends Request {
   file: Express.Multer.File;
 }
 
+/**
+ * How the model reached its number, as numbers.
+ *
+ * Everything a reviewer needs to weigh a result, and everything a drift
+ * analysis needs to stratify it. Persisted to the structured columns on
+ * medical_scans and returned to the client under `analysis.detail`. Nothing in
+ * here is a percentage string, and nothing is defaulted: a field the service
+ * did not report is null.
+ */
+interface AnalysisDetail {
+  /** Calibrated P(positive class) as the service produced it. */
+  probability: number | null;
+  /** The operating point the call was made at. */
+  threshold: number | null;
+  thresholdChosenOn: string | null;
+  temperature: number | null;
+  calibrationApplied: boolean | null;
+  /** Expected calibration error measured on the held-out set, from the model's calibration file. */
+  calibrationEce: number | null;
+  oodScore: number | null;
+  oodThreshold: number | null;
+  /** 'PASS' when screened and accepted; 'SKIPPED' when no reference was installed. */
+  oodStatus: 'PASS' | 'SKIPPED';
+  qualityGate: string | null;
+  /** 'dicom' | 'raster', decided from the bytes. */
+  inputSource: 'dicom' | 'raster';
+  modelVersion: string;
+  modelClass: string;
+  /** The registry's evaluation object, so the card's figures travel with the result. */
+  evaluation: Record<string, any> | null;
+  clinicalValidation: 'NOT ESTABLISHED';
+  humanReview: 'REQUIRED';
+  inferenceAt: string;
+}
+
 // Add TypeScript interface for analysis result
 interface AnalysisResult {
   hasCancer: boolean;
@@ -70,6 +105,39 @@ interface AnalysisResult {
   analysis: Record<string, any>;
   malignancyIndicators: any[];
   advancedMetrics: Record<string, any>;
+  /** The structured record. Present for every analysed result. */
+  detail?: AnalysisDetail;
+  /** Identity-free acquisition record from the service (DICOM uploads only). */
+  acquisition?: Record<string, any> | null;
+  /** The de-identified DICOM, when the upload was DICOM. Persisted instead of the upload. */
+  deidentifiedObject?: Buffer | null;
+  /** The region the result is about — the clinician's mark, for route 1. */
+  region?: {
+    cx: number; cy: number; sizePx: number; sizeMm: number[] | null;
+    frameRows: number; frameColumns: number;
+  } | null;
+  /** What to store in medical_scans.result, when the generic sentence would misdescribe it. */
+  resultText?: string;
+}
+
+/** Splits the service's acquisition record from the bytes it carried. */
+function splitAcquisition(acquisition: any): {
+  acquisition: Record<string, any> | null;
+  deidentifiedObject: Buffer | null;
+  region: AnalysisResult['region'];
+} {
+  if (!acquisition || typeof acquisition !== 'object') {
+    return { acquisition: null, deidentifiedObject: null, region: null };
+  }
+  const { deidentifiedObject, region, ...rest } = acquisition;
+  return {
+    acquisition: rest,
+    deidentifiedObject:
+      typeof deidentifiedObject === 'string' && deidentifiedObject.length > 0
+        ? Buffer.from(deidentifiedObject, 'base64')
+        : null,
+    region: region ?? null,
+  };
 }
 
 // Real-time analysis function using Python models
@@ -169,7 +237,11 @@ function numberOrUndefined(value: unknown): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-async function performRealTimeAnalysis(imageBuffer: Buffer, scanType: string, patientData?: any): Promise<AnalysisResult> {
+async function performRealTimeAnalysis(
+  imageBuffer: Buffer,
+  scanType: string,
+  options: { inputSource: 'dicom' | 'raster'; region?: { cx: number; cy: number } | null } = { inputSource: 'raster' }
+): Promise<AnalysisResult> {
   // Throws for modalities with no model (breast, colon, prostate) and for models
   // that exist but failed evaluation (skin). Previously all of these fell through
   // to randomised output; they now fail loudly so the scan reaches a human.
@@ -177,11 +249,148 @@ async function performRealTimeAnalysis(imageBuffer: Buffer, scanType: string, pa
 
   switch (resolved) {
     case 'skin':
-      return performSkinCancerAnalysis(imageBuffer);
+      return performSkinCancerAnalysis(imageBuffer, options.inputSource);
     case 'lung':
       return performLungCancerAnalysis(imageBuffer);
+    case 'lung_nodule':
+      return performLungNoduleAnalysis(imageBuffer, options.region ?? null);
     default:
       throw new ModelUnavailableError(scanType, 'No analysis pipeline wired for this modality.');
+  }
+}
+
+/**
+ * Route 1 of the lung nodule characteriser: a clinician has marked a nodule
+ * on one CT slice, and the model says how likely a radiologist would be to
+ * rate it malignant.
+ *
+ * Resident service only. There is no subprocess fallback, deliberately: the
+ * withdrawn lung model's fallback ran a CLI that could not see a DICOM object,
+ * and a path that "works" by degrading the input is worse than one that says
+ * it cannot run. Without INFERENCE_URL this refuses, the scan is stored and
+ * queued, and the reason names the variable.
+ *
+ * The wording of the findings is the model's question, not a diagnosis: it
+ * flags a marked region for priority review or it does not. "Cancer detected"
+ * is not something a probability about a radiologist's rating can say.
+ */
+async function performLungNoduleAnalysis(
+  imageBuffer: Buffer,
+  region: { cx: number; cy: number } | null
+): Promise<AnalysisResult> {
+  const startedAt = Date.now();
+  if (!region) {
+    throw new InputRejectedError('lung_nodule', [
+      'Mark the nodule first. The characteriser answers a question about one marked ' +
+        'region of one slice; without a mark there is nothing to characterise.',
+    ]);
+  }
+  if (!isInferenceServerConfigured()) {
+    throw new ModelUnavailableError(
+      'lung_nodule',
+      'The nodule characteriser runs only in the resident inference service (INFERENCE_URL is not set). ' +
+        'The scan has been stored and queued for a radiologist.'
+    );
+  }
+
+  try {
+    const result: any = await infer('lung_nodule', imageBuffer, 'slice.dcm', { region });
+
+    if (result.status === 'rejected_input') {
+      throw new InputRejectedError(
+        'lung_nodule',
+        Array.isArray(result.reasons) && result.reasons.length ? result.reasons : ['The marked region could not be assessed.']
+      );
+    }
+    if (result.status !== 'success' || typeof result.probability !== 'number') {
+      throw new ModelUnavailableError('lung_nodule', result.message || 'The nodule characteriser did not return a probability');
+    }
+
+    const flagged = result.prediction === 'cancer';
+    const probability = result.probability as number;
+    const { acquisition, deidentifiedObject, region: markedRegion } = splitAcquisition(result.acquisition);
+    const modelVersion = await modelVersionFor('lung_nodule');
+    const entry = MODEL_REGISTRY.lung_nodule;
+
+    const findings = [
+      `Model estimate: ${probability.toFixed(2)} probability that a radiologist would rate the marked ` +
+        `nodule malignant (operating threshold ${Number(result.threshold).toFixed(2)}).`,
+      flagged
+        ? 'Above the threshold: the marked region is flagged for priority radiologist review.'
+        : 'Below the threshold: the marked region is not flagged. This is a triage signal, not a clearance.',
+      'The model characterises only the region marked; it does not find nodules, does not read the ' +
+        'rest of the slice, and does not check that the marked region contains a nodule.',
+      'Research / internal validation: 97 held-out nodules, 29 malignant. Not clinically validated.',
+    ];
+
+    const detail: AnalysisDetail = {
+      probability,
+      threshold: result.threshold ?? null,
+      thresholdChosenOn: result.thresholdChosenOn ?? null,
+      temperature: result.temperature ?? null,
+      calibrationApplied: result.calibrationApplied ?? null,
+      calibrationEce: result.calibrationEce ?? null,
+      oodScore: result.oodScore?.score ?? null,
+      oodThreshold: result.oodScore?.threshold ?? null,
+      oodStatus: result.oodScore ? 'PASS' : 'SKIPPED',
+      qualityGate: result.qualityGate ?? null,
+      inputSource: 'dicom',
+      modelVersion,
+      modelClass: entry.modelClass,
+      evaluation: entry.evaluation,
+      clinicalValidation: 'NOT ESTABLISHED',
+      humanReview: 'REQUIRED',
+      inferenceAt: result.inferenceAt ?? new Date().toISOString(),
+    };
+
+    return {
+      hasCancer: flagged,
+      cancerType: 'Marked lung nodule',
+      confidence: probability * 100,
+      // Triage priority for the review queue, not a clinical risk stratum:
+      // the queue orders on it and nothing renders it as a diagnosis.
+      riskLevel: flagged ? 'high' : 'low',
+      findings,
+      recommendations: flagged
+        ? ['Priority radiologist review of the marked nodule on the full series', 'Management per the reviewing radiologist; the model contributes an ordering, not a plan']
+        : ['Routine radiologist review of the marked nodule on the full series', 'A below-threshold estimate does not rule anything out'],
+      clinicalGrade: 'research',
+      analysis: {
+        method: 'resnet50v2_lung_nodule',
+        probabilities: result.probabilities,
+        modelAccuracy: null,
+        urgency: flagged ? 'urgent' : 'routine',
+        requiresHumanReview: true,
+        answers: result.answers ?? null,
+        doesNotAnswer: result.doesNotAnswer ?? null,
+      },
+      malignancyIndicators: [],
+      advancedMetrics: {
+        processingTimeMs: Date.now() - startedAt,
+        analysisDepth: 'ResNet50V2 nodule characteriser, 64 px crop at native CT scale',
+        decisionThreshold: result.threshold ?? null,
+        calibrationTemperature: result.temperature ?? null,
+        modelVersion,
+        inputResolution: '64x64 crop -> 224x224',
+      },
+      detail,
+      acquisition,
+      deidentifiedObject,
+      region: markedRegion,
+      resultText: flagged
+        ? `Marked nodule flagged for priority review (model estimate ${probability.toFixed(2)})`
+        : `Marked nodule not flagged (model estimate ${probability.toFixed(2)}) - awaiting radiologist review`,
+    };
+  } catch (error) {
+    if (error instanceof ModelUnavailableError || error instanceof InputRejectedError) throw error;
+    if (error instanceof InferenceBusyError) {
+      throw new ModelUnavailableError(
+        'lung_nodule',
+        'Inference service is at capacity; the scan was queued for manual review rather than delayed.'
+      );
+    }
+    console.error('Lung nodule characterisation failed:', error);
+    throw new ModelUnavailableError('lung_nodule', error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -323,7 +532,12 @@ async function performLungCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisR
       advancedMetrics: {
         processingTimeMs: Date.now() - startedAt,
         analysisDepth: 'ResNet50V2 binary classifier',
-        confidenceThreshold: 70.0,
+        // The operating point the service actually applied, reported by the
+        // service. This was the literal 70.0 — the skin band cut, copied — while
+        // the lung threshold was 0.30; the same drift the fingerprint below
+        // exists to remove, one field over.
+        decisionThreshold: result.threshold ?? null,
+        calibrationTemperature: result.temperature ?? null,
         // Derived from a hash of the artifact, not a hand-maintained literal.
         // This read 'resnet50v2-lung-v2' with a comment saying the threshold was
         // 0.28; the deployed threshold is 0.30. Both the label and the comment
@@ -360,7 +574,10 @@ async function performLungCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisR
 }
 
 // TensorFlow model analysis for skin cancer using ResNet50V2
-async function performSkinCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisResult> {
+async function performSkinCancerAnalysis(
+  imageBuffer: Buffer,
+  inputSource: 'dicom' | 'raster' = 'raster'
+): Promise<AnalysisResult> {
   const { skinCancerService } = await import('./skin-cancer-service');
   const startedAt = Date.now();
 
@@ -435,11 +652,39 @@ async function performSkinCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisR
       advancedMetrics: {
         processingTimeMs: Date.now() - startedAt,
         analysisDepth: 'ResNet50V2 binary classifier',
-        confidenceThreshold: 70.0,
+        // The banded operating point in server/skin_cancer_model.py, stated as
+        // the bands rather than a single number: "70" alone read as a
+        // confidence cut and hid the uncertain band that routes 17% of scans.
+        decisionBands: { benignAtOrBelow: 0.3, malignantAbove: 0.7 },
         // Derived from a hash of the artifact. See server/model-fingerprint.ts.
         modelVersion: await modelVersionFor('skin'),
         inputResolution: '224x224'
       }
+    };
+
+    const { acquisition, deidentifiedObject } = splitAcquisition((result as any).acquisition);
+    analysisResult.acquisition = acquisition;
+    analysisResult.deidentifiedObject = deidentifiedObject;
+    analysisResult.detail = {
+      probability: result.probabilities?.malignant ?? null,
+      // The positive call is made above 0.70; 0.30-0.70 is the uncertain band,
+      // which is a second threshold the client shows from the caveats.
+      threshold: 0.7,
+      thresholdChosenOn: 'held-out test set (banded: benign <= 0.30, uncertain 0.30-0.70, malignant > 0.70)',
+      temperature: (result as any).temperature ?? null,
+      calibrationApplied: (result as any).calibrationApplied ?? null,
+      calibrationEce: (result as any).calibrationEce ?? null,
+      oodScore: result.oodScore?.score ?? null,
+      oodThreshold: result.oodScore?.threshold ?? null,
+      oodStatus: result.oodScore ? 'PASS' : 'SKIPPED',
+      qualityGate: 'passed',
+      inputSource,
+      modelVersion: analysisResult.advancedMetrics.modelVersion,
+      modelClass: MODEL_REGISTRY.skin.modelClass,
+      evaluation: MODEL_REGISTRY.skin.evaluation,
+      clinicalValidation: 'NOT ESTABLISHED',
+      humanReview: 'REQUIRED',
+      inferenceAt: new Date().toISOString(),
     };
 
     return analysisResult;
@@ -575,11 +820,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       (await allGovernanceStatuses()).map((g) => [g.modality, g])
     );
 
+    // The capability status is computed by the same code the manifest uses,
+    // so a card and the manifest cannot disagree about whether a model serves.
+    const { capabilityManifest } = await import('./capabilities');
+    const manifest = await capabilityManifest();
+    const statusOf = Object.fromEntries(manifest.modalities.map((m) => [m.scanType, m.status]));
+
     res.json({
       models: Object.entries(MODEL_REGISTRY).map(([scanType, entry]) => ({
         scanType,
         enabled: entry.enabled,
         disabledReason: entry.disabledReason ?? null,
+        /** CURRENT / VALIDATION / DISABLED — see GET /api/capabilities for the vocabulary. */
+        status: statusOf[scanType] ?? 'DISABLED',
+        /** Evidence class per CLAUDE.md. Nothing here is CLINICAL_VALIDATION or PRODUCTION. */
+        modelClass: entry.modelClass,
+        clinicallyValidated: false,
         evaluation: entry.evaluation,
         // Null rather than absent when unbound, so a client cannot mistake a
         // missing binding for an unremarkable one.
@@ -591,9 +847,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
          * modality is refusing to serve.
          */
         figuresDescribeDeployedArtifact: governance[scanType]?.state === 'matched',
-        intendedUse: 'Screening triage to prioritise human review. Not a diagnosis.',
+        intendedUse: entry.intendedUse,
         humanReviewRequired: true
       })),
+      capabilities: '/api/capabilities',
       reproduce: 'python scripts/evaluate-model.py <model.h5> <data_dir> <class0> <class1>',
       // The headline figures above are pooled across the whole test set. How
       // they break down by skin tone — and where the data cannot answer that
@@ -604,6 +861,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // measurement, taken from confirmed outcomes.
       productionPerformance: '/api/models/performance'
     });
+  });
+
+  /**
+   * What this deployment can do, decided by the server.
+   *
+   * Public, like the model cards, and for the same reason: a page that
+   * advertises a capability has to be checkable against the thing that would
+   * deliver it. Every status here is derived from MODEL_REGISTRY and the
+   * governance check, or declared with the evidence for it beside it. See
+   * server/capabilities.ts for the vocabulary.
+   */
+  app.get("/api/capabilities", async (_req, res) => {
+    const { capabilityManifest } = await import('./capabilities');
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(await capabilityManifest());
   });
 
   /**
@@ -3650,15 +3922,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid patient ID" });
       }
 
+      // Is this a modality the registry will serve at all?
+      //
+      // First, because its refusal carries the most useful message: an unknown
+      // modality is told which ones exist, and a withdrawn one is told why it
+      // was withdrawn. Both take the safe path below — stored, queued for a
+      // human, 503 saying explicitly that this is not a negative finding.
+      const enabledModality = assertModelEnabled(String(scanType ?? ''));
+
+      // Route 1 is a clinician's act: somebody qualified marks the nodule. A
+      // patient marking their own CT and receiving a probability about the
+      // mark is not a workflow this platform offers.
+      if (enabledModality === 'lung_nodule' && !isStaff) {
+        return res.status(403).json({
+          error: 'The nodule characteriser is a clinician tool: a radiologist or doctor marks the nodule.',
+        });
+      }
+
       // Is the deployed artifact the one the published figures describe?
       //
       // Checked here rather than at boot so that swapping a model file under a
       // running process is caught too. A mismatch does not mean the model is
       // bad, it means it is unmeasured — and MODEL_REGISTRY's rule is that a
       // modality serves only when its measured performance beats chance.
-      // Raised as ModelUnavailableError so it takes the existing safe path:
-      // stored, queued for a human, 503 saying explicitly that this is not a
-      // negative finding.
       const { governanceStatus } = await import('./model-governance');
       const governedModality = resolveScanType(String(scanType ?? ''));
       const governance = await governanceStatus(governedModality ?? String(scanType ?? 'unknown'));
@@ -3676,7 +3962,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!(await hasAiAnalysisConsent(patientId))) {
         scanOutcomes.inc({ modality: String(scanType ?? 'unknown'), outcome: 'refused_no_consent' });
 
-        const imagePathNoAi = await persistScanImage(imageBuffer, file, patientId, scanType);
+        // Stored for the clinician, de-identified if it is DICOM. The identified
+        // object is never written: when it cannot be de-identified (no resident
+        // service), nothing is stored and the row says so.
+        let imagePathNoAi: string | null = null;
+        let storedDeidentifiedNoAi: boolean | null = null;
+        let notesNoAi = 'Automated analysis did not run: no consent on record for AI image analysis.';
+        if (verdict.detected === 'application/dicom') {
+          try {
+            const { deidentifyDicom } = await import('./inference-client');
+            const clean = await deidentifyDicom(imageBuffer);
+            if (clean) {
+              imagePathNoAi = await persistScanImage(
+                clean.deidentifiedObject,
+                { ...file, mimetype: 'application/dicom' } as Express.Multer.File,
+                patientId,
+                scanType
+              );
+              storedDeidentifiedNoAi = true;
+            } else {
+              storedDeidentifiedNoAi = false;
+              notesNoAi += ' The DICOM object was not stored: de-identification needs the resident inference service (INFERENCE_URL), and the identified original is never written.';
+            }
+          } catch (error) {
+            console.error('De-identification failed; not storing the identified DICOM:', error);
+            storedDeidentifiedNoAi = false;
+            notesNoAi += ' The DICOM object was not stored: de-identification failed, and the identified original is never written.';
+          }
+        } else {
+          imagePathNoAi = await persistScanImage(imageBuffer, file, patientId, scanType);
+        }
         const queued = await storage.createScan({
           patientId,
           scanType,
@@ -3685,7 +4000,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           result: 'Awaiting clinician review - automated analysis not consented',
           aiConfidence: 'N/A',
           status: 'pending_manual_review',
-          notes: 'Automated analysis did not run: no consent on record for AI image analysis.',
+          notes: notesNoAi,
+          inputSource: verdict.detected === 'application/dicom' ? 'dicom' : 'raster',
+          storedDeidentified: storedDeidentifiedNoAi,
         } as any);
 
         enhancedWsManager?.sendToRole('radiologist', {
@@ -3725,9 +4042,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // The clinician's mark, for the nodule characteriser. Pixel coordinates
+      // of the rendered frame; validated as numbers here and against the frame
+      // by the service.
+      let region: { cx: number; cy: number } | null = null;
+      if (req.body.cx !== undefined || req.body.cy !== undefined) {
+        const cx = Number(req.body.cx);
+        const cy = Number(req.body.cy);
+        if (!Number.isFinite(cx) || !Number.isFinite(cy)) {
+          return res.status(400).json({ error: 'cx and cy must be numbers (pixels of the rendered slice).' });
+        }
+        region = { cx, cy };
+      }
+      const inputSource: 'dicom' | 'raster' = verdict.detected === 'application/dicom' ? 'dicom' : 'raster';
+
       console.log(`Performing real-time analysis for ${scanType} scan...`);
       const analysisStartedAt = Date.now();
-      const analysisResult = await performRealTimeAnalysis(imageBuffer, scanType);
+      const analysisResult = await performRealTimeAnalysis(imageBuffer, scanType, { inputSource, region });
       inferenceDuration.observe(
         { modality: String(scanType ?? 'unknown') },
         (Date.now() - analysisStartedAt) / 1000
@@ -3738,7 +4069,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         predicted: analysisResult.hasCancer ? 'positive' : 'negative',
       });
 
-      const imagePath = await persistScanImage(imageBuffer, file, patientId, scanType);
+      // The de-identified object when the upload was DICOM, never the upload.
+      //
+      // The service strips identity from the object it renders and hands the
+      // result back; that is what goes to storage. Until 2026-09-21 the bytes
+      // written were the ones that arrived — patient name and all — while the
+      // de-identified copy was discarded (DPIA R-19). If the service returned
+      // no de-identified object for a DICOM upload, nothing is stored rather
+      // than the identified original.
+      let imagePath: string | null;
+      let storedDeidentified: boolean | null = null;
+      if (inputSource === 'dicom') {
+        if (analysisResult.deidentifiedObject) {
+          imagePath = await persistScanImage(
+            analysisResult.deidentifiedObject,
+            { ...file, mimetype: 'application/dicom' } as Express.Multer.File,
+            patientId,
+            scanType
+          );
+          storedDeidentified = true;
+        } else {
+          console.error('DICOM upload analysed but no de-identified object returned; not storing the identified original.');
+          imagePath = null;
+          storedDeidentified = false;
+        }
+      } else {
+        imagePath = await persistScanImage(imageBuffer, file, patientId, scanType);
+      }
 
       /**
        * Which skin-tone stratum this scan belongs to.
@@ -3769,9 +4126,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         scanType: scanType,
         imagePath,
         imageSize: file.size ?? imageBuffer.length,
-        result: analysisResult.hasCancer ?
+        result: analysisResult.resultText ?? (analysisResult.hasCancer ?
           `${analysisResult.cancerType || 'Abnormal findings'} detected - ${analysisResult.riskLevel} risk` :
-          "No abnormal findings detected",
+          "No abnormal findings detected"),
         aiConfidence: `${Math.round(analysisResult.confidence)}%`,
         // Pin the model that produced this. Models get retrained and thresholds
         // move, so without it a stored result cannot be explained or reproduced
@@ -3786,10 +4143,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
         predictedPositive: analysisResult.hasCancer,
         // Recorded for fairness measurement only. No clinical view reads it.
         skinToneBin,
-        notes: analysisResult.findings ? analysisResult.findings.join('. ') : 'Analysis completed'
+        notes: analysisResult.findings ? analysisResult.findings.join('. ') : 'Analysis completed',
+        // The structured record — numbers, not the "NN%" string above.
+        calibratedProbability: analysisResult.detail?.probability ?? null,
+        decisionThreshold: analysisResult.detail?.threshold ?? null,
+        calibrationTemperature: analysisResult.detail?.temperature ?? null,
+        calibrationApplied: analysisResult.detail?.calibrationApplied ?? null,
+        oodScore: analysisResult.detail?.oodScore ?? null,
+        oodThreshold: analysisResult.detail?.oodThreshold ?? null,
+        qualityGate: analysisResult.detail?.qualityGate ?? null,
+        acquisitionModality: analysisResult.acquisition?.modality ?? null,
+        acquisitionManufacturer: analysisResult.acquisition?.manufacturer ?? null,
+        acquisitionModel: analysisResult.acquisition?.manufacturerModel ?? null,
+        inputSource,
+        modelClass: analysisResult.detail?.modelClass ?? null,
+        inferenceAt: analysisResult.detail?.inferenceAt ? new Date(analysisResult.detail.inferenceAt) : null,
+        storedDeidentified,
       };
 
       const savedScan = await storage.createScan(scanData);
+
+      // The region the result is about, as a row of its own. A mark is part of
+      // the result, and a later detector's candidates will sit beside it in
+      // the same table with a different source.
+      if (analysisResult.region) {
+        const r = analysisResult.region;
+        const spacing = analysisResult.acquisition?.pixelSpacingMm ?? null;
+        await storage.createScanRegion({
+          scanId: savedScan.id,
+          source: 'clinician',
+          geometry: 'point',
+          cx: r.cx,
+          cy: r.cy,
+          sizePx: r.sizePx,
+          frameRows: r.frameRows,
+          frameColumns: r.frameColumns,
+          spacingRowMm: spacing?.[0] ?? null,
+          spacingColMm: spacing?.[1] ?? null,
+          sizeMm: r.sizeMm?.[0] ?? null,
+          createdBy: sessionUserId,
+        });
+      }
 
       /**
        * The automated decision itself, in the audit trail.
@@ -3872,10 +4266,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           findings: analysisResult.findings || [],
           recommendations: analysisResult.recommendations || [],
 
-          // Cancer Assessment
+          // Triage level for the review queue's ordering: HIGH orders first.
+          // `riskAssessment` ("High Risk") used to sit beside it and read as a
+          // clinical stratum; a threshold applied to one probability is not
+          // one, so the field is gone and the level is named for what it does.
           cancerType: analysisResult.cancerType,
           riskLevel: analysisResult.riskLevel?.toUpperCase() || 'LOW',
-          riskAssessment: (analysisResult.riskLevel?.charAt(0).toUpperCase() + analysisResult.riskLevel?.slice(1) + ' Risk') || 'Low Risk',
+          triageLevel: analysisResult.riskLevel?.toUpperCase() || 'LOW',
 
           // Clinical Details
           urgency: analysisResult.analysis?.urgency,
@@ -3890,12 +4287,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
           modelVersion: analysisResult.advancedMetrics?.modelVersion ?? null,
           inputResolution: analysisResult.advancedMetrics?.inputResolution ?? null,
 
-          // Summary for UI Display
+          /**
+           * The structured record: probability, threshold, temperature, OOD
+           * score, gate, model class, validation status. This is what a
+           * clinician-facing view renders; the `riskLevel` / `riskAssessment`
+           * fields above are the queue's ordering signal and are kept for the
+           * views that read them, not a diagnosis.
+           */
+          detail: analysisResult.detail ?? null,
+          acquisition: analysisResult.acquisition ?? null,
+          region: analysisResult.region ?? null,
+          storedDeidentified,
+
+          // Summary for UI Display. Triage wording, not clinical wording: the
+          // model orders a queue. "HIGH RISK" read as a diagnosis, and a
+          // probability about a radiologist's rating cannot make one.
           summary: {
             aiConfidence: `${Math.round(analysisResult.confidence)}%`,
-            riskAssessment: (analysisResult.riskLevel?.toUpperCase() || 'LOW') + ' RISK',
-            primaryFinding: analysisResult.hasCancer ? 'Abnormal' : 'Normal',
-            cancerType: analysisResult.cancerType + (analysisResult.hasCancer ? ' Cancer' : ''),
+            triagePriority:
+              analysisResult.riskLevel === 'high' ? 'priority review'
+              : analysisResult.riskLevel === 'medium' ? 'indeterminate - review'
+              : 'routine review',
+            primaryFinding: analysisResult.hasCancer ? 'Flagged by the model' : 'Not flagged by the model',
+            cancerType: analysisResult.cancerType,
             urgentAction: analysisResult.riskLevel === 'high'
           }
         }
@@ -4312,6 +4726,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // auditLog wraps both: these are the only clinical write paths that produce a
   // record about a patient without a human author, and they were the only ones
   // reaching the database with no audit event naming who submitted what.
+  /**
+   * Renders a DICOM slice so a clinician can mark it.
+   *
+   * Route 1 of the nodule characteriser needs a mark, and a browser cannot
+   * display a DICOM object. This returns the slice rendered by the same
+   * function the model's crop is cut from (lung window for CT), plus the
+   * identity-free acquisition record. Nothing is stored and no model runs;
+   * the object is de-identified in the service and discarded. Clinicians
+   * only — a preview is a step in a clinician's workflow, not a patient
+   * feature — and audited like every other read of clinical bytes.
+   */
+  app.post(
+    "/api/dicom/preview",
+    auditLog('DICOM_PREVIEW'),
+    requireAuth,
+    requireMedicalAccess,
+    upload.single('image'),
+    async (req: AuthenticatedRequest, res) => {
+      try {
+        const file = (req as any).file as Express.Multer.File | undefined;
+        if (!file) return res.status(400).json({ error: 'No file provided' });
+        const verdict = await verifyUpload(file.buffer);
+        if (!verdict.ok || verdict.detected !== 'application/dicom') {
+          return res.status(415).json({ error: 'A DICOM object is required.', detected: verdict.detected });
+        }
+        if (!isInferenceServerConfigured()) {
+          return res.status(503).json({
+            error: 'Rendering a DICOM slice needs the resident inference service (INFERENCE_URL).',
+          });
+        }
+        const { deidentifyDicom } = await import('./inference-client');
+        const rendered = await deidentifyDicom(file.buffer);
+        if (!rendered) {
+          return res.status(503).json({ error: 'The inference service is not configured.' });
+        }
+        res.setHeader('Cache-Control', 'private, no-store');
+        return res.json({
+          previewPng: rendered.previewPng,
+          acquisition: rendered.acquisition,
+          frame: { rows: rendered.acquisition.rows, columns: rendered.acquisition.columns },
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // A service-side 422 (burned-in annotation, undecodable pixels) is the
+        // object's fault and is reported as such.
+        if (/422/.test(message)) return res.status(422).json({ error: message.replace(/^.*422:?\s*/, '') });
+        console.error('DICOM preview failed:', error);
+        return res.status(500).json({ error: 'The slice could not be rendered.' });
+      }
+    }
+  );
+
   app.post("/api/scan/upload", auditLog('SCAN_SUBMITTED'), requireAuth, upload.single('image'), handleScanAnalysis);
   app.post("/api/scans/analyze", auditLog('SCAN_SUBMITTED'), requireAuth, upload.single('image'), handleScanAnalysis);
 

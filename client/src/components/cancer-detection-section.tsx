@@ -1,49 +1,126 @@
 /**
- * What the platform can and cannot analyse.
+ * What the platform can and cannot analyse — as the server states it.
  *
- * Previously this advertised five modalities with invented performance —
- * "94% accuracy" for breast, "nodules as small as 3mm" for lung, "reducing
- * unnecessary biopsies by 40%" for prostate — when only two have a model at all
- * and the lung classifier measures nothing dimensional. Availability now comes
- * from /api/models/cards, so a modality cannot appear as offered unless the
- * server will actually analyse it.
+ * This component used to carry its own list of five modalities and decide the
+ * wording for each. Now it renders GET /api/capabilities and nothing else: the
+ * names, the inputs, the statuses and the evidence sentences all arrive from
+ * the server, which derives them from the model registry and the governance
+ * check. There is no string in this file that asserts a capability exists.
  *
- * ── On the styling of the gaps ─────────────────────────────────────────────
- *
- * The unavailable cards were rendered at slate-800-on-slate-900/40 with
- * slate-500 body text — close enough to the page background to read as disabled
- * chrome rather than as content. That undercuts the point of listing them: the
- * whole reason a gap is shown rather than hidden is so a clinician sees it. They
- * are now legible, and the distinction is carried by a state label and a
- * left-edge marker instead of by fading them out.
+ * Statuses are grouped so the reader sees the shape of the system at a glance:
+ * what serves, what serves under validation terms, what was switched off and
+ * why, and what is only a plan. The unavailable cards are styled legibly on
+ * purpose — the reason a gap is shown rather than hidden is so a clinician sees
+ * it.
  */
 import { useQuery } from "@tanstack/react-query";
-import { Scan, Sun, Wind, HeartPulse, Microscope, Minus, Check } from "lucide-react";
+import { Check, Minus, FlaskConical, Hammer, CalendarClock, Compass, Ban } from "lucide-react";
+
+type CapabilityStatus =
+  | "CURRENT"
+  | "VALIDATION"
+  | "IN_DEVELOPMENT"
+  | "PLANNED"
+  | "FUTURE"
+  | "DISABLED";
+
+interface Capability {
+  id: string;
+  name: string;
+  input: string;
+  status: CapabilityStatus;
+  evidence: string;
+  phase: string | null;
+  scanType: string | null;
+  modelClass: string | null;
+}
+
+interface Manifest {
+  statuses: Record<CapabilityStatus, string>;
+  capabilities: Capability[];
+}
 
 interface ModelCard {
   scanType: string;
-  enabled: boolean;
-  disabledReason: string | null;
   evaluation: { sensitivity: number; specificity: number } | null;
 }
 
-/** Modalities the interface names. Availability is decided by the server. */
-const MODALITIES = [
-  { id: "skin", name: "Skin", icon: Sun, input: "Dermoscopy and clinical photographs" },
-  { id: "lung", name: "Lung", icon: Wind, input: "Chest imaging" },
-  { id: "breast", name: "Breast", icon: HeartPulse, input: "Mammography" },
-  { id: "prostate", name: "Prostate", icon: Scan, input: "MRI" },
-  { id: "cervical", name: "Cervical", icon: Microscope, input: "Cytology" },
+const ORDER: CapabilityStatus[] = [
+  "CURRENT",
+  "VALIDATION",
+  "DISABLED",
+  "IN_DEVELOPMENT",
+  "PLANNED",
+  "FUTURE",
 ];
 
+const LABEL: Record<CapabilityStatus, string> = {
+  CURRENT: "Current",
+  VALIDATION: "Validation",
+  IN_DEVELOPMENT: "In development",
+  PLANNED: "Planned",
+  FUTURE: "Future",
+  DISABLED: "Withdrawn",
+};
+
+const STYLE: Record<CapabilityStatus, { badge: string; edge: string; Icon: typeof Check }> = {
+  CURRENT: {
+    badge: "border-emerald-600/30 bg-emerald-500/10 text-emerald-300",
+    edge: "bg-emerald-500/70",
+    Icon: Check,
+  },
+  VALIDATION: {
+    badge: "border-cyan-600/30 bg-cyan-500/10 text-cyan-300",
+    edge: "bg-cyan-500/70",
+    Icon: FlaskConical,
+  },
+  DISABLED: {
+    badge: "border-rose-800/50 bg-rose-950/30 text-rose-300",
+    edge: "bg-rose-600/70",
+    Icon: Ban,
+  },
+  IN_DEVELOPMENT: {
+    badge: "border-amber-700/40 bg-amber-950/30 text-amber-200",
+    edge: "bg-amber-500/60",
+    Icon: Hammer,
+  },
+  PLANNED: {
+    badge: "border-slate-700 bg-slate-800/60 text-slate-300",
+    edge: "bg-slate-600",
+    Icon: CalendarClock,
+  },
+  FUTURE: {
+    badge: "border-slate-700 bg-slate-800/40 text-slate-400",
+    edge: "bg-slate-700",
+    Icon: Compass,
+  },
+};
+
+/** The first sentence of a longer evidence string; the card links to the rest. */
+const firstSentence = (text: string) => text.split(/(?<=\.)\s/)[0];
+
 export default function CancerDetectionSection() {
-  const { data, isLoading } = useQuery<{ models: ModelCard[] }>({
+  const { data: manifest, isLoading } = useQuery<Manifest>({
+    queryKey: ["/api/capabilities"],
+    queryFn: async () => (await fetch("/api/capabilities")).json(),
+  });
+  const { data: cards } = useQuery<{ models: ModelCard[] }>({
     queryKey: ["/api/models/cards"],
     queryFn: async () => (await fetch("/api/models/cards")).json(),
   });
 
-  const cardFor = (id: string) => data?.models.find((m) => m.scanType === id);
-  const availableCount = MODALITIES.filter((m) => cardFor(m.id)?.enabled === true).length;
+  const evaluationFor = (scanType: string | null) =>
+    scanType ? cards?.models.find((m) => m.scanType === scanType)?.evaluation ?? null : null;
+
+  const groups = ORDER.map((status) => ({
+    status,
+    items: manifest?.capabilities.filter((c) => c.status === status) ?? [],
+  })).filter((g) => g.items.length > 0);
+
+  const serving = manifest?.capabilities.filter(
+    (c) => c.status === "CURRENT" || c.status === "VALIDATION"
+  ).length ?? 0;
+  const total = manifest?.capabilities.length ?? 0;
 
   return (
     <section id="detection" className="scroll-mt-16 bg-slate-950 py-20 lg:py-24">
@@ -57,105 +134,108 @@ export default function CancerDetectionSection() {
               Coverage
             </h2>
             <p className="mt-4 text-slate-400 leading-relaxed">
-              Three of these have no trained model. They are listed rather than hidden,
-              because a gap you can see is more useful than a menu that quietly fails.
-              Requests for them return an explicit refusal and are queued for a human.
+              Every status on this page is decided by the server from the model registry
+              and its governance check, and each carries the evidence for it. Nothing
+              here is written into the page. A gap is listed rather than hidden, because
+              a gap you can see is more useful than a menu that quietly fails.
             </p>
           </div>
 
-          {!isLoading && (
+          {!isLoading && manifest && (
             <div className="text-sm text-slate-400 tabular-nums">
-              <span className="text-white font-semibold text-base">{availableCount}</span>
+              <span className="text-white font-semibold text-base">{serving}</span>
               {" of "}
-              {MODALITIES.length} available
+              {total} serving
             </div>
           )}
         </div>
 
-        <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {MODALITIES.map((modality) => {
-            const card = cardFor(modality.id);
-            const available = card?.enabled === true;
-            const Icon = modality.icon;
+        {manifest && (
+          <dl className="mt-8 grid gap-x-8 gap-y-2 sm:grid-cols-2 lg:grid-cols-3 text-xs text-slate-400">
+            {ORDER.map((status) => (
+              <div key={status} className="flex gap-2">
+                <dt className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${STYLE[status].badge}`}>
+                  {LABEL[status]}
+                </dt>
+                <dd className="leading-relaxed">{manifest.statuses[status]}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
 
-            return (
-              <div
-                key={modality.id}
-                className={`relative rounded-xl border p-5 pl-6 overflow-hidden transition-colors ${
-                  available
-                    ? "border-slate-800 bg-slate-900/70 hover:border-slate-700"
-                    : "border-slate-800/80 bg-slate-900/30"
-                }`}
-              >
-                {/* A left-edge marker carries the state, so the unavailable cards
-                    can stay legible instead of being dimmed into the background. */}
-                <span
-                  aria-hidden
-                  className={`absolute left-0 inset-y-0 w-[3px] ${
-                    available ? "bg-cyan-500/70" : "bg-slate-700"
-                  }`}
-                />
-
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span
-                      className={`grid place-items-center w-9 h-9 rounded-lg shrink-0 ${
-                        available
-                          ? "bg-cyan-500/10 border border-cyan-500/25"
-                          : "bg-slate-800/60 border border-slate-700/60"
+        {groups.map((group) => {
+          const { badge, edge, Icon } = STYLE[group.status];
+          return (
+            <div key={group.status} className="mt-10">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.12em] text-slate-400">
+                {LABEL[group.status]}
+              </h3>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {group.items.map((cap) => {
+                  const evaluation =
+                    cap.status === "CURRENT" || cap.status === "VALIDATION"
+                      ? evaluationFor(cap.scanType)
+                      : null;
+                  return (
+                    <div
+                      key={cap.id}
+                      className={`relative rounded-xl border p-5 pl-6 overflow-hidden ${
+                        cap.status === "CURRENT" || cap.status === "VALIDATION"
+                          ? "border-slate-800 bg-slate-900/70"
+                          : "border-slate-800/80 bg-slate-900/30"
                       }`}
                     >
-                      <Icon
-                        className={`w-4 h-4 ${available ? "text-cyan-400" : "text-slate-400"}`}
-                      />
-                    </span>
-                    <span className="font-semibold text-white truncate">{modality.name}</span>
-                  </div>
+                      <span aria-hidden className={`absolute left-0 inset-y-0 w-[3px] ${edge}`} />
 
-                  <span
-                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium whitespace-nowrap ${
-                      available
-                        ? "border-emerald-600/30 bg-emerald-500/10 text-emerald-300"
-                        : "border-slate-700 bg-slate-800/60 text-slate-400"
-                    }`}
-                  >
-                    {available ? (
-                      <Check className="w-3 h-3" />
-                    ) : (
-                      <Minus className="w-3 h-3" />
-                    )}
-                    {available ? "Available" : "No model"}
-                  </span>
-                </div>
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="font-semibold text-white leading-snug">{cap.name}</span>
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium whitespace-nowrap ${badge}`}
+                        >
+                          {group.status === "CURRENT" ? <Check className="w-3 h-3" /> : group.status === "FUTURE" || group.status === "PLANNED" ? <Minus className="w-3 h-3" /> : <Icon className="w-3 h-3" />}
+                          {LABEL[cap.status]}
+                        </span>
+                      </div>
 
-                <p className="mt-3.5 text-xs text-slate-400">{modality.input}</p>
+                      <p className="mt-3 text-xs text-slate-400">{cap.input}</p>
 
-                {available && card?.evaluation ? (
-                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm tabular-nums">
-                    <span className="text-slate-300">
-                      <span className="text-white font-semibold">
-                        {(card.evaluation.sensitivity * 100).toFixed(1)}%
-                      </span>{" "}
-                      <span className="text-slate-400">sensitivity</span>
-                    </span>
-                    <span className="text-slate-300">
-                      <span className="text-white font-semibold">
-                        {(card.evaluation.specificity * 100).toFixed(1)}%
-                      </span>{" "}
-                      <span className="text-slate-400">specificity</span>
-                    </span>
-                  </div>
-                ) : (
-                  <p className="mt-3 text-sm text-slate-400 leading-relaxed">
-                    {card?.disabledReason
-                      ? "Model failed evaluation and was switched off."
-                      : "No classifier exists for this modality. Uploads are refused and queued for a human."}
-                  </p>
-                )}
+                      {evaluation && (
+                        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm tabular-nums">
+                          <span className="text-slate-300">
+                            <span className="text-white font-semibold">
+                              {(evaluation.sensitivity * 100).toFixed(1)}%
+                            </span>{" "}
+                            <span className="text-slate-400">sensitivity</span>
+                          </span>
+                          <span className="text-slate-300">
+                            <span className="text-white font-semibold">
+                              {(evaluation.specificity * 100).toFixed(1)}%
+                            </span>{" "}
+                            <span className="text-slate-400">specificity</span>
+                          </span>
+                        </div>
+                      )}
+
+                      <p className="mt-3 text-sm text-slate-400 leading-relaxed">
+                        {firstSentence(cap.evidence)}
+                        {cap.modelClass && (
+                          <span className="block mt-1.5 text-[11px] uppercase tracking-wide text-slate-500">
+                            Evidence class: {cap.modelClass.replace(/_/g, " ")} · not clinically validated
+                          </span>
+                        )}
+                        {cap.phase && !cap.modelClass && (
+                          <span className="block mt-1.5 text-[11px] uppercase tracking-wide text-slate-500">
+                            Roadmap {cap.phase}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
-        </div>
+            </div>
+          );
+        })}
       </div>
     </section>
   );

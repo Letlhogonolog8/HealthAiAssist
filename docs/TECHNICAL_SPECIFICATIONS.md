@@ -360,81 +360,42 @@ CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
 
 ## 4. AI/ML Model Specifications
 
-### 4.1 Model Architecture
+**This section was rewritten on 2026-09-20.** The version it replaces described
+a breast-cancer model at "0.94 accuracy", a three-class lung CT model at
+"0.91", and a skin model at "0.88", with a `modelBenchmarks` table of
+"expected performance". None of those models existed and none of those numbers
+was measured. They were removed rather than corrected, because a specification
+that carries a benchmark nobody measured is the defect the rest of this
+repository exists to prevent.
 
-```python
-# Breast Cancer Detection Model
-class BreastCancerModel:
-    def __init__(self):
-        self.input_shape = (224, 224, 3)
-        self.num_classes = 2  # Benign, Malignant
-        self.model_version = "v2.1.0"
-        self.accuracy = 0.94
-        
-    def preprocess_image(self, image_path: str) -> np.ndarray:
-        """Preprocess mammography images"""
-        pass
-        
-    def predict(self, image: np.ndarray) -> Dict[str, Any]:
-        """Generate prediction with confidence score"""
-        pass
+### 4.1 What exists
 
-# Lung Cancer Detection Model
-class LungCancerModel:
-    def __init__(self):
-        self.input_shape = (512, 512, 1)  # CT scan slices
-        self.num_classes = 3  # Normal, Benign, Malignant
-        self.model_version = "v1.8.0"
-        self.accuracy = 0.91
-        
-    def preprocess_ct_scan(self, dicom_path: str) -> np.ndarray:
-        """Preprocess CT scan DICOM files"""
-        pass
-        
-    def predict(self, ct_data: np.ndarray) -> Dict[str, Any]:
-        """Generate prediction for lung nodules"""
-        pass
-```
+| Model | Artifact | Status | Where it is specified |
+|---|---|---|---|
+| Skin lesion classifier | `dataset/data/resnet50v2_skin_cancer_model.h5` — ResNet50V2 ImageNet trunk (frozen) + trained head; normalisation fused into the graph; 224×224 RGB | **Serving** | `MODEL_CARDS.md`, `server/model-availability.ts` (`MODEL_REGISTRY.skin`) |
+| Lung classifier (legacy) | `dataset/lung_cancer_MRI_dataset/resnet50v2_lung_cancer_model.h5` — same architecture, trained on web-sourced chest PNGs | **Withdrawn 2026-09-20** — accepted real CT it had never been measured on | `MODEL_CARDS.md` (lung card), `docs/MODEL_CHANGELOG.md` |
+| Lung nodule characteriser | `dataset/lung_nodule_model/resnet50v2_lung_nodule_model.h5` — same architecture, trained on 64 px LIDC-IDRI CT nodule crops rendered at the lung window | **Trained, calibrated, OOD-screened; not bound, not serving** | `dataset/lung_nodule_model/lung_nodule_training.json`, `scripts/train-lung-nodule-model.py` |
+| Breast, colon, prostate, cervical | — | **No model.** Requests return 503 and are queued for a human. | `MODEL_CARDS.md` § "Modalities with no model" |
 
-### 4.2 Model Performance Metrics
+No model here is clinically validated or cleared by any regulator
+(`docs/REGULATORY_PATHWAY.md`).
 
-```typescript
-interface ModelMetrics {
-  accuracy: number;
-  precision: number;
-  recall: number;
-  f1Score: number;
-  auc: number;
-  sensitivity: number;
-  specificity: number;
-  confusionMatrix: number[][];
-  trainingDataSize: number;
-  validationDataSize: number;
-  lastTrainingDate: string;
-}
+### 4.2 Where the performance figures live
 
-// Expected performance benchmarks
-const modelBenchmarks = {
-  breastCancer: {
-    accuracy: 0.94,
-    sensitivity: 0.92,
-    specificity: 0.96,
-    processingTime: 15000 // milliseconds
-  },
-  lungCancer: {
-    accuracy: 0.91,
-    sensitivity: 0.89,
-    specificity: 0.93,
-    processingTime: 25000
-  },
-  skinCancer: {
-    accuracy: 0.88,
-    sensitivity: 0.85,
-    specificity: 0.91,
-    processingTime: 8000
-  }
-};
-```
+There is no benchmark table in this document, deliberately. Every published
+figure is bound to the artifact it was measured on by a content fingerprint
+(`server/model-governance.ts`, `docs/MODEL_GOVERNANCE.md`) and served at
+`GET /api/models/cards`, with the reproduction command beside it. If a figure
+in any document disagrees with that endpoint, the endpoint is right and the
+document is stale.
+
+The serving pipeline for an image is: byte-level type verification
+(`server/upload-validation.ts`) → DICOM de-identification and windowing where
+applicable (`inference/dicom_ingest.py`) → pixel quality gate → out-of-
+distribution screen validated in both directions (`scripts/build-ood-reference.py`)
+→ classifier → temperature calibration → operating point → clinician review →
+adjudicated outcome (`server/production-performance.ts`). Each stage refuses
+rather than guesses, and a refusal is never rendered as a negative finding.
 
 ## 5. Security Specifications
 

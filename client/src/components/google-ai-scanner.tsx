@@ -12,6 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { submitScan, describeRejection, describeNotAnalysed } from '@/lib/submit-scan';
 import MedicalImageViewer from './medical-image-viewer';
 import { AnalysisResultsDisplay } from './AnalysisResultsDisplay';
+import { AiResultSummary, type ResultDetail } from './ai-result-summary';
 
 /**
  * The response shape /api/scans/analyze actually returns.
@@ -47,6 +48,8 @@ interface AnalysisResult {
     recommendations: string[];
     /** Only the modalities with a trained classifier. */
     cancerType?: 'lung' | 'skin' | 'unknown';
+    /** The structured record — the numbers the result is made of. */
+    detail?: ResultDetail | null;
   };
 }
 
@@ -354,6 +357,15 @@ export default function GoogleAIScannerFixed() {
               New Analysis
             </Button>
           </div>
+          {analysisResult.analysis.detail && (
+            <div className="mb-6">
+              <AiResultSummary
+                detail={analysisResult.analysis.detail}
+                scanType={analysisResult.scan?.scanType || scanType}
+                flagged={analysisResult.analysis.hasCancer}
+              />
+            </div>
+          )}
           <AnalysisResultsDisplay 
             analysisData={{
               title: "Analysis Results",

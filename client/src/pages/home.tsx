@@ -18,6 +18,7 @@ import Navigation from "@/components/navigation";
 import EnhancedHeroSection from "@/components/enhanced-hero-section";
 import AIFeaturesSection from "@/components/ai-features-section";
 import CancerDetectionSection from "@/components/cancer-detection-section";
+import PipelineStagesSection from "@/components/pipeline-stages-section";
 import Footer from "@/components/footer";
 import LoginDialog from "@/components/login-dialog";
 import { Card, CardContent } from "@/components/ui/card";
@@ -47,7 +48,7 @@ const REFUSALS = [
   {
     title: "It will not guess when a model is unavailable",
     body:
-      "If no validated model can analyse a scan, the response carries no diagnostic content at all and the scan is queued for a human. An earlier version filled that gap with random values.",
+      "If no validated model can analyse a scan, the response carries no diagnostic content at all and the scan is queued for a human. An earlier version filled that gap with random values. In September 2026 the lung model was withdrawn for the same reason: it was found answering real CT it had never been measured on.",
   },
   {
     title: "It will not rank you against a population that is not yours",
@@ -92,6 +93,7 @@ export default function Home({ onLoginSuccess }: HomeProps & { userId?: number }
 
       <AIFeaturesSection />
       <CancerDetectionSection />
+      <PipelineStagesSection />
 
       {/* ---------------- Equity: the differentiator ---------------- */}
       <section className="bg-slate-900/40 py-20 lg:py-24 border-y border-slate-800">

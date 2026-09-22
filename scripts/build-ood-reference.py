@@ -3,6 +3,16 @@
 
     python scripts/build-ood-reference.py skin
     python scripts/build-ood-reference.py lung
+    python scripts/build-ood-reference.py lung --measure-only
+
+`--measure-only` validates the reference already on disk against the domains
+below and writes the report, without refitting or rewriting the `.npz`. It
+exists so that a detector can be re-measured against a domain added after it
+was built — and so that the measurement can fail, on the record, without the
+failure being softened by a refit. That is how the legacy lung model's inability
+to distinguish real CT from its web-sourced training images was recorded
+(2026-09-20): the whole-slice domain was added, the measurement was run, and
+the script exited non-zero.
 
 THE PROBLEM
 
@@ -88,6 +98,17 @@ MODELS = {
              'label': 'held-out chest images (same modality)', 'expect': 'accept'},
             {'dir': os.path.join(ROOT, 'dataset', 'dataset', 'data', 'test', 'benign'),
              'label': 'skin lesions (wrong modality)', 'expect': 'refuse'},
+            # Real chest CT, rendered at the lung window by the same code the
+            # serving path uses. This model was trained on web-sourced PNGs of
+            # unrecorded provenance and has no measured performance on CT, so a
+            # real acquisition must be refused — it is a question the model
+            # cannot answer. Added 2026-09-20 after the model was found to
+            # accept these. The domain stays so the failure remains on the
+            # record and cannot be re-measured away by omission; the figure is
+            # in lung_model_ood.json and MODEL_CARDS.md.
+            {'dir': os.path.join(ROOT, 'dataset', 'lidc-ood', 'whole-slice'),
+             'label': 'real CT slices, LIDC-IDRI (no measured performance)',
+             'expect': 'refuse'},
         ],
     },
     # The nodule characteriser. Its failure mode is not a wrong modality — it is
@@ -149,7 +170,14 @@ def load_images(directory, limit=None):
 
 
 def main():
-    name = sys.argv[1] if len(sys.argv) > 1 else 'skin'
+    args = [a for a in sys.argv[1:] if not a.startswith('--')]
+    flags = {a for a in sys.argv[1:] if a.startswith('--')}
+    unknown = flags - {'--measure-only'}
+    if unknown:
+        raise SystemExit(f'Unknown flag(s): {", ".join(sorted(unknown))}')
+    measure_only = '--measure-only' in flags
+
+    name = args[0] if args else 'skin'
     if name not in MODELS:
         raise SystemExit(f'Unknown model "{name}". Choose from: {", ".join(MODELS)}')
     config = MODELS[name]
@@ -163,22 +191,42 @@ def main():
     train_features = np.load(train_cache).astype(np.float64)
     print(f'[{name}] training features: {train_features.shape}', file=sys.stderr)
 
-    # PCA by SVD on the centred features.
-    mean = train_features.mean(axis=0)
-    centred = train_features - mean
-    _, singular, vt = np.linalg.svd(centred, full_matrices=False)
-    components = vt[:N_COMPONENTS]
-    explained = float((singular[:N_COMPONENTS] ** 2).sum() / (singular ** 2).sum())
-    print(f'{N_COMPONENTS} components explain {explained:.1%} of variance', file=sys.stderr)
+    if measure_only:
+        # The reference as it is served, not a refit of it. A refit could shift
+        # the threshold, and a measurement of a detector that is not quite the
+        # deployed one answers a different question.
+        if not os.path.exists(config['npz']):
+            print(f"Missing {config['npz']}; nothing to measure. Run without "
+                  '--measure-only to build it.', file=sys.stderr)
+            sys.exit(1)
+        reference = np.load(config['npz'])
+        mean = reference['mean'].astype(np.float64)
+        components = reference['components'].astype(np.float64)
+        threshold = float(reference['threshold'])
+        # Variance explained is a property of the fit, recomputed here from the
+        # same features so the report stays complete.
+        centred = train_features - mean
+        projected = centred @ components.T
+        explained = float((projected ** 2).sum() / (centred ** 2).sum())
+        print(f"Measuring the reference on disk: {config['npz']} "
+              f'(threshold {threshold:.3f}, not refitted)', file=sys.stderr)
+    else:
+        # PCA by SVD on the centred features.
+        mean = train_features.mean(axis=0)
+        centred = train_features - mean
+        _, singular, vt = np.linalg.svd(centred, full_matrices=False)
+        components = vt[:N_COMPONENTS]
+        explained = float((singular[:N_COMPONENTS] ** 2).sum() / (singular ** 2).sum())
+        print(f'{N_COMPONENTS} components explain {explained:.1%} of variance', file=sys.stderr)
 
-    train_error = reconstruction_error(train_features, mean, components)
-    threshold = float(np.percentile(train_error, PERCENTILE))
-    print(f'Threshold at p{PERCENTILE}: {threshold:.3f}', file=sys.stderr)
+        train_error = reconstruction_error(train_features, mean, components)
+        threshold = float(np.percentile(train_error, PERCENTILE))
+        print(f'Threshold at p{PERCENTILE}: {threshold:.3f}', file=sys.stderr)
 
-    np.savez_compressed(config['npz'], mean=mean.astype(np.float32),
-                        components=components.astype(np.float32),
-                        threshold=np.float32(threshold))
-    print(f"Wrote {config['npz']}", file=sys.stderr)
+        np.savez_compressed(config['npz'], mean=mean.astype(np.float32),
+                            components=components.astype(np.float32),
+                            threshold=np.float32(threshold))
+        print(f"Wrote {config['npz']}", file=sys.stderr)
 
     # ---- validate the detector actually separates the domains ----
     model = tf.keras.models.load_model(config['model'])
@@ -205,6 +253,8 @@ def main():
             failures.append(f"{domain['label']}: no images at {domain['dir']}")
             continue
         result = rate_for(images, domain['label'])
+        result['label'] = domain['label']
+        result['dir'] = os.path.relpath(domain['dir'], ROOT).replace(os.sep, '/')
         result['expect'] = domain['expect']
         if domain['expect'] == 'accept':
             result['pass'] = result['flaggedRate'] <= MAX_ACCEPT_FLAG_RATE
@@ -228,12 +278,15 @@ def main():
         # and reconstructs cleanly, so it scores as in-distribution by design —
         # the pixel-level checks in the inference scripts catch those, not this.
         result = rate_for(images, label)
+        result['label'] = label
         result['expect'] = 'reported only'
         checks.append(result)
 
     report = {
         'model': os.path.basename(config['model']),
         'method': f'PCA reconstruction error in ResNet feature space, {N_COMPONENTS} components',
+        'mode': 'measure-only (reference on disk validated, not refitted)' if measure_only
+                else 'built',
         'components': N_COMPONENTS,
         'varianceExplained': round(explained, 4),
         'thresholdPercentile': PERCENTILE,
@@ -266,7 +319,7 @@ def main():
         print(f'\n{len(failures)} requirement(s) NOT met:', file=sys.stderr)
         for line in failures:
             print(f'  - {line}', file=sys.stderr)
-        print('\nThe reference was written anyway so the numbers can be inspected, but '
+        print('\nThe report was written anyway so the numbers can be inspected, but '
               'this detector does not meet its stated bar and the model it guards must '
               'not serve until it does.', file=sys.stderr)
         sys.exit(1)

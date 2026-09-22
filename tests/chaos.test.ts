@@ -36,6 +36,7 @@ const TIMEOUT = 180_000;
 const MISSING = path.join(process.cwd(), 'dataset', 'does-not-exist', 'no-such-model.h5');
 process.env.LUNG_CANCER_MODEL_PATH = MISSING;
 process.env.SKIN_CANCER_MODEL_PATH = MISSING;
+process.env.LUNG_NODULE_MODEL_PATH = MISSING;
 // A port nothing listens on, so the inference client's transport fails rather
 // than silently falling back to a working resident service.
 process.env.INFERENCE_URL = 'http://127.0.0.1:9';
@@ -64,10 +65,21 @@ function anyImage(): Buffer {
   );
 }
 
+let radSession: InstanceType<typeof Session>;
+
+/**
+ * The nodule characteriser is a clinician's tool, so it is submitted by the
+ * radiologist on the patient's behalf; the other two by the patient. Either
+ * way the answer must be the same refusal shape.
+ */
 async function submit(scanType: string) {
   const form = new FormData();
   form.append('image', new Blob([anyImage()], { type: 'image/jpeg' }), 'scan.jpg');
   form.append('scanType', scanType);
+  if (scanType === 'lung_nodule') {
+    form.append('patientId', String(patient.id));
+    return radSession.postForm('/api/scans/analyze', form);
+  }
   return patient.session.postForm('/api/scans/analyze', form);
 }
 
@@ -95,6 +107,20 @@ function withoutDisclaimer(body: unknown): string {
 before(async () => {
   await startServer();
   patient = await registerPatient('chaos-patient');
+
+  const radiologist = await registerPatient('chaos-rad');
+  const pool = db();
+  try {
+    await pool.query('UPDATE users SET role = $1 WHERE id = $2', ['radiologist', radiologist.id]);
+  } finally {
+    await pool.end();
+  }
+  radSession = new Session();
+  const login = await radSession.post('/api/auth/login', {
+    username: radiologist.username,
+    password: 'Passw0rd!23',
+  });
+  assert.equal(login.status, 200);
 
   // Consent granted, so a refusal cannot be attributed to the consent gate.
   // The point is what happens when the model is broken for someone who said yes.
@@ -127,7 +153,15 @@ after(async () => {
 // ---------------------------------------------------------------------------
 
 describe('the model cannot be loaded', { timeout: TIMEOUT }, () => {
-  for (const scanType of ['lung', 'skin']) {
+  // Every modality, for three different reasons that must produce the same
+  // shape: skin and lung_nodule because their artifacts are pointed at files
+  // that do not exist (the failure this suite injects), lung because it is
+  // withdrawn in the registry (MODEL_CARDS.md, 2026-09-20) and refuses before
+  // the artifact is ever looked for. A patient cannot tell them apart and must
+  // not need to. lung_nodule is submitted by a clinician — patients cannot —
+  // and without a mark, which the governance gate refuses before anything
+  // looks for one.
+  for (const scanType of ['lung', 'skin', 'lung_nodule']) {
     test(`${scanType}: refuses rather than answering`, async () => {
       const res = await submit(scanType);
 
@@ -182,10 +216,17 @@ describe('the model cannot be loaded', { timeout: TIMEOUT }, () => {
   }
 
   test('the refusal names a reason a human can act on', async () => {
-    const res = await submit('lung');
+    const broken = await submit('skin');
     // "Something went wrong" sends an operator looking in the wrong place.
-    assert.ok(res.json.reason && res.json.reason.length > 10, 'no actionable reason given');
-    assert.equal(res.json.scanType, 'lung');
+    assert.ok(broken.json.reason && broken.json.reason.length > 10, 'no actionable reason given');
+    assert.equal(broken.json.scanType, 'skin');
+
+    // And the withdrawn modality names the withdrawal, not the missing file:
+    // the operator's remedy is different (bind a CT-trained model, not restore
+    // an artifact) and the reason has to say which.
+    const withdrawn = await submit('lung');
+    assert.equal(withdrawn.json.scanType, 'lung');
+    assert.match(withdrawn.json.reason, /withdrawn/i, withdrawn.json.reason);
   });
 });
 

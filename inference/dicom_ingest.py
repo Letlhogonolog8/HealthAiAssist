@@ -132,6 +132,45 @@ _KEEP = (
 )
 
 
+# UIDs that identify a class of object or an encoding, not an instance. Kept.
+_UID_KEEP = frozenset((
+    "SOPClassUID",
+    "MediaStorageSOPClassUID",
+    "TransferSyntaxUID",
+    "ImplementationClassUID",
+    "ReferencedSOPClassUID",
+    "CodingSchemeUID",
+))
+# Instance UIDs a conformant object must carry; replaced, not removed.
+_UID_REPLACE = frozenset((
+    "SOPInstanceUID",
+    "MediaStorageSOPInstanceUID",
+    "StudyInstanceUID",
+    "SeriesInstanceUID",
+    "FrameOfReferenceUID",
+))
+
+
+def _scrub_uids(dataset: Any) -> None:
+    """Removes or replaces every instance-level UID, recursing into sequences."""
+    from pydicom.uid import generate_uid
+
+    for element in list(dataset):
+        if element.VR == "SQ":
+            for item in element.value:
+                _scrub_uids(item)
+            continue
+        if element.VR != "UI":
+            continue
+        keyword = element.keyword
+        if keyword in _UID_KEEP:
+            continue
+        if keyword in _UID_REPLACE:
+            dataset[element.tag].value = generate_uid()
+        else:
+            del dataset[element.tag]
+
+
 def deidentify(dataset: Any) -> Any:
     """Removes direct identifiers in place and returns the dataset.
 
@@ -140,10 +179,12 @@ def deidentify(dataset: Any) -> Any:
     institution, and there is no way to reason about an unknown tag's contents —
     so the only defensible treatment is removal.
 
-    UIDs are removed rather than remapped. Remapping preserves the ability to
-    group a study, which is genuinely useful and is what a research pipeline
-    would do; it also preserves a join key back to the source PACS. Since
-    nothing here needs study grouping yet, the safer option costs nothing.
+    UIDs are replaced with fresh ones or removed rather than remapped.
+    Remapping preserves the ability to group a study, which is genuinely
+    useful and is what a research pipeline would do; it also preserves a join
+    key back to the source PACS unless the remap is salted. Since nothing here
+    needs study grouping yet, the safer option costs nothing. Roadmap P1b adds
+    the salted remap for series assembly.
     """
     dataset.remove_private_tags()
 
@@ -151,9 +192,15 @@ def deidentify(dataset: Any) -> Any:
         if keyword in dataset:
             delattr(dataset, keyword)
 
-    for keyword in ("StudyInstanceUID", "SeriesInstanceUID", "SOPInstanceUID", "FrameOfReferenceUID"):
-        if keyword in dataset:
-            delattr(dataset, keyword)
+    # Every UID that could join this object back to its source, wherever it
+    # sits — top level or nested in a sequence such as ReferencedImageSequence.
+    # Instance-level UIDs the object needs to remain conformant are replaced
+    # with freshly generated ones rather than deleted; a fresh UID identifies
+    # nothing outside this object. (Roadmap P1b replaces the fresh UIDs with a
+    # salted remap so a series can still be grouped without a join key.)
+    _scrub_uids(dataset)
+    if hasattr(dataset, "file_meta") and dataset.file_meta is not None:
+        _scrub_uids(dataset.file_meta)
 
     # Dates and times are quasi-identifiers: a study date plus a modality plus a
     # postal district is frequently enough to re-identify. Kept only to the year.
@@ -281,11 +328,14 @@ def _window(frame: np.ndarray, dataset: Any,
         # specified. Lung window for CT, because this pipeline's CT interest is
         # chest.
         #
-        # Measured honestly: this does NOT change whether the lung model accepts
-        # a real CT. Full range scores 22.9 against a 16.51 OOD threshold and the
-        # lung window scores 25.0 — both refused, and the correct window is
-        # slightly worse. The windowing is fixed because it was wrong, not
-        # because it helps. See MODEL_CARDS.md.
+        # The windowing is fixed because it was wrong, not because of what any
+        # model does with the result. (An earlier version of this comment
+        # reported that the legacy lung model refused a CT at either window,
+        # 22.9 and 25.0 against 16.51. Those figures came from pydicom's small
+        # 1990s test object; on LIDC-IDRI chest CT the same model accepts the
+        # image at either window — see MODEL_CARDS.md — which is why it no
+        # longer serves. The windowing question and the model question are
+        # separate, and this function answers only the first.)
         modality = str(getattr(dataset, "Modality", "") or "").upper()
         if modality == "CT":
             centre, width = CT_LUNG_WINDOW
@@ -310,15 +360,45 @@ def _window(frame: np.ndarray, dataset: Any,
     return scaled.astype(np.uint8)
 
 
-def dicom_to_png_bytes(data: bytes) -> tuple[bytes, dict]:
-    """DICOM bytes to PNG bytes, plus what was learned about the acquisition.
+def _first_float(value: Any, default: float | None = None) -> float | None:
+    """A DICOM value that may be a scalar or a multi-value, as one float."""
+    try:
+        if value is None:
+            return default
+        if hasattr(value, "__iter__") and not isinstance(value, (str, bytes)):
+            value = list(value)
+            if not value:
+                return default
+            value = value[0]
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
-    Returns PNG rather than a numpy array so the result flows through exactly
-    the same preprocessing as an uploaded photograph — one code path to the
-    model, not two.
+
+def dicom_to_model_frame(data: bytes) -> tuple[np.ndarray, dict, bytes]:
+    """DICOM bytes to the frame a model sees, the acquisition record, and the
+    de-identified object.
+
+    Three things come back, and the order they are produced in is the point:
+
+      1. The 8-bit frame, rendered with `training_window()` for the modality —
+         for CT that is the lung window regardless of the display preset saved
+         in the tags. Every model in this repository that reads CT was trained
+         on frames rendered by this function with this override, and a serving
+         path that honoured the tags instead would hand the model a black lung
+         field on roughly 40% of series (see `training_window`). This used to be
+         exactly what `dicom_to_png_bytes` did; found and fixed 2026-09-21.
+
+      2. What was learned about the acquisition — modality, geometry, scanner,
+         and the window actually applied — so the caller can record which
+         scanner and which rendering produced a result. Kept free of identity.
+
+      3. The de-identified object, serialised, so that the caller can persist
+         THAT rather than the upload. Until this existed the only de-identified
+         copy was transient, and the bytes written to storage were the ones
+         that arrived — patient name and all (DPIA R-19).
     """
     import pydicom
-    from PIL import Image
 
     try:
         dataset = pydicom.dcmread(io.BytesIO(data), force=True)
@@ -343,21 +423,65 @@ def dicom_to_png_bytes(data: bytes) -> tuple[bytes, dict]:
         ) from exc
 
     frame = _select_frame(pixels)
-    windowed = _window(frame, dataset)
+    forced = training_window(dataset)
+    windowed = _window(frame, dataset, force_window=forced)
 
-    deidentify(dataset)
-
-    image = Image.fromarray(windowed).convert("RGB")
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
-
-    return buffer.getvalue(), {
+    # Geometry, read before de-identification only because de-identification
+    # does not touch it; recorded so a later series pipeline can validate it.
+    spacing = getattr(dataset, "PixelSpacing", None)
+    acquisition = {
         "modality": modality,
         "rows": int(getattr(dataset, "Rows", frame.shape[0])),
         "columns": int(getattr(dataset, "Columns", frame.shape[1])),
         "manufacturer": str(getattr(dataset, "Manufacturer", "") or ""),
         "manufacturerModel": str(getattr(dataset, "ManufacturerModelName", "") or ""),
         "photometricInterpretation": str(getattr(dataset, "PhotometricInterpretation", "") or ""),
+        "bodyPartExamined": str(getattr(dataset, "BodyPartExamined", "") or ""),
+        "sliceThicknessMm": _first_float(getattr(dataset, "SliceThickness", None)),
+        "pixelSpacingMm": (
+            [float(spacing[0]), float(spacing[1])]
+            if spacing is not None and len(spacing) >= 2 else None
+        ),
+        "convolutionKernel": str(getattr(dataset, "ConvolutionKernel", "") or ""),
+        "windowApplied": (
+            {"center": forced[0], "width": forced[1], "source": "training_window"}
+            if forced is not None
+            else {"center": _first_float(getattr(dataset, "WindowCenter", None)),
+                  "width": _first_float(getattr(dataset, "WindowWidth", None)),
+                  "source": "tags_or_percentile"}
+        ),
         "patientIdentityRemoved": True,
         "frames": int(pixels.shape[0]) if pixels.ndim >= 3 and pixels.shape[-1] not in (3, 4) else 1,
     }
+
+    deidentify(dataset)
+
+    out = io.BytesIO()
+    try:
+        # write_like_original=False rewrites a conformant Part 10 file with the
+        # preamble and meta group, which is what a downstream reader expects.
+        dataset.save_as(out, write_like_original=False)
+        deidentified = out.getvalue()
+    except Exception as exc:  # noqa: BLE001
+        # A dataset that cannot be re-serialised cannot be stored de-identified,
+        # and storing the original instead is the one thing this must not do.
+        raise DicomRejected(f"The de-identified object could not be written: {exc}") from exc
+
+    return windowed, acquisition, deidentified
+
+
+def dicom_to_png_bytes(data: bytes) -> tuple[bytes, dict]:
+    """DICOM bytes to PNG bytes, plus what was learned about the acquisition.
+
+    Returns PNG rather than a numpy array so the result flows through exactly
+    the same preprocessing as an uploaded photograph — one code path to the
+    model, not two. The rendering is `dicom_to_model_frame`'s, so it carries
+    the same windowing guarantee.
+    """
+    from PIL import Image
+
+    windowed, acquisition, _deidentified = dicom_to_model_frame(data)
+    image = Image.fromarray(windowed).convert("RGB")
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue(), acquisition

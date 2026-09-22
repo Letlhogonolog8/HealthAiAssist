@@ -143,14 +143,20 @@ curl -s localhost:8001/healthz | python -m json.tool
 </code></pre>
 <p>Checklist:</p>
 <ul>
-<li>[ ] <code>/healthz</code> shows <code>"loaded": true</code> for <strong>both</strong> models</li>
+<li>[ ] <code>/healthz</code> shows <code>"loaded": true</code> for <strong>skin</strong> and <strong>lung_nodule</strong>. (The
+      legacy lung model is also resident, for measurement; it is withdrawn from
+      serving and the application will not route to it — <code>GET /api/models/cards</code>
+      shows <code>lung</code> as DISABLED and <code>lung_nodule</code> as VALIDATION.)</li>
+<li>[ ] A LIDC slice and a labelled nodule centre to hand:
+      <code>python scripts/lidc_find_nodule_slice.py</code> prints the path and (cx, cy).</li>
 <li>[ ] A warm scan returns in <strong>~470 ms</strong>. Run two before the panel arrives — the
       first request after start-up traces the graphs and is slower.</li>
 <li>[ ] Know the Grad-CAM number: turning it on costs <strong>~1.2 s extra</strong>, so Act I
       lands at roughly 1.7 s, not 500 ms. Say "about a second and a half, and
       most of that is the explanation" rather than letting a panellist notice a
       gap between the claim and the clock.</li>
-<li>[ ] Test images to hand: a malignant dermoscopic image, a held-out chest PNG, a real DICOM</li>
+<li>[ ] Test images to hand: a malignant dermoscopic image, a held-out chest PNG,
+      a real LIDC-IDRI DICOM (any <code>.dcm</code> under <code>dataset/manifest-1600709154662/</code>)</li>
 <li>[ ] Signed in as a patient in one browser profile, a radiologist in another</li>
 <li>[ ] Browser zoom at 100%; DevTools closed until Act IV</li>
 </ul>
@@ -192,17 +198,17 @@ oodScore: 37.04   threshold: 22.63
 <p>No classification. Not a low-confidence one — none. The measurement behind that
 is in the model card: wrong-modality images flag at 100%, held-out
 same-modality images at 0.8%.</p>
-</blockquote>
-<p>Then reverse it — skin image to the <strong>lung</strong> model. Refused, 26.1 against 16.51.</p>
-<blockquote>
-<p>It works in both directions, and both figures are published.</p>
+<p>The screen is validated in both directions — the domains it must accept and
+the domains it must refuse, with the bars set before measurement. That
+measurement can fail, and Act V is what happened when it did.</p>
 </blockquote>
 <hr />
 <h2>Act III — Refusing a modality it has no model for <em>(60 s)</em></h2>
 <p>Open the scan-type menu.</p>
 <blockquote>
 <p>Breast, colon and prostate are not on this menu. They have no trained
-classifier, so the system will not offer them.</p>
+classifier, so the system will not offer them. Lung is not on it either, as
+of five days ago — that is Act V.</p>
 </blockquote>
 <p>If a panellist asks what happens if one is submitted directly to the API:</p>
 <pre><code class="language-bash">curl -X POST .../api/scan/upload -F &quot;image=@x.jpg&quot; -F &quot;scanType=breast&quot;
@@ -235,26 +241,51 @@ minutes, in the one situation where the patient is least able to check.</p>
 <p>Go back online. The queue flushes and the real result appears.</p>
 <hr />
 <h2>Act V — The finding we published against ourselves <em>(2 min)</em></h2>
-<p><strong>This is the act that wins or loses the room.</strong> Upload a real DICOM to the lung
-model.</p>
-<p><strong>Expected:</strong> HTTP 422 —</p>
-<blockquote>
-<p><em>"The lung model cannot read clinical DICOM acquisitions. It was trained on
-web-sourced PNG images, not on scanner output, and it refuses every real
-acquisition regardless of windowing."</em></p>
-</blockquote>
+<p><strong>This is the act that wins or loses the room.</strong> Open <code>GET /api/models/cards</code>
+and point at lung: <code>enabled: false</code>, <code>state: "withdrawn"</code>, and the reason.</p>
 <p><strong>Say:</strong></p>
 <blockquote>
-<p>We built DICOM ingestion, pointed it at real clinical objects, and found that
-our own lung model refuses all of them. We tested every conventional window —
-full range, lung, mediastinal, bone. All refused, and the radiologically
-correct lung window scores worse than the wrong one.</p>
-<p>We could have tuned the threshold until it passed. That would have been fitting
-the preprocessing to defeat the safety check. Instead it is in the model card
-as a blocking limitation, and retraining on a documented CT dataset is the
-first item on our clinical roadmap.</p>
-<p>A system that accepted that CT and returned a probability would have demoed
-better and been worthless in a clinic.</p>
+<p>Until five days ago this platform served a lung model, and this script had an
+act where we uploaded a real CT to it and it refused — and we said that proved
+the out-of-distribution screen worked. It did refuse. The object we had tested
+was a 128-by-128 scan from the 1990s that ships with a Python library.</p>
+<p>On the twentieth of September we pointed the same validation script at
+eighty-seven real chest CT slices from LIDC-IDRI. Eighty-four passed the
+screen, and the model gave verdicts on them. It had never been measured on CT.
+A verdict with no measured basis is a guess, and this platform's rule is to
+refuse rather than guess. So the script exited non-zero, we switched the model
+off that day, and we rewrote the claim.</p>
+</blockquote>
+<p>Then submit the real DICOM as a lung scan anyway. The interface no longer
+offers lung — a tool with no model behind it is not shown as a tool — so this
+goes to the API directly, which is also the more convincing demonstration:</p>
+<pre><code class="language-bash">curl -X POST .../api/scans/analyze -F &quot;image=@LIDC-IDRI-0001.dcm&quot; -F &quot;scanType=lung&quot;
+</code></pre>
+<p><strong>Expected:</strong> HTTP 503 —</p>
+<blockquote>
+<p><em>"Withdrawn 2026-09-20 … 84 of 87 LIDC-IDRI slices passed its
+out-of-distribution screen … Lung scans are stored and queued for a
+radiologist until a CT-trained model is bound."</em></p>
+<p>That scan is now in the radiologist's queue with no automated result attached.
+The DICOM was de-identified on the way in, the same as before. What changed is
+that nothing pretends to have read it.</p>
+<p>We could have raised the threshold until the test passed, or quietly dropped
+the domain from the script. Either would have demoed better and been worthless
+in a clinic. The replacement — a nodule characteriser trained on that same CT
+data — is on disk, calibrated, and refuses whole slices at ninety percent. It
+serves when it has a binding, through the same process that withdrew this one.</p>
+</blockquote>
+<p><strong>If there is time (60 s): the replacement.</strong> Sign in as the radiologist, open
+the Lung Nodule tab, upload the <code>.dcm</code> the script named, click the nodule at
+the printed (cx, cy), and submit for a patient.</p>
+<blockquote>
+<p>This is what replaced it, four days later, through the same governance
+process. A radiologist marks one nodule; the model says how likely a
+radiologist would be to rate it malignant. Look at what comes back: the
+probability, the threshold, the calibration, the out-of-distribution score,
+the fingerprint, the evidence class — and the words "clinical validation:
+not established". Twenty-nine malignant nodules in its test set. It is
+served under validation terms, and every screen says so.</p>
 </blockquote>
 <p>Then hand over the model card, open at the skin-tone section.</p>
 <blockquote>
@@ -266,9 +297,9 @@ controls. We publish that rather than an encouraging average.</p>
 <hr />
 <h2>Closing <em>(30 s)</em></h2>
 <blockquote>
-<p>Two modalities, 0.86 and 0.79 balanced accuracy on held-out data. Those are
-respectable for the stage and unremarkable against the literature, and someone
-in this competition will claim higher.</p>
+<p>One serving modality at 0.86 balanced accuracy on held-out data, and one we
+withdrew last week. Both numbers are respectable for the stage and unremarkable
+against the literature, and someone in this competition will claim higher.</p>
 <p>What we would ask you to weigh instead is that this system knows when it does
 not know — and that every limitation you have just seen, we found and published
 ourselves.</p>
@@ -286,7 +317,7 @@ ourselves.</p>
 <tbody>
 <tr>
 <td>Warm inference</td>
-<td>~470 ms (skin), ~430 ms (lung)</td>
+<td>~470 ms (skin)</td>
 </tr>
 <tr>
 <td>With Grad-CAM</td>
@@ -318,7 +349,7 @@ beyond what a district hospital produces.</p>
 <tbody>
 <tr>
 <td><em>"Where did your training data come from?"</em></td>
-<td>Skin: a public ISIC-derived collection, 96% light-skinned — documented. Lung: unrecorded provenance, which is why it refuses real DICOM. Both stated in the model card. <strong>Do not improvise a source.</strong></td>
+<td>Skin: a public ISIC-derived collection, 96% light-skinned — documented. Lung: unrecorded web-sourced provenance, which is why it was withdrawn once it was found answering real CT. The replacement is LIDC-IDRI (TCIA, CC BY 3.0). All stated in the model card. <strong>Do not improvise a source.</strong></td>
 </tr>
 <tr>
 <td><em>"Why is your accuracy lower than published work?"</em></td>

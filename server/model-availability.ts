@@ -46,11 +46,29 @@ export class InputRejectedError extends Error {
   }
 }
 
+/**
+ * How far a model's evidence reaches. The classes CLAUDE.md requires, in
+ * ascending order. Nothing here has reached the last three, and a class can
+ * only move up by adding the evidence the next one names — an external test
+ * set, a clinical study, a regulator.
+ */
+export type ModelClass =
+  | 'RESEARCH'
+  | 'EXPERIMENTAL'
+  | 'INTERNAL_VALIDATION'
+  | 'EXTERNAL_VALIDATION'
+  | 'CLINICAL_VALIDATION'
+  | 'PRODUCTION';
+
 export interface ModelRegistryEntry {
   /** Whether this model may serve predictions to users. */
   enabled: boolean;
   /** Why it is disabled, if it is. Surfaced in the 503 response. */
   disabledReason?: string;
+  /** Evidence class. Published on the card and in the capability manifest. */
+  modelClass: ModelClass;
+  /** One line: what this model answers, and for whom. */
+  intendedUse: string;
   /**
    * Measured performance on a labelled evaluation set. Reproduce with:
    *   python scripts/evaluate-model.py <model.h5> <data_dir> <class0> <class1>
@@ -78,8 +96,48 @@ export interface ModelRegistryEntry {
  * from anything; the numbers below are from actual evaluation runs.
  */
 export const MODEL_REGISTRY: Record<string, ModelRegistryEntry> = {
+  /**
+   * Withdrawn 2026-09-20. The figures below are still true of the artifact on
+   * its own test set; they were never true of real CT, and the artifact was
+   * found to answer real CT anyway.
+   *
+   * The model card had said this model "refuses every clinical acquisition"
+   * because a real CT scored 22.9 against the 16.51 out-of-distribution
+   * threshold. That figure came from pydicom's bundled test object —
+   * `CT_small.dcm`, a 128×128 GE acquisition from the 1990s — not from chest
+   * CT as a scanner produces it today. Measured against the LIDC-IDRI series
+   * in `dataset/` on 2026-09-20, through the serving code:
+   *
+   *   87 whole CT slices at the lung window   median 12.26   flagged 3.4%
+   *   12 real DICOMs via dicom_to_png_bytes    median 14.2    11 of 12 accepted
+   *   its own web-PNG test set                 median 11.3    (for comparison)
+   *
+   * Real CT sits inside this model's training distribution in feature space,
+   * so the screen cannot separate it and a higher threshold would be tuning
+   * the safety check to defeat itself. Only the explicit DICOM-file gate in
+   * inference/server.py stopped a DICOM; a PNG export of the same slice — the
+   * ordinary way an image leaves a PACS viewer — received a cancer / no_cancer
+   * verdict from a model with no measured performance on CT.
+   *
+   * That is a guess dressed as a result, and the rule is to refuse rather than
+   * guess. The record is `scripts/build-ood-reference.py lung --measure-only`,
+   * which now exits non-zero, and `lung_model_ood.json`, which records the
+   * failed domain. The replacement is the LIDC-IDRI nodule characteriser in
+   * `dataset/lung_nodule_model/`, which serves only once it has a binding.
+   */
   lung: {
-    enabled: true,
+    enabled: false,
+    modelClass: 'INTERNAL_VALIDATION',
+    intendedUse:
+      'Was: triage of chest images shaped like its web-sourced training set. Withdrawn; ' +
+      'has no intended use.',
+    disabledReason:
+      'Withdrawn 2026-09-20. This model was trained on web-sourced PNG images of ' +
+      'unrecorded provenance and has no measured performance on CT. It was found to ' +
+      'accept real chest CT — 84 of 87 LIDC-IDRI slices passed its out-of-distribution ' +
+      'screen (median 12.26 against a 16.51 threshold) and received verdicts. A verdict ' +
+      'with no measured basis is not a result. Lung scans are stored and queued for a ' +
+      'radiologist until a CT-trained model is bound. See MODEL_CARDS.md.',
     evaluation: {
       dataset:
         'Held-out test split, 554 images (282 cancer / 272 no_cancer), never used ' +
@@ -103,13 +161,68 @@ export const MODEL_REGISTRY: Record<string, ModelRegistryEntry> = {
         'screening and is configurable via LUNG_CANCER_THRESHOLD. Even so, roughly ' +
         '1 in 5 cancers is missed and 1 in 4 healthy scans is flagged. ' +
         'Inputs are screened before classification: skin images flag at 100%, ' +
-        'held-out chest images at 0.8%. ' +
+        'held-out chest images at 0.8% — and real CT slices at only 3.4%, which is ' +
+        'the reason it no longer serves. ' +
         'Demographic composition of the training data is unrecorded. ' +
         'Screening triage only; not clinically validated or regulator-cleared.'
     }
   },
+  /**
+   * The LIDC-IDRI nodule characteriser. Route 1: a clinician marks a nodule
+   * on one CT slice and asks how likely a radiologist would be to rate it
+   * malignant. It does not find nodules, does not read a whole slice (its
+   * OOD reference refuses one at 90.8%), and does not check that the marked
+   * region contains a nodule — it characterises what it is pointed at.
+   *
+   * Served under VALIDATION terms: the evidence is 97 held-out nodules of
+   * which 29 are malignant, labels are radiologist ratings rather than
+   * histology, and LIDC records almost no demographics. Each figure below
+   * carries the interval that sample size implies, and the card says so.
+   */
+  lung_nodule: {
+    enabled: true,
+    modelClass: 'INTERNAL_VALIDATION',
+    intendedUse:
+      'Research / internal validation. Characterise ONE nodule a clinician has marked on ' +
+      'a chest CT slice (DICOM), as the probability a radiologist would rate it malignant, ' +
+      'to inform the order of review. Not a detector, not a diagnosis, not clinically validated.',
+    evaluation: {
+      dataset:
+        'LIDC-IDRI held-out test split: 97 nodules (29 malignant) from 29 patients, split by ' +
+        'patient before extraction; 485 patches of 5 slices each. Labels are the median ' +
+        'radiologist malignancy rating (median 3 excluded), not histology.',
+      balancedAccuracy: 0.7767,
+      sensitivity: 0.8621,  // 25 of 29 malignant nodules flagged, 95% CI 0.69–0.95
+      specificity: 0.6912,  // 47 of 68 benign nodules cleared, 95% CI 0.57–0.79
+      preprocessing:
+        'DICOM CT slice rendered at the lung window (WC -600 / WW 1500) by ' +
+        'inference/dicom_ingest.training_window, 64 px crop centred on the mark ' +
+        '(inference/nodule_patch.crop), bicubic to 224 px, raw RGB 0-255',
+      caveats:
+        'Per-nodule figures (mean over each nodule’s slices) on a SMALL held-out set: 29 ' +
+        'malignant nodules give a sensitivity interval of 0.69-0.95, and 68 benign a specificity ' +
+        'interval of 0.57-0.79. Serving takes ONE marked slice, not five; scored per patch the ' +
+        'same set gives sensitivity 0.841 and specificity 0.662, whose interval is optimistic ' +
+        'by construction. The reference standard is a radiologist’s rating, so the ceiling is ' +
+        'inter-reader agreement, not truth. Calibration: ECE 0.040; temperature scaling fitted ' +
+        '(T=1.265) and deliberately NOT applied. OOD reference validated in both directions: ' +
+        'held-out benign patches accepted 96.7%, off-nodule parenchyma 99.2%, whole CT slices ' +
+        'refused 90.8%, skin lesions 92.5%. Threshold 0.30 on P(malignant), chosen on ' +
+        'validation nodules as the most specific point reaching 0.85 sensitivity. ' +
+        'The OOD screen checks scale and modality, not that the marked region is a nodule: a ' +
+        'clinician who marks soft tissue receives a probability about soft tissue. ' +
+        'No demographic breakdown is possible (LIDC records sex for 29% of patients, age for ' +
+        '20%, ethnic group for 4%). Raster input is refused; the DICOM object is required so ' +
+        'the crop is at the native pixel scale the model was trained on. ' +
+        'Research / internal validation only; not clinically validated or regulator-cleared.'
+    }
+  },
   skin: {
     enabled: true,
+    modelClass: 'INTERNAL_VALIDATION',
+    intendedUse:
+      'Screening triage of a single dermoscopic or clinical lesion image, to prioritise ' +
+      'clinician review. Not a diagnosis.',
     evaluation: {
       dataset: 'dataset/dataset/data/test (360 benign / 300 malignant), held out from training',
       balancedAccuracy: 0.8636,
@@ -149,10 +262,23 @@ export const SUPPORTED_SCAN_TYPES = Object.keys(MODEL_REGISTRY).filter(
  * Maps a free-text scan type onto a registry key.
  * Returns the key even when disabled, so callers can report *why* it is refused
  * rather than the less useful "no such modality".
+ *
+ * An exact match wins before any substring match. The substring rule exists
+ * for free text like "lung scan"; without the exact-match step first, a key
+ * that contains another key as a prefix (a `lung_nodule` entry beside `lung`)
+ * would resolve to whichever came first in the registry — and a withdrawn
+ * modality quietly absorbing requests meant for its replacement is exactly the
+ * kind of routing mistake nothing downstream can see.
  */
 export function resolveScanType(scanType: string): string | null {
-  const normalized = (scanType || '').toLowerCase();
-  return Object.keys(MODEL_REGISTRY).find((key) => normalized.includes(key)) ?? null;
+  const normalized = (scanType || '').toLowerCase().trim();
+  const keys = Object.keys(MODEL_REGISTRY);
+  if (keys.includes(normalized)) return normalized;
+  // Longest key first, so "lung_nodule" beats "lung" for "lung_nodule scan".
+  return (
+    [...keys].sort((a, b) => b.length - a.length).find((key) => normalized.includes(key)) ??
+    null
+  );
 }
 
 /**

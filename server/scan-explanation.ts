@@ -119,7 +119,7 @@ export async function readScanImageBytes(imagePath: string): Promise<Buffer | nu
 
 /** Maps the inference service's label to the boolean the scans table stores. */
 function isPositiveCall(modality: Modality, prediction: string): boolean {
-  return modality === 'lung' ? prediction === 'cancer' : prediction === 'malignant';
+  return modality === 'skin' ? prediction === 'malignant' : prediction === 'cancer';
 }
 
 const REFUSED_PREDICTIONS = new Set(['rejected_input', 'unavailable', 'Error', '']);
@@ -141,7 +141,7 @@ export async function explainScan(scan: ExplainableScan): Promise<ExplanationRes
   }
 
   const modality = scan.scanType as Modality;
-  if (modality !== 'lung' && modality !== 'skin') {
+  if (modality !== 'lung' && modality !== 'skin' && modality !== 'lung_nodule') {
     return {
       ok: false,
       status: 409,
@@ -150,7 +150,22 @@ export async function explainScan(scan: ExplainableScan): Promise<ExplanationRes
     };
   }
 
-  // 2. The subprocess fallback runs a plain classifier script; only the
+  // 2. Is this model allowed to run at all? Checked before the transport
+  //    question, because the answer does not depend on it: a withdrawn model's
+  //    result is not re-run over any transport, and the reason a clinician
+  //    reads should be the withdrawal, not "the service is not configured".
+  const governance = await governanceStatus(modality);
+  if (!governance.mayServe) {
+    return {
+      ok: false,
+      status: 409,
+      code: 'model_not_serving',
+      message: `The ${modality} model is not currently serving: ${governance.explanation}`,
+      detail: { governanceState: governance.state },
+    };
+  }
+
+  // 3. The subprocess fallback runs a plain classifier script; only the
   //    resident service renders heatmaps.
   if (!isInferenceServerConfigured()) {
     return {
@@ -163,19 +178,9 @@ export async function explainScan(scan: ExplainableScan): Promise<ExplanationRes
     };
   }
 
-  // 3. Same artifact, or nothing. The governance gate already refuses to serve
-  //    a drifted model; this adds the tighter check that the model serving now
-  //    is the one that produced *this* result.
-  const governance = await governanceStatus(modality);
-  if (!governance.mayServe) {
-    return {
-      ok: false,
-      status: 409,
-      code: 'model_not_serving',
-      message: `The ${modality} model is not currently serving: ${governance.explanation}`,
-      detail: { governanceState: governance.state },
-    };
-  }
+  // Same artifact, or nothing. The governance gate above refuses to serve a
+  // drifted model; this adds the tighter check that the model serving now is
+  // the one that produced *this* result.
 
   const deployedVersion = await modelVersionFor(modality);
   if (deployedVersion !== scan.modelVersion) {
@@ -221,10 +226,32 @@ export async function explainScan(scan: ExplainableScan): Promise<ExplanationRes
     };
   }
 
-  // 6. Re-run with explain=true.
+  // 6. Re-run with explain=true. The nodule characteriser is a question about
+  //    a marked region, so the mark recorded with the result travels with the
+  //    re-run; without it there is no region to explain.
+  let region: { cx: number; cy: number } | null = null;
+  if (modality === 'lung_nodule') {
+    const { storage } = await import('./storage');
+    const marks = (await storage.getScanRegions(scan.id)).filter((r) => r.source === 'clinician');
+    if (!marks.length || marks[0].cx === null || marks[0].cy === null) {
+      return {
+        ok: false,
+        status: 409,
+        code: 'no_model_result',
+        message:
+          'No marked region is recorded for this scan, so the characterisation cannot be re-run. ' +
+          'This is NOT a negative finding.',
+      };
+    }
+    region = { cx: marks[0].cx, cy: marks[0].cy };
+  }
+
   let result: any;
   try {
-    result = await infer(modality, image, 'scan.jpg', { explain: true });
+    result = await infer(modality, image, modality === 'lung_nodule' ? 'slice.dcm' : 'scan.jpg', {
+      explain: true,
+      region,
+    });
   } catch (error) {
     if (error instanceof InferenceBusyError) {
       return {

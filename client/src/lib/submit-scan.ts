@@ -37,6 +37,8 @@ export interface SubmitInput {
   fileName: string;
   scanType: string;
   patientId?: number;
+  /** Extra form fields — the clinician's mark (cx, cy) for the nodule characteriser. */
+  extra?: Record<string, string>;
 }
 
 /** Best available guess at whether a request can reach the server. */
@@ -65,6 +67,7 @@ export async function submitScan(input: SubmitInput): Promise<SubmitOutcome> {
       image: input.image,
       fileName: input.fileName,
       patientId: input.patientId,
+      extra: input.extra,
     });
     return { kind: 'queued', queuedId: queued.id, reason: 'offline' };
   }
@@ -74,6 +77,9 @@ export async function submitScan(input: SubmitInput): Promise<SubmitOutcome> {
   form.append('scanType', input.scanType);
   if (input.patientId !== undefined) {
     form.append('patientId', String(input.patientId));
+  }
+  for (const [key, value] of Object.entries(input.extra ?? {})) {
+    form.append(key, value);
   }
 
   let response: Response;
@@ -94,6 +100,7 @@ export async function submitScan(input: SubmitInput): Promise<SubmitOutcome> {
         image: input.image,
         fileName: input.fileName,
         patientId: input.patientId,
+        extra: input.extra,
       });
       return { kind: 'queued', queuedId: queued.id, reason: 'offline' };
     }

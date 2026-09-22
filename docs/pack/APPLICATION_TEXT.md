@@ -21,16 +21,25 @@ medical image, runs a convolutional classifier over it, and routes the result to
 a clinician for review. It produces no diagnosis, and no path through the system
 bypasses human sign-off.
 
-Two modalities have a trained, evaluated classifier:
+Two models serve, under different terms, and a third was withdrawn by the
+platform's own safety process:
 
-| | Skin (dermoscopic) | Lung (chest imaging) |
-|---|---|---|
-| Balanced accuracy | **0.864** | **0.785** |
-| Sensitivity | 0.913 | 0.812 |
-| Specificity | 0.814 | 0.757 |
-| Held-out test set | 660 images | 554 images |
-| Calibration (ECE) | 0.024 | 0.017 |
-| Test AUC | — | 0.88 |
+| | Skin (dermoscopic) — **CURRENT** | Lung nodule (CT, clinician-marked) — **VALIDATION** | Lung (web-trained) — **withdrawn 20 Sep 2026** |
+|---|---|---|---|
+| Balanced accuracy | **0.864** | 0.777 | 0.785 |
+| Sensitivity | 0.913 | 0.862 (25 of 29; 95% CI 0.69–0.95) | 0.812 |
+| Specificity | 0.814 | 0.691 (47 of 68; 95% CI 0.57–0.79) | 0.757 |
+| Held-out test set | 660 images | **97 LIDC-IDRI nodules, 29 malignant**, patient-level split | 554 web-sourced images — not CT |
+| Calibration (ECE) | 0.024 | 0.040 | 0.017 |
+| Reference standard | dataset label | radiologist rating, not histology | dataset label, provenance unrecorded |
+
+The nodule characteriser is served under **validation terms**: a radiologist
+or doctor marks one nodule on a DICOM CT slice and receives the probability
+that a radiologist would rate it malignant, with the threshold, calibration,
+out-of-distribution score, model fingerprint and evidence class attached. It
+does not find nodules, refuses raster exports (no pixel scale), refuses whole
+slices, and its interval is stated everywhere it is shown because 29 malignant
+nodules is a small number.
 
 Every figure is from a held-out split never used in training or model selection,
 and every one is reproducible with a command published in the model card:
@@ -38,6 +47,24 @@ and every one is reproducible with a command published in the model card:
 ```
 python scripts/evaluate-model.py <model.h5> <data_dir> <class0> <class1>
 ```
+
+**Why lung was withdrawn.** The lung classifier was trained on web-sourced
+chest images of unrecorded provenance, and its figures describe that data. Its
+out-of-distribution screen had been believed to refuse real CT, on the strength
+of one bundled test object. Measured against 87 real LIDC-IDRI chest CT slices
+through the serving code, the screen passed 84 of them and the model issued
+verdicts on images it had never been measured on. A verdict with no measured
+basis is a guess; the platform's rule is to refuse rather than guess; the model
+was switched off the same day, and the measurement that did it is committed
+(`scripts/build-ood-reference.py lung --measure-only` exits non-zero). Lung
+scans are now stored and queued for a radiologist with no automated result.
+
+The replacement — the nodule characteriser above — was bound on 21 September
+through the same governance step that withdrew its predecessor: figures
+reproduced against the artifact by a named script, fingerprint recorded, card
+written, and the serving path corrected to render CT exactly as the training
+patches were rendered (the previous serving path honoured the display preset
+saved in the tags, which blacks out the lung field on roughly 40% of series).
 
 Breast, colon and prostate are **not** offered. They have no classifier;
 requests for them return HTTP 503 with no diagnostic content and queue the scan
@@ -47,10 +74,11 @@ entries is the failure the platform is built to avoid.
 ### 2. How it functions
 
 ```
-Image (JPEG/PNG/TIFF/WebP/AVIF, or DICOM)
+Image (JPEG/PNG/TIFF/WebP/AVIF, or DICOM; lung nodule: DICOM only, plus a clinician's mark)
    │
    ├─ Content verified from magic bytes, not the declared MIME type
-   ├─ DICOM: de-identified (PS3.15 Basic Profile) and windowed before anything is stored
+   ├─ DICOM: rendered at the training window, de-identified (PS3.15 Basic Profile,
+   │         instance UIDs replaced) — and the de-identified object is what is stored
    │
    ├─ Pixel-level quality screen ──────────► refuse: blank, blurred, over-exposed
    ├─ Out-of-distribution screen ──────────► refuse: not the kind of image this model reads
@@ -70,16 +98,22 @@ Radiologist review queue  →  clinician sign-off  →  confirmed outcome record
 
 Three properties are worth drawing out:
 
-**The operating point is chosen clinically, not statistically.** The lung
-threshold is 0.30 on the calibrated probability, not argmax. Argmax scores
-better on balanced accuracy (0.838 vs 0.785) and misses 86 of 282 cancers; the
-deployed threshold misses 53. Trading false alarms for missed cancers is the
-correct direction for screening, and the full threshold sweep is published.
+**The operating point is chosen clinically, not statistically.** The skin
+model bands its output (malignant above 0.70, uncertain 0.30–0.70, benign at or
+below 0.30) rather than taking argmax: strict sensitivity falls from 0.91 to
+0.78, but the outright-miss rate — a malignant lesion told it is benign — falls
+to 3.3%, and everything in the uncertain band goes to a clinician. The lung
+model, while it served, used a threshold of 0.30 on the calibrated probability
+for the same reason: argmax missed 86 of 282 cancers, the deployed point 53.
+Both sweeps are published.
 
-**Out-of-distribution screening is measured, not asserted.** PCA reconstruction
-error in ResNet feature space, thresholded at the 99.5th percentile of the
-training features. Wrong-modality images flag at 100%; held-out same-modality
-images at 0.8%.
+**Out-of-distribution screening is measured in both directions, and the
+measurement can fail.** PCA reconstruction error in ResNet feature space,
+thresholded at the 99.5th percentile of the training features, validated
+against domains the model must accept and domains it must refuse, with the bars
+set before measurement. For skin: wrong-modality images flag at 100%, held-out
+lesions at 0.8%. For lung the same script, pointed at real CT, measured 3.4%
+against a 90% bar — and that failure is what withdrew the model.
 
 **Confirmed outcomes are recorded per scan.** An append-only `scan_outcomes`
 table stores what each scan turned out to be, who established it, and by what
@@ -94,7 +128,7 @@ surveil.
 | Layer | Technology |
 |---|---|
 | Models | TensorFlow / Keras, ResNet50V2 (ImageNet trunk, frozen; trained head) |
-| Inference | FastAPI service holding both models resident, bounded request queue |
+| Inference | FastAPI service holding the models resident, bounded request queue; the nodule characteriser has no subprocess fallback by design |
 | Explainability | Grad-CAM on the final convolutional feature map |
 | Medical imaging | pydicom — DICOM ingest, de-identification, modality/VOI LUT windowing |
 | Application | Node.js, Express, TypeScript, React, PostgreSQL (Drizzle) |
@@ -111,12 +145,15 @@ what is offered rather than an invented capability.
 
 ### 4. Evidence of testing and validation
 
-**Model evaluation.** Held-out splits, calibration measured (and applied to lung,
-deliberately not applied to skin because it did not improve validation ECE),
-out-of-distribution detection measured, threshold sweep published. Skin-tone
-performance measured by Individual Typology Angle across 511 of 660 test images.
+**Model evaluation.** Held-out splits, calibration measured (and applied to lung
+while it served, deliberately not applied to skin because it did not improve
+validation ECE), out-of-distribution detection measured in both directions,
+threshold sweeps published. Skin-tone performance measured by Individual
+Typology Angle across 511 of 660 test images. The lung model's withdrawal is
+itself evidence of testing: the failure was found by the platform's own
+validation script, not by a reviewer.
 
-**Software.** 171 automated tests across 42 suites, run in CI on every push
+**Software.** 251 automated tests across 65 suites, run in CI on every push
 against an ephemeral PostgreSQL instance. The authorisation matrix exists because
 several `/api/doctor/*` routes were once found serving patient names and clinical
 notes to anonymous callers — a regression nobody noticed because nothing ran the
@@ -158,8 +195,9 @@ presentation is the dominant driver of cancer mortality here, and a delay
 between acquisition and reading is a delay in every downstream step.
 
 **What we do not claim.** This does not replace a specialist, and it is not more
-accurate than one. At 0.785 balanced accuracy the lung model misses roughly 1 in
-5 cancers and flags 1 in 4 healthy scans.
+accurate than one. At its banded operating point the skin model gives 1 in 30
+malignant lesions an outright benign result and sends 1 in 4 harmless lesions
+to a clinician as flagged or uncertain. No lung model is serving at all.
 
 **What it offers instead:** *ordering*. A queue read in arrival order treats an
 urgent scan and a routine one identically. A queue ordered by a calibrated
@@ -191,22 +229,27 @@ is measured rather than asserted:
 | **No validated model** → 503, no diagnostic content, queued for a human | Model registry gated on measured balanced accuracy | Breast, colon, prostate refused; a modality cannot be offered by the UI unless the server will analyse it |
 | **Input outside training distribution** → refused, not classified | PCA reconstruction error in feature space | Wrong-modality 100%, in-distribution 0.8% |
 | **Degenerate image** → refused | Pixel statistics: variance, level, Laplacian | Blank frames caught, which the feature detector scores as in-distribution |
-| **Clinical DICOM to the lung model** → refused explicitly, with the reason | Deterministic gate ahead of the OOD screen | Every window tested: 20.3–30.4 against a 16.51 threshold |
+| **A model found answering questions it was never measured on** → withdrawn | The OOD validation script's pre-set bar, applied to real CT | Lung: 84 of 87 LIDC-IDRI slices passed the screen; model switched off the same day |
+| **Clinical DICOM to a model with no CT measurement** → refused explicitly, with the reason | Deterministic gate on the DICOM preamble, ahead of any model | Every DICOM object refused; a PNG export was not, which is why the row above exists |
 | **Polygenic score that does not transfer** → no percentile shown at all | Ancestry transferability, Martin et al. 2019 | African-ancestry percentiles withheld entirely |
 | **Partially translated language** → not offered | Safety-critical key gate plus human sign-off | Spanish withheld: 29 navigation keys, no clinical text |
 
 Three of these deserve specific mention.
 
-**The lung model refuses real DICOM, and we published that.** DICOM ingest was
-built, pointed at genuine clinical objects, and immediately established that the
-lung classifier — trained on web-sourced images of unrecorded provenance —
-refuses every real acquisition. Correcting the windowing did not help; the
-radiologically correct lung window scores *worse*. This is documented in the
-model card as a blocking limitation, with retraining on a documented CT dataset
-named as the first item of clinical work.
+**The platform withdrew its own lung model, and we published that.** DICOM
+ingest was built in August and pointed at one bundled test object, which the
+lung classifier refused. That was read as "the model refuses every real
+acquisition" and written up as a safety property. In September the same
+out-of-distribution validation script was pointed at 87 real LIDC-IDRI chest CT
+slices: the screen passed 84 of them, and the classifier — trained on
+web-sourced images with no measured performance on CT — issued verdicts on
+them. The measurement is committed and the script now exits non-zero; the model
+was switched off that day; the earlier claim is retracted on the model card,
+with the reason.
 
-A system that accepted that CT and returned a probability would have
-demonstrated better and been worthless in a clinic.
+A system that kept that model serving because the failure was inconvenient five
+days before a submission would have demonstrated better and been worthless in a
+clinic. The one that switched it off is the one being submitted.
 
 **The skin fairness finding is negative, and published.** Skin tone was measured
 across the test set. The conclusion is that **the dataset cannot establish
@@ -269,8 +312,10 @@ nothing pretends to be.
 **Cost.** The DICOM path is the striking figure: **zero capital cost per site**,
 because the scanner is already installed and already emitting the protocol. It
 is not being read promptly, which is a workflow problem rather than an equipment
-one. Dermoscopic capture is R14,500–R28,500 per site indicative, pending
-quotation.
+one. The ingest, de-identification and windowing for that path are built; the
+model behind it is not yet bound, so today a DICOM upload is refused and queued
+rather than scored. Dermoscopic capture is R14,500–R28,500 per site indicative,
+pending quotation.
 
 **System-level.** Confirmed outcomes recorded against predictions give a
 facility its own measured performance rather than a vendor's brochure figure —
@@ -298,13 +343,14 @@ inference ~500 ms behind a bounded queue, offline capture and sync, DICOM ingest
 with de-identification, second factor, POPIA-compliant cross-border consent.
 
 **Validation progress — partial and stated.** Held-out evaluation with
-calibration and OOD screening measured. No clinical validation, no patients.
+calibration and OOD screening measured in both directions; one model withdrawn
+by that screening on 20 September 2026. No clinical validation, no patients.
 
 **Development plan — the next twelve months:**
 
 | Quarter | Work |
 |---|---|
-| Q4 2026 | Retrain lung on a documented CT dataset (LIDC-IDRI/NLST), patient-level splits. Retrospective validation on one SA facility's confirmed outcomes through the existing surveillance endpoint. Reader study, 3–5 clinicians, with and without the tool. |
+| Q4 2026 | DICOM series ingest with a CT quality gate and salted UID remap (P1b); pretrained nodule detector adopted and re-validated per nodule against a pre-registered bar (P2); structured clinician review with a disagreement metric (P6). Retrospective validation on one SA facility's confirmed outcomes through the existing surveillance endpoint. Reader study, 3–5 clinicians, with and without the tool. |
 | Q1 2027 | SAHPRA pre-submission engagement; IMDRF SaMD risk classification; ISO 14971 risk file; IEC 62304 lifecycle records. FHIR R4 conformance. Independent penetration test. |
 | Q2 2027 | Prospective clinical investigation under an approved protocol. Fitzpatrick V–VI dataset acquisition with a dermatology partner. |
 | Q3 2027 | Multi-site pilot; ISO 13485 QMS. |

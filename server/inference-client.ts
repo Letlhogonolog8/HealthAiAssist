@@ -89,10 +89,10 @@ export function warnIfFallingBack(modality: string): void {
  * nothing.
  */
 export async function infer(
-  modality: 'skin' | 'lung',
+  modality: 'skin' | 'lung' | 'lung_nodule',
   imageBuffer: Buffer,
   filename = 'scan',
-  options: { explain?: boolean } = {}
+  options: { explain?: boolean; region?: { cx: number; cy: number } | null } = {}
 ): Promise<any> {
   const base = baseUrl();
   if (!base) {
@@ -120,6 +120,12 @@ export async function infer(
     if (options.explain) {
       form.append('explain', 'true');
     }
+    // The clinician's mark, for the nodule characteriser. Pixels of the
+    // rendered frame; the service validates them against the frame.
+    if (options.region) {
+      form.append('cx', String(options.region.cx));
+      form.append('cy', String(options.region.cy));
+    }
 
     const response = await fetch(`${base}/infer/${modality}`, {
       method: 'POST',
@@ -142,6 +148,37 @@ export async function infer(
   } finally {
     inFlight -= 1;
   }
+}
+
+/**
+ * De-identifies a DICOM object without running a model.
+ *
+ * For the paths that store an object but do not analyse it. Returns null when
+ * the service is not configured — the caller then stores nothing rather than
+ * the identified original.
+ */
+export async function deidentifyDicom(
+  imageBuffer: Buffer
+): Promise<{ deidentifiedObject: Buffer; acquisition: Record<string, any>; previewPng: string } | null> {
+  const base = baseUrl();
+  if (!base) return null;
+  const form = new FormData();
+  form.append('image', new Blob([new Uint8Array(imageBuffer)], { type: 'application/dicom' }), 'object.dcm');
+  const response = await fetch(`${base}/deidentify`, {
+    method: 'POST',
+    body: form,
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(`De-identification failed: ${response.status}${detail ? ` ${detail.slice(0, 200)}` : ''}`);
+  }
+  const body = await response.json();
+  return {
+    deidentifiedObject: Buffer.from(String(body.deidentifiedObject), 'base64'),
+    acquisition: body.acquisition ?? {},
+    previewPng: String(body.previewPng ?? ''),
+  };
 }
 
 /** Liveness and which artifacts are resident. Used by /api/ready. */

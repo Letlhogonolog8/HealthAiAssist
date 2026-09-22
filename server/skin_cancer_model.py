@@ -163,6 +163,17 @@ def _read_calibration(model_dir):
         return 1.0
 
 
+def _calibration_ece(model_dir):
+    """The held-out expected calibration error recorded when calibration was measured."""
+    path = os.path.join(model_dir, 'skin_model_calibration.json')
+    try:
+        with open(path) as f:
+            report = json.load(f)
+        return (report.get('before') or {}).get('expectedCalibrationError')
+    except Exception:
+        return None
+
+
 def apply_temperature(probs, temperature):
     if temperature == 1.0:
         return probs
@@ -229,7 +240,8 @@ def predict_skin_cancer(image_source, model_path=None):
             }
 
         predictions = model.predict(img_array, verbose=0)
-        probs = apply_temperature(predictions[0], load_calibration(model_dir))
+        temperature = load_calibration(model_dir)
+        probs = apply_temperature(predictions[0], temperature)
 
         # Class index order is fixed by training: 0=benign, 1=malignant.
         # Recorded in dataset/data/skin_model_training.json.
@@ -252,7 +264,13 @@ def predict_skin_cancer(image_source, model_path=None):
             'probabilities': {
                 'benign': benign_prob,
                 'malignant': malignant_prob
-            }
+            },
+            # How the number was reached, so the caller can record it as
+            # numbers rather than infer it from the model card.
+            'temperature': temperature,
+            'calibrationApplied': temperature != 1.0,
+            'calibrationEce': _calibration_ece(model_dir),
+            'bands': {'benignAtOrBelow': 0.3, 'malignantAbove': 0.7},
         }
         if ood_detail:
             result['oodScore'] = ood_detail

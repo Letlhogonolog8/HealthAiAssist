@@ -1,5 +1,13 @@
 # HealthAI Assistant - Final Production Readiness Assessment
 
+> **Historical document (10 August 2026).** Superseded by `docs/DPIA.md`,
+> `docs/pack/FAILURE_MODES.md`, `docs/MODEL_GOVERNANCE.md` and the model cards.
+> Where this file names HIPAA or GDPR, read POPIA: South African law governs
+> this platform and no HIPAA or GDPR claim is made. Where it scores readiness as
+> a percentage, that scoring was retired (commit `8fe0deb`) because a number
+> derived from a checklist is not a measurement. Kept for the record of what
+> was found at the time; nothing in it should be cited as current.
+
 **Assessment Date**: August 10, 2026  
 **Last Updated**: August 10, 2026  
 **Assessment Status**: COMPREHENSIVE REVIEW COMPLETE

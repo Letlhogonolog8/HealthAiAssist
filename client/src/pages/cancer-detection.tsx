@@ -58,7 +58,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import SkinCancerAnalyzer from '@/components/skin-cancer-analyzer';
-import LungCancerAnalyzer from '@/components/lung-cancer-analyzer';
+import LungNoduleTool from '@/components/lung-nodule-tool';
 import MultiCancerDetectionSystem from '@/components/multi-cancer-detection-system';
 import CancerRiskQuestionnaire from '@/components/cancer-risk-questionnaire';
 import MedicalImageViewer from '@/components/medical-image-viewer';
@@ -67,6 +67,7 @@ import RealTimeSkinScanner from '@/components/real-time-skin-scanner';
 interface ModelCard {
   scanType: string;
   enabled: boolean;
+  disabledReason: string | null;
   evaluation: { sensitivity: number; specificity: number } | null;
 }
 
@@ -107,7 +108,9 @@ interface Tool {
    * for the scan uploader, that it reads the registry itself and refuses per
    * modality on the server side.
    */
-  requiresModel?: 'skin' | 'lung';
+  requiresModel?: 'skin' | 'lung' | 'lung_nodule';
+  /** A tool that is a clinician's act. Shown to patients as such, not offered. */
+  clinicianOnly?: boolean;
 }
 
 const TOOLS: Tool[] = [
@@ -135,12 +138,17 @@ const TOOLS: Tool[] = [
     requiresModel: 'skin',
   },
   {
-    id: 'lung',
-    name: 'Chest imaging analysis',
-    description: 'Chest images, screening triage only',
+    id: 'lung-nodule',
+    name: 'Lung nodule characterisation',
+    description: 'A clinician marks one nodule on a CT slice (DICOM)',
     icon: Wind,
-    does: ['Cancer / no-cancer call at a screening threshold', 'Calibrated probability', 'Refuses images unlike its training set'],
-    requiresModel: 'lung',
+    does: [
+      'Probability a radiologist would rate the marked nodule malignant',
+      'Does not find nodules; characterises only what is marked',
+      'Research / internal validation — 97 held-out nodules',
+    ],
+    requiresModel: 'lung_nodule',
+    clinicianOnly: true,
   },
   {
     id: 'risk-questionnaire',
@@ -181,8 +189,15 @@ export default function CancerDetection({
   const modelEnabled = (scanType: string) =>
     data?.models.find((m) => m.scanType === scanType)?.enabled === true;
 
+  /** The registry's own reason a model is off, first sentence — it names the date. */
+  const disabledReasonFor = (scanType: string) => {
+    const reason = data?.models.find((m) => m.scanType === scanType)?.disabledReason;
+    return reason ? reason.split(/(?<=\.)\s/)[0] : null;
+  };
+
+  const isClinician = ['doctor', 'radiologist', 'admin'].includes(user?.role ?? '');
   const isAvailable = (tool: Tool) =>
-    !tool.requiresModel || modelEnabled(tool.requiresModel);
+    (!tool.requiresModel || modelEnabled(tool.requiresModel)) && (!tool.clinicianOnly || isClinician || !user);
 
   const selected = TOOLS.find((t) => t.id === selectedId) ?? TOOLS[0];
   const selectedAvailable = isAvailable(selected);
@@ -210,6 +225,7 @@ export default function CancerDetection({
     // Belt and braces: the card is not selectable when the model is off, but the
     // registry can change under an open tab.
     if (!selectedAvailable) {
+      const reason = selected.requiresModel ? disabledReasonFor(selected.requiresModel) : null;
       return (
         <div className="flex gap-3 rounded-lg border border-amber-700/40 bg-amber-950/20 p-4">
           <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
@@ -217,6 +233,13 @@ export default function CancerDetection({
             The model behind this tool is not currently being served, so it cannot
             produce a result. Submitting anyway would queue the scan for a human
             rather than analyse it.
+            {reason && (
+              <>
+                {' '}
+                <span className="text-amber-200">{reason}</span> The full account is on
+                the model card.
+              </>
+            )}
           </p>
         </div>
       );
@@ -227,8 +250,8 @@ export default function CancerDetection({
         return <SkinCancerAnalyzer />;
       case 'skin-scanner':
         return <RealTimeSkinScanner />;
-      case 'lung':
-        return <LungCancerAnalyzer />;
+      case 'lung-nodule':
+        return <LungNoduleTool />;
       case 'risk-questionnaire':
         return <CancerRiskQuestionnaire user={user} />;
       case 'image-viewer':
@@ -318,7 +341,9 @@ export default function CancerDetection({
                           }`}
                         >
                           {available ? <Check className="w-3 h-3" /> : <Minus className="w-3 h-3" />}
-                          {available ? 'Available' : 'Model off'}
+                          {available
+                            ? tool.clinicianOnly ? 'Clinicians' : 'Available'
+                            : tool.clinicianOnly && user && !isClinician ? 'Clinician tool' : 'Model off'}
                         </span>
                       )}
                     </div>

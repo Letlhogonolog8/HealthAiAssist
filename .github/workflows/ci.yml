@@ -149,4 +149,24 @@ jobs:
             scripts/lidc_build_labels.py \
             scripts/lidc_extract_patches.py \
             scripts/lidc_whole_slices.py \
-            scripts/train-lung-nodule-model.py
+            scripts/train-lung-nodule-model.py \
+            inference/lung_nodule_service.py \
+            inference/nodule_patch.py \
+            scripts/verify-lung-nodule-operating-point.py \
+            scripts/lidc_find_nodule_slice.py
+
+      # The Python safety code — DICOM recognition, windowing order,
+      # de-identification, the nodule crop, the quality-gate floors — is
+      # tested against synthetic objects built in memory, so it runs here
+      # without the gitignored artifacts or the LIDC download. The tests that
+      # need those skip with a reason; on a machine that has them the suite
+      # runs in full (29 tests, 2026-09-21).
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Python inference tests
+        run: |
+          python -m pip install --quiet numpy pillow pydicom pytest
+          python -m pytest inference/tests -q

@@ -31,23 +31,32 @@ import {
 const TIMEOUT = 300_000;
 const INFERENCE_CONFIGURED = Boolean(process.env.INFERENCE_URL);
 
-const LUNG_DIR = 'dataset/dataset/lung_cancer_MRI_dataset/validate/cancer';
-const lungImages = fs.existsSync(LUNG_DIR)
-  ? fs.readdirSync(LUNG_DIR).filter((f) => /\.(jpe?g|png)$/i.test(f)).slice(0, 1)
+/**
+ * Skin, because skin is the modality that serves. This file used a chest image
+ * and the lung model until that model was withdrawn (2026-09-20; MODEL_CARDS.md).
+ * Several candidates are kept because the out-of-distribution screen refuses
+ * roughly one held-out lesion in 120, and a refusal is correct rather than a
+ * test failure — the next candidate is tried.
+ */
+const SKIN_DIR = 'dataset/dataset/data/test/malignant';
+const skinImages = fs.existsSync(SKIN_DIR)
+  ? fs.readdirSync(SKIN_DIR).filter((f) => /\.(jpe?g|png)$/i.test(f)).slice(0, 6)
   : [];
-const haveImage = lungImages.length === 1;
+const haveImage = skinImages.length >= 1;
 
 let consenting: Awaited<ReturnType<typeof registerPatient>>;
 let declining: Awaited<ReturnType<typeof registerPatient>>;
 let radSession: Session;
 let analysedScanId: number | null = null;
 let unanalysedScanId: number | null = null;
+/** A row written by the withdrawn lung model before it was withdrawn. */
+let legacyLungScanId: number | null = null;
 
-async function submit(session: Session): Promise<{ status: number; json: any; text: string }> {
+async function submit(session: Session, file: string): Promise<{ status: number; json: any; text: string }> {
   const form = new FormData();
-  const bytes = fs.readFileSync(`${LUNG_DIR}/${lungImages[0]}`);
-  form.append('image', new Blob([bytes], { type: 'image/jpeg' }), lungImages[0]);
-  form.append('scanType', 'lung');
+  const bytes = fs.readFileSync(`${SKIN_DIR}/${file}`);
+  form.append('image', new Blob([bytes], { type: 'image/jpeg' }), file);
+  form.append('scanType', 'skin');
   return session.postForm('/api/scans/analyze', form);
 }
 
@@ -77,16 +86,37 @@ before(async () => {
 
   if (haveImage) {
     // Consent refused: stored and queued, never scored. predicted_positive stays null.
-    const queued = await submit(declining.session);
+    const queued = await submit(declining.session, skinImages[0]);
     assert.equal(queued.status, 200, queued.text.slice(0, 200));
     unanalysedScanId = queued.json.scan?.id ?? queued.json.scanId;
     assert.ok(unanalysedScanId, 'no scan id for the unanalysed scan');
 
     // Consent granted: the model runs (resident service or subprocess fallback).
-    const scored = await submit(consenting.session);
-    assert.equal(scored.status, 200, scored.text.slice(0, 200));
-    analysedScanId = scored.json.scan?.id;
-    assert.ok(analysedScanId, 'no scan id for the analysed scan');
+    for (const file of skinImages) {
+      const scored = await submit(consenting.session, file);
+      if (scored.status === 422) continue;
+      assert.equal(scored.status, 200, scored.text.slice(0, 200));
+      analysedScanId = scored.json.scan?.id;
+      break;
+    }
+    assert.ok(analysedScanId, `none of ${skinImages.length} candidates was scored`);
+  }
+
+  // A result the withdrawn model produced while it was still serving. Inserted
+  // directly, because the API can no longer produce one — which is the point.
+  const pool2 = db();
+  try {
+    const { rows } = await pool2.query(
+      `INSERT INTO medical_scans
+         (patient_id, scan_type, result, ai_confidence, status, model_version, predicted_positive)
+       VALUES ($1, 'lung', 'Lung Cancer detected - high risk', '81%', 'pending',
+               'resnet50v2-lung-31315d6a059a', true)
+       RETURNING id`,
+      [consenting.id]
+    );
+    legacyLungScanId = rows[0].id;
+  } finally {
+    await pool2.end();
   }
 });
 
@@ -141,6 +171,33 @@ describe('what it refuses to explain', { timeout: TIMEOUT }, () => {
     assert.equal(res.json.explanation, undefined);
   });
 
+  test('a result from a withdrawn model: 409, and the stored result is left standing', async () => {
+    // The lung model no longer serves. Re-running it to draw a heatmap over a
+    // result it produced earlier would be serving it, so the request is refused
+    // — with the withdrawal reason, not a generic "unavailable".
+    const res = await radSession.get(`/api/scans/${legacyLungScanId}/explanation`);
+    // 409 in every configuration: the withdrawal is checked before the
+    // transport, so a subprocess-only deployment gives the same answer.
+    assert.equal(res.status, 409, res.text.slice(0, 200));
+    assert.equal(res.json.success, false);
+    assert.equal(res.json.code, 'model_not_serving');
+    assert.match(res.json.message, /withdrawn/i);
+    assert.equal(res.json.detail?.governanceState, 'withdrawn');
+    assert.equal(res.json.explanation, undefined);
+
+    const pool = db();
+    try {
+      const { rows } = await pool.query(
+        'SELECT predicted_positive, model_version FROM medical_scans WHERE id = $1',
+        [legacyLungScanId]
+      );
+      assert.equal(rows[0].predicted_positive, true, 'the historical call must survive');
+      assert.equal(rows[0].model_version, 'resnet50v2-lung-31315d6a059a');
+    } finally {
+      await pool.end();
+    }
+  });
+
   test(
     'without the resident inference service: 503 that leaves the stored result standing',
     { skip: (!haveImage && 'dataset not present') || (INFERENCE_CONFIGURED && 'INFERENCE_URL is set; the 200 path is tested instead') },
@@ -176,7 +233,7 @@ describe('with the resident inference service', { timeout: TIMEOUT }, () => {
       const res = await radSession.get(`/api/scans/${analysedScanId}/explanation`);
       assert.equal(res.status, 200, res.text.slice(0, 300));
       assert.equal(res.json.success, true);
-      assert.equal(res.json.modality, 'lung');
+      assert.equal(res.json.modality, 'skin');
 
       const { explanation } = res.json;
       assert.match(explanation.heatmapPng, /^data:image\/png;base64,[A-Za-z0-9+/=]{100,}$/, 'not a PNG data URI');

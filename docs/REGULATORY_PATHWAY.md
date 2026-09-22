@@ -14,7 +14,7 @@ Items needing that confirmation are marked **[CONFIRM]**.
 
 ## 1. What is being regulated
 
-Not the platform. The two image classifiers.
+Not the platform. The image classifiers.
 
 The appointment booking, messaging, patient portal and audit machinery are
 ordinary health IT. The regulated article is the software that takes a medical
@@ -22,16 +22,27 @@ image and returns a probability that informs whether a clinician looks at it
 sooner — that is Software as a Medical Device (SaMD), and it is regulated on its
 own regardless of what it is bundled with.
 
-| | Lung | Skin |
-|---|---|---|
-| Input | CT nodule patch | Dermoscopic / clinical lesion image |
-| Output | Calibrated P(cancer), threshold 0.30 | Banded: >0.70 malignant, 0.30–0.70 uncertain, ≤0.30 benign |
-| Measured sensitivity | 0.812 | 0.913 |
-| Measured specificity | 0.757 | 0.814 |
-| Clearance held | none | none |
+| | Skin — serving (CURRENT) | Lung nodule — serving under VALIDATION terms since 2026-09-21 | Lung (legacy) — withdrawn 2026-09-20 |
+|---|---|---|---|
+| Input | Dermoscopic / clinical lesion image | 64 px CT crop centred on a nodule a clinician has marked (LIDC-IDRI, lung window) | Web-sourced chest image (PNG) — **not CT** |
+| Output | Banded: >0.70 malignant, 0.30–0.70 uncertain, ≤0.30 benign | Calibrated P(radiologist rates malignant), threshold 0.30 | Calibrated P(cancer), threshold 0.30 |
+| Measured sensitivity | 0.913 (n=300 malignant) | 0.862, 95% CI 0.69–0.95 (**n=29 malignant nodules**) | 0.812 (n=282, web images) |
+| Measured specificity | 0.814 (n=360) | 0.691, 95% CI 0.57–0.79 (n=68) | 0.757 (n=272, web images) |
+| Reference standard | Dataset label | **Radiologist rating, not histology** | Dataset label, provenance unrecorded |
+| Clearance held | none | none | none |
 
-Figures are held-out test-set values from `MODEL_REGISTRY`. They are not clinical
+Figures are held-out test-set values from `MODEL_REGISTRY` and
+`dataset/lung_nodule_model/lung_nodule_training.json`. They are not clinical
 performance and must never be presented to a regulator as such — see §4.
+
+**An earlier revision of this table described the legacy lung model's input as
+"CT nodule patch".** That was wrong: those figures were measured on web-sourced
+chest images, and the model was withdrawn on 2026-09-20 when it was found to
+accept real CT it had never been measured on (`MODEL_CARDS.md`). A consultant
+briefed from the earlier table would have been briefed on the wrong device.
+The nodule characteriser is the device the lung claim will be made about, and
+its evidence base — 29 malignant nodules, rated not biopsied, no demographics —
+is what §4 has to be read against.
 
 ---
 
@@ -105,8 +116,9 @@ good" but "what process produced it, and would it catch the problem next time".
 This is the long pole. **[CONFIRM]** whether SAHPRA accepts an equivalent.
 
 **2. Clinical evidence.** Held-out test-set numbers are not clinical
-performance. They were measured on curated public datasets (LIDC-IDRI for lung),
-not on the population, scanners or workflow the device would be used in. What is
+performance. They were measured on curated public datasets (LIDC-IDRI for the
+lung nodule model, an ISIC-derived collection for skin), not on the population,
+scanners or workflow the device would be used in. What is
 needed is a prospective study on the intended-use population, with a
 pre-registered endpoint. Nothing in this repository substitutes for it, and no
 amount of engineering will.
@@ -139,8 +151,8 @@ assessed against it. Deliberately narrow — a wider claim is a larger evidence
 burden and a worse device.
 
 > [Device] is a software tool intended to assist qualified clinicians in
-> prioritising the review order of lung CT nodule patches and skin lesion
-> images. It provides a calibrated probability score as an adjunct to, and never
+> prioritising the review order of skin lesion images and of clinician-marked
+> lung CT nodules. It provides a calibrated probability score as an adjunct to, and never
 > a replacement for, clinician review. It does not provide a diagnosis. Every
 > result is reviewed by a qualified clinician before any clinical action is
 > taken. It is not intended for use as a standalone diagnostic device, for

@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { submitScan, describeRejection, describeNotAnalysed } from '@/lib/submit-scan';
+import { triageLabel, triageClass } from '@/lib/triage';
 import {
   AiAnalysisConsentDialog,
   useAiAnalysisConsent,
@@ -563,8 +564,8 @@ export default function MultiCancerDetectionSystem() {
                       )}
                       {analysisResult.cancerType.charAt(0).toUpperCase() + analysisResult.cancerType.slice(1)} Cancer Analysis
                     </CardTitle>
-                    <Badge className={getRiskColor(analysisResult.riskLevel)}>
-                      {analysisResult.riskLevel.toUpperCase()} RISK
+                    <Badge className={`${triageClass(analysisResult.riskLevel)} border`}>
+                      {triageLabel(analysisResult.riskLevel)}
                     </Badge>
                   </div>
                   <CardDescription>

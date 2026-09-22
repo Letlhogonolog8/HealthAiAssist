@@ -1,4 +1,4 @@
-import { users, medicalScans, medicalTerms, appointments, chatMessages, notifications, scanOutcomes, type User, type InsertUser, type MedicalScan, type InsertScan, type MedicalTerm, type InsertTerm, type Appointment, type InsertAppointment, type Notification, type InsertNotification, type ScanOutcome, type InsertScanOutcome } from "@shared/schema";
+import { users, medicalScans, medicalTerms, appointments, chatMessages, notifications, scanOutcomes, scanRegions, type ScanRegion, type InsertScanRegion, type User, type InsertUser, type MedicalScan, type InsertScan, type MedicalTerm, type InsertTerm, type Appointment, type InsertAppointment, type Notification, type InsertNotification, type ScanOutcome, type InsertScanOutcome } from "@shared/schema";
 import { getDb } from "./db";
 // Row-level at-rest encryption, driven by the manifest in server/crypto. No-ops
 // when no key is configured, and reads tolerate plaintext — which is what lets
@@ -176,6 +176,8 @@ export interface IStorage {
   getScans(patientId?: number): Promise<MedicalScan[]>;
   createScan(scan: InsertScan): Promise<MedicalScan>;
   updateScan(id: number, updates: Partial<MedicalScan>): Promise<MedicalScan | undefined>;
+  createScanRegion(region: InsertScanRegion): Promise<ScanRegion>;
+  getScanRegions(scanId: number): Promise<ScanRegion[]>;
   deleteScan(id: number): Promise<boolean>;
   getScansForReview(): Promise<any[]>;
   
@@ -532,6 +534,16 @@ export class DatabaseStorage implements IStorage {
       }))
       .returning();
     return decryptRow('medical_scans', scan);
+  }
+
+  /** A region on a scan — the clinician's mark today, a detector's candidate later. */
+  async createScanRegion(region: InsertScanRegion): Promise<ScanRegion> {
+    const [row] = await (db as any).insert(scanRegions).values(region).returning();
+    return row;
+  }
+
+  async getScanRegions(scanId: number): Promise<ScanRegion[]> {
+    return (db as any).select().from(scanRegions).where(eq(scanRegions.scanId, scanId)).orderBy(scanRegions.id);
   }
 
   async updateScan(id: number, updates: Partial<MedicalScan>): Promise<MedicalScan | undefined> {
@@ -1713,6 +1725,8 @@ class FallbackStorage implements IStorage {
   async getScans(patientId?: number): Promise<MedicalScan[]> { return []; }
   async createScan(scan: InsertScan): Promise<MedicalScan> { return {} as MedicalScan; }
   async updateScan(id: number, updates: Partial<MedicalScan>): Promise<MedicalScan | undefined> { return undefined; }
+  async createScanRegion(region: InsertScanRegion): Promise<ScanRegion> { return {} as ScanRegion; }
+  async getScanRegions(scanId: number): Promise<ScanRegion[]> { return []; }
   async deleteScan(id: number): Promise<boolean> { return false; }
   async getScansForReview(): Promise<any[]> { return []; }
   async getTerms(): Promise<MedicalTerm[]> { return []; }

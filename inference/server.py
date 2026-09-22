@@ -95,8 +95,9 @@ def _load_module(name: str, filename: str):
 # Importing the lung module constructs its module-level detector, which loads
 # the model. That is the behaviour we want here and the reason it is imported
 # eagerly rather than on first request.
-from dicom_ingest import DicomRejected, dicom_to_png_bytes, looks_like_dicom  # noqa: E402
+from dicom_ingest import DicomRejected, dicom_to_model_frame, looks_like_dicom  # noqa: E402
 from gradcam import CAVEAT as GRADCAM_CAVEAT, heatmap_png  # noqa: E402
+import lung_nodule_service  # noqa: E402  constructs the characteriser, loading its model
 
 skin_model = _load_module("skin_cancer_model", "skin_cancer_model.py")
 lung_service = _load_module("lung_cancer_service", "lung-cancer-service.py")
@@ -179,7 +180,7 @@ def _read_upload(image: UploadFile) -> tuple[bytes, dict | None]:
     since a model's behaviour is a property of the scanner as much as of the
     patient.
 
-    De-identification happens inside dicom_to_png_bytes, before anything is
+    De-identification happens inside dicom_to_model_frame, before anything is
     returned, so no code path here can hold an identified object even briefly.
     """
     data = image.file.read(MAX_UPLOAD_BYTES + 1)
@@ -190,13 +191,21 @@ def _read_upload(image: UploadFile) -> tuple[bytes, dict | None]:
 
     if looks_like_dicom(data):
         try:
-            png, meta = dicom_to_png_bytes(data)
+            frame, meta, deidentified = dicom_to_model_frame(data)
         except DicomRejected as exc:  # noqa: PERF203
             # 422, not 503: the service is fine and this object will fail the
             # same way on retry. Same status the model's own input screening
             # uses, so the client has one refusal shape to handle.
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        return png, meta
+        from PIL import Image
+
+        buffer = io.BytesIO()
+        Image.fromarray(frame).convert("RGB").save(buffer, format="PNG")
+        # The de-identified object rides along so the Node side can persist it
+        # instead of the upload. Base64 because this dict becomes JSON.
+        meta = dict(meta)
+        meta["deidentifiedObject"] = base64.b64encode(deidentified).decode()
+        return buffer.getvalue(), meta
 
     return data, None
 
@@ -263,41 +272,57 @@ def infer_skin(image: UploadFile = File(...), explain: str = Form(default="")) -
 
 @app.post("/infer/lung")
 def infer_lung(image: UploadFile = File(...), explain: str = Form(default="")) -> Any:
-    """Classify a chest image.
+    """Classify a chest image with the legacy web-PNG lung model.
 
     Same contract as the skin endpoint: the module's own output, unaltered. The
     lung module already takes raw bytes, so there is no temporary file anywhere
     in this path.
+
+    ── Withdrawn from clinical serving, 2026-09-20 ────────────────────────────
+
+    The Node server no longer routes scans here: `MODEL_REGISTRY.lung` is
+    disabled and its governance status is `withdrawn`. The endpoint remains so
+    that the model can still be measured (scripts/verify-lung-operating-point.py
+    and the reproduction commands in MODEL_CARDS.md go through the module this
+    calls), and so that a request reaching it by mistake meets the same refusal
+    shapes as before rather than a 404 that says nothing.
+
+    The reason it was withdrawn is the comment on the DICOM gate below.
     """
     data, acquisition = _read_upload(image)
 
-    # A real DICOM acquisition is refused here, deterministically, rather than
-    # left for the out-of-distribution screen to catch.
+    # A DICOM acquisition is refused here, deterministically.
     #
-    # The screen does catch it — a windowed CT scores 22.9 and an MR 27.2
-    # against a 16.51 threshold — but the refusal it produces says the image
-    # "does not resemble the chest images the model was trained on", which reads
-    # as though this particular image were unusual. It is not. The model was
-    # trained on web-sourced PNG images of unrecorded provenance, and it refuses
-    # EVERY clinical acquisition, correctly and without exception.
+    # This gate used to be described as belt-and-braces: "the out-of-distribution
+    # screen catches real CT anyway, at 22.9 against a 16.51 threshold". That
+    # figure was measured on pydicom's bundled `CT_small.dcm` — a 128×128 GE
+    # acquisition from the 1990s — and it does not generalise. Measured on the
+    # LIDC-IDRI chest CT in dataset/ on 2026-09-20, through this service's own
+    # conversion: 11 of 12 real DICOMs and 84 of 87 whole slices at the lung
+    # window scored BELOW the threshold (median 12–14, the same range as the
+    # model's own test set) and received cancer / no_cancer verdicts.
     #
-    # Saying so plainly is the difference between "try a different image" and
-    # "this modality cannot read your scanner's output yet". Only the second is
-    # true, and a radiology department evaluating this needs to hear the second.
+    # So this gate is the only thing that stops a DICOM, and nothing stops a
+    # PNG export of the same slice. Real CT is inside this model's training
+    # distribution in feature space — the training set is web-scraped chest
+    # images — and a screen built on reconstruction error cannot separate what
+    # the features do not separate. Raising the threshold would not be a fix; it
+    # would be tuning the safety check to defeat itself.
     #
-    # Verified across every conventional window: full-range 22.9, lung window
-    # 25.0, mediastinal 30.4, bone 20.3 — all refused. No preprocessing choice
-    # fixes it; retraining on a documented CT dataset does. See MODEL_CARDS.md.
+    # The model has no measured performance on CT, so any verdict it gives on
+    # CT is a guess. That is why it no longer serves. The record is
+    # `python scripts/build-ood-reference.py lung --measure-only`, which exits
+    # non-zero on the real-CT domain, and MODEL_CARDS.md.
     if acquisition is not None:
         raise HTTPException(
             status_code=422,
             detail=(
-                "The lung model cannot read clinical DICOM acquisitions. It was "
-                "trained on web-sourced PNG images, not on scanner output, and it "
-                "refuses every real acquisition regardless of windowing — this is "
-                "the model's limitation, not a problem with your image. Retraining "
-                "on a documented CT dataset is required before this modality can "
-                "accept DICOM. See MODEL_CARDS.md."
+                "The legacy lung model does not accept clinical DICOM acquisitions. "
+                "It was trained on web-sourced PNG images, not on scanner output, "
+                "and has no measured performance on CT — this is the model's "
+                "limitation, not a problem with your image. The modality is "
+                "withdrawn from serving until a CT-trained model is bound. See "
+                "MODEL_CARDS.md."
             ),
         )
 
@@ -321,6 +346,92 @@ def infer_lung(image: UploadFile = File(...), explain: str = Form(default="")) -
     return JSONResponse(result)
 
 
+def _parse_centre(value: str, name: str) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"{name} must be a number (pixels).")
+
+
+@app.post("/infer/lung_nodule")
+def infer_lung_nodule(
+    image: UploadFile = File(...),
+    cx: str = Form(...),
+    cy: str = Form(...),
+    explain: str = Form(default=""),
+) -> Any:
+    """Characterise a nodule a clinician has marked on one CT slice.
+
+    Takes the DICOM object and the marked centre in the pixel coordinates of
+    the rendered frame. Returns the module's own output: a calibrated
+    probability with its threshold, temperature, OOD score and acquisition
+    record, or a refusal in the same shape the other endpoints use. Raster
+    input is refused by the service, with the reason — see
+    inference/lung_nodule_service.py.
+
+    The de-identified object comes back inside `acquisition.deidentifiedObject`
+    as base64 so the Node side can persist THAT and never the upload.
+    """
+    data = image.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Image exceeds the size limit.")
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty upload.")
+    centre_x = _parse_centre(cx, "cx")
+    centre_y = _parse_centre(cy, "cy")
+
+    started = time.perf_counter()
+    with _Admission(), _inference_lock:
+        result = lung_nodule_service.characterise_nodule(data, centre_x, centre_y)
+        if _wants_explanation(explain) and result.get("status") == "success":
+            characteriser = lung_nodule_service.lung_nodule_characteriser
+            try:
+                batch, _acq = characteriser.prepare(data, centre_x, centre_y)
+                # Class index 0 is cancer, per lung_nodule_training.json.
+                _attach_explanation(result, characteriser.model, batch, 0, "lung_nodule")
+            except DicomRejected as exc:  # pragma: no cover - prepare already succeeded once
+                result["explanationError"] = str(exc)
+    result["inferenceMs"] = round((time.perf_counter() - started) * 1000, 1)
+
+    acquisition = result.get("acquisition")
+    if isinstance(acquisition, dict) and isinstance(acquisition.get("deidentifiedObject"), (bytes, bytearray)):
+        acquisition["deidentifiedObject"] = base64.b64encode(acquisition["deidentifiedObject"]).decode()
+    return JSONResponse(result)
+
+
+@app.post("/deidentify")
+def deidentify_only(image: UploadFile = File(...)) -> Any:
+    """De-identify a DICOM object without running any model.
+
+    For the paths that store an object but do not analyse it — a patient who
+    has not consented to automated analysis, a modality with no model. Those
+    paths used to persist the upload as it arrived, identity and all, because
+    the only de-identifier lived behind the model call. Nothing here touches a
+    model; the object comes back de-identified with its acquisition record.
+    """
+    data = image.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Image exceeds the size limit.")
+    if not data or not looks_like_dicom(data):
+        raise HTTPException(status_code=422, detail="Not a DICOM object.")
+    try:
+        frame, meta, deidentified = dicom_to_model_frame(data)
+    except DicomRejected as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    from PIL import Image
+
+    # The rendered frame, so a clinician can see the slice they are about to
+    # mark. Rendered by the same function the model input comes from, so what
+    # is marked on screen is what the crop is cut from.
+    preview = io.BytesIO()
+    Image.fromarray(frame).convert("RGB").save(preview, format="PNG")
+    return JSONResponse({
+        "acquisition": meta,
+        "deidentifiedObject": base64.b64encode(deidentified).decode(),
+        "previewPng": "data:image/png;base64," + base64.b64encode(preview.getvalue()).decode(),
+    })
+
+
 @app.get("/healthz")
 def healthz() -> Any:
     """Which models are resident, and which artifacts they came from.
@@ -330,6 +441,7 @@ def healthz() -> Any:
     rather than the whole service.
     """
     detector = lung_service.lung_cancer_detector
+    nodule = lung_nodule_service.lung_nodule_characteriser
     skin_loaded = SKIN_MODEL_PATH in skin_model._MODEL_CACHE
 
     return {
@@ -348,6 +460,16 @@ def healthz() -> Any:
                 "version": f"resnet50v2-lung-{_artifact_digest(detector.model_path)}",
                 "threshold": detector.cancer_threshold,
                 "temperature": detector.temperature,
+                # Resident for measurement only; the Node registry has it disabled.
+                "withdrawn": True,
+            },
+            "lung_nodule": {
+                "loaded": nodule.model is not None,
+                "path": nodule.model_path,
+                "version": f"resnet50v2-lung_nodule-{_artifact_digest(nodule.model_path)}",
+                "threshold": nodule.threshold,
+                "temperature": nodule.temperature,
+                "input": "DICOM CT slice plus a marked centre (cx, cy); raster refused",
             },
         },
     }
@@ -412,6 +534,22 @@ def warm_models() -> None:
         print(f"skin model warm: {SKIN_MODEL_PATH} ({elapsed:.0f} ms)", file=sys.stderr)
     except Exception as exc:  # noqa: BLE001 - reported through /healthz
         print(f"skin model failed to load ({exc})", file=sys.stderr)
+
+    nodule = lung_nodule_service.lung_nodule_characteriser
+    if nodule.model is None:
+        print(f"lung nodule model failed to load ({nodule.load_error})", file=sys.stderr)
+    else:
+        try:
+            started = time.perf_counter()
+            # The classifier graph and the feature-extraction graph both need
+            # one trace. The pixel gate would refuse the noise frame before the
+            # OOD graph is reached, so the extractor is traced directly.
+            nodule.model.predict(blank, verbose=0)
+            nodule._feature_extractor().predict(blank, verbose=0)
+            elapsed = (time.perf_counter() - started) * 1000
+            print(f"lung nodule model warm: {nodule.model_path} ({elapsed:.0f} ms)", file=sys.stderr)
+        except Exception as exc:  # noqa: BLE001
+            print(f"lung nodule model warm-up failed ({exc})", file=sys.stderr)
 
     detector = lung_service.lung_cancer_detector
     if detector.model is None:

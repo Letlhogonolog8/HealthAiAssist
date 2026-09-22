@@ -3,7 +3,8 @@
 A briefing for clinicians using the screening triage platform. Fifteen minutes.
 
 Every figure below was measured on held-out data and re-verified against the
-model actually deployed, on 1–2 September 2026. Nothing here is a projection.
+model actually deployed, on 1–2 September 2026, and revised on 20 September
+2026 when the lung model was withdrawn. Nothing here is a projection.
 
 ---
 
@@ -21,20 +22,37 @@ never been validated in a clinical study. You are the diagnosis; it is a queue.
 
 Percentages hide what matters. These are counts on the held-out test sets.
 
-### Lung — CT nodule patches
+### Lung — one marked nodule, under validation terms
 
-Of **282 cancers**, the model flagged 229 and **missed 53**.
+**As of 21 September 2026 a program reads lung CT only where you point.** You
+upload the DICOM slice, mark the nodule, and it returns the probability that a
+radiologist would rate that nodule malignant. It does not search the scan; a
+chest CT uploaded without a mark is stored for a radiologist and not read.
 
-> **Roughly one lung cancer in five is not flagged.**
+Of **29 malignant nodules** in its held-out test, it flagged 25 and **missed
+4**. Of **68 benign nodules**, it cleared 47 and **flagged 21**.
 
-Of **272 healthy scans**, it cleared 206 and flagged 66.
+> **Roughly 1 malignant nodule in 7 is not flagged, and 1 benign nodule in 3
+> is flagged — on a set small enough that the true miss rate could be double.**
 
-> **Roughly one healthy scan in four is flagged anyway.**
+The label it learned from is a radiologist's rating, not a biopsy, so it
+cannot be more right than the readers who rated the training set. It looks at
+a 64-pixel square around your mark and nothing else; a mark on soft tissue
+gets a probability about soft tissue.
 
-That trade is deliberate. At its default setting the model would have a *better*
-overall score — and would have missed **86** cancers instead of 53. Sensitivity
-was bought with specificity on purpose, because a missed cancer and a false
-alarm are not the same cost. The false alarms are the price, and you pay it.
+The web-trained lung model that served until 20 September is withdrawn:
+
+it had been trained on web-sourced chest images, not CT, and its figures —
+it missed 53 of 282 cancers on its own test set — were figures about those
+images. It was withdrawn when it was found to accept real chest CT and issue
+verdicts on it, with no measured performance on CT at all. A verdict with no
+measured basis is a guess, and the platform's rule is to refuse rather than
+guess.
+
+If you reviewed a lung scan before 20 September, the automated result attached
+to it came from that model. Treat it as you would any unvalidated opinion: it
+changes nothing about your own read.
+
 
 ### Skin — lesion images
 
@@ -82,9 +100,12 @@ so that it cannot influence a clinical decision.
 
 | The tool says | What that actually means |
 |---|---|
-| **Flagged** | Look sooner. Around 1 in 4 flagged lung scans is healthy. |
-| **Not flagged** | Look anyway. Around 1 in 5 lung cancers land here. |
+| **Flagged** (skin) | Look sooner. Around 1 in 4 harmless lesions is flagged or marked uncertain. |
+| **Not flagged** (skin) | Look anyway. Around 1 in 30 malignant lesions lands here. |
 | **Uncertain** (skin) | The model declined to commit. Treat as needing review. |
+| **Lung nodule — flagged** | The marked region scored at or above 0.30. Look sooner. About 1 in 3 benign nodules lands here. |
+| **Lung nodule — not flagged** | Below 0.30. About 1 in 7 malignant nodules lands here on a small test set; more in truth is possible. |
+| **Lung — unmarked CT** | No automated result. Queued for you, and nothing looked at it. |
 | **No result produced** | Nothing was assessed. **This is not a negative.** |
 | **Queued for review** | Same — nothing looked at it. |
 
@@ -127,8 +148,8 @@ what you wrote.
 
 ## Five things to remember
 
-1. It misses about **1 lung cancer in 5**.
-2. It flags about **1 healthy lung scan in 4**.
+1. It gives about **1 malignant skin lesion in 30** an outright benign result.
+2. **A lung result is about the nodule you marked**, and about 1 in 7 malignant ones is not flagged.
 3. **"No result" is not "negative."**
 4. **Performance on dark skin is unknown**, not equal.
 5. **No regulator has cleared it.** You are the diagnosis.
@@ -140,11 +161,12 @@ what you wrote.
 Not a formality. Anyone who cannot answer these should not be acting on the
 tool's output.
 
-1. A lung scan comes back **not flagged**. Your patient has a persistent cough
-   and a smoking history. What does the result change?
-   <details><summary>Answer</summary>Very little. Roughly 1 in 5 cancers are not
-   flagged. A negative result is weak evidence and does not offset clinical
-   suspicion.</details>
+1. You mark a nodule and the tool returns **0.18, not flagged**. Your patient
+   has a persistent cough and a smoking history. What has been ruled out?
+   <details><summary>Answer</summary>Nothing. On its test set the model missed
+   4 of 29 malignant nodules, and 29 is small enough that the true rate could
+   be double. A below-threshold estimate is weak evidence and does not offset
+   clinical suspicion. The rest of the scan was not read at all.</details>
 
 2. A skin lesion on a patient with dark skin comes back **benign**. How much
    weight does that carry?
@@ -177,7 +199,9 @@ tool's output.
 - `docs/REGULATORY_PATHWAY.md` — clearance status
 - `docs/MODEL_GOVERNANCE.md` — how figures are tied to the model actually running
 - `scripts/measure-skin-bands.py` — reproduces the banded skin figures above
-- `scripts/verify-lung-operating-point.py` — reproduces the lung figures above
+- `scripts/verify-lung-nodule-operating-point.py` — reproduces the nodule figures above
+- `scripts/verify-lung-operating-point.py` — reproduces the withdrawn lung model's figures
+- `scripts/build-ood-reference.py lung --measure-only` — the measurement that withdrew it
 
 If a figure here ever disagrees with `/api/models/cards`, **the endpoint is
 right and this document is stale.** Report it.

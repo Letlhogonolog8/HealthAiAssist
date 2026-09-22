@@ -32,32 +32,61 @@ import { summarise, wilsonInterval } from '../server/production-performance.ts';
 const TIMEOUT = 120_000;
 
 /**
- * A real chest image from the held-out lung set.
+ * Real lesion images from the held-out skin set.
  *
- * The suite needs a scan the model will actually flag, and the only honest way
- * to get one is to run the model. Skipped rather than faked when the dataset is
+ * The suite needs scans the model actually scored, and the only honest way to
+ * get them is to run the model. Skipped rather than faked when the dataset is
  * absent, because inventing a prediction inside the tests that guard against
  * invented predictions would be self-defeating.
+ *
+ * These were chest images from the lung set until the lung model was withdrawn
+ * (2026-09-20; see MODEL_CARDS.md). Skin is the modality that serves, so skin
+ * is what produces a `predicted_positive` to adjudicate. The lung path is kept
+ * below as what it now is: a refusal that must still leave a row for a human.
  */
+const SKIN_DIR = 'dataset/dataset/data/test/malignant';
+const skinCandidates = fs.existsSync(SKIN_DIR)
+  ? fs.readdirSync(SKIN_DIR).filter((f) => /\.(jpe?g|png)$/i.test(f)).slice(0, 8)
+  : [];
+const haveImages = skinCandidates.length >= 2;
+
 const LUNG_DIR = 'dataset/dataset/lung_cancer_MRI_dataset/validate/cancer';
-const lungImages = fs.existsSync(LUNG_DIR) ? fs.readdirSync(LUNG_DIR).slice(0, 2) : [];
-const haveImages = lungImages.length >= 2;
+const lungImage = fs.existsSync(LUNG_DIR)
+  ? fs.readdirSync(LUNG_DIR).find((f) => /\.(jpe?g|png)$/i.test(f)) ?? null
+  : null;
 
 let patient: Awaited<ReturnType<typeof registerPatient>>;
 let stranger: Awaited<ReturnType<typeof registerPatient>>;
 let radiologist: Awaited<ReturnType<typeof registerPatient>>;
 let radSession: Session;
 const scanIds: number[] = [];
+/** A lung scan the withdrawn model was asked about and refused. */
+let refusedLungScanId: number | null = null;
 
-async function analyse(session: Session, file: string): Promise<number> {
-  const form = new FormData();
-  const bytes = fs.readFileSync(`${LUNG_DIR}/${file}`);
-  form.append('image', new Blob([bytes], { type: 'image/jpeg' }), file);
-  form.append('scanType', 'lung');
+/**
+ * Submits candidates until `wanted` are scored.
+ *
+ * The out-of-distribution screen refuses roughly 1 held-out lesion in 120, and
+ * a refusal is the correct behaviour rather than a test failure — so an image
+ * it declines is skipped and the next one tried. Anything other than a 200 or
+ * a 422 is a real failure and is reported as one.
+ */
+async function analyseUntil(session: Session, wanted: number): Promise<number[]> {
+  const ids: number[] = [];
+  for (const file of skinCandidates) {
+    if (ids.length >= wanted) break;
+    const form = new FormData();
+    const bytes = fs.readFileSync(`${SKIN_DIR}/${file}`);
+    form.append('image', new Blob([bytes], { type: 'image/jpeg' }), file);
+    form.append('scanType', 'skin');
 
-  const res = await session.postForm('/api/scans/analyze', form);
-  assert.equal(res.status, 200, res.text.slice(0, 200));
-  return res.json.scan.id;
+    const res = await session.postForm('/api/scans/analyze', form);
+    if (res.status === 422) continue;
+    assert.equal(res.status, 200, res.text.slice(0, 200));
+    ids.push(res.json.scan.id);
+  }
+  assert.equal(ids.length, wanted, `only ${ids.length} of ${skinCandidates.length} candidates were scored`);
+  return ids;
 }
 
 before(async () => {
@@ -89,7 +118,21 @@ before(async () => {
   assert.equal(consent.status, 200, consent.text.slice(0, 200));
 
   if (haveImages) {
-    for (const file of lungImages) scanIds.push(await analyse(patient.session, file));
+    scanIds.push(...(await analyseUntil(patient.session, 2)));
+  }
+
+  if (lungImage) {
+    // Consent is on record and the image is a real chest image. The refusal
+    // is the modality's, not the patient's: the lung model is withdrawn.
+    const form = new FormData();
+    form.append('image', new Blob([fs.readFileSync(`${LUNG_DIR}/${lungImage}`)], { type: 'image/jpeg' }), lungImage);
+    form.append('scanType', 'lung');
+    const res = await patient.session.postForm('/api/scans/analyze', form);
+    assert.equal(res.status, 503, res.text.slice(0, 200));
+    assert.match(res.json.reason, /withdrawn/i, 'the refusal must name the withdrawal');
+    assert.equal(res.json.queuedForManualReview, true);
+    refusedLungScanId = res.json.scanId ?? null;
+    assert.ok(refusedLungScanId, 'a refused lung scan must still leave a row for a human');
   }
 });
 
@@ -133,15 +176,15 @@ after(async () => {
 // ---------------------------------------------------------------------------
 
 describe('skin-tone stratum is recorded', { timeout: TIMEOUT }, () => {
-  const SKIN_DIR = 'dataset/dataset/data/test/benign';
+  const BENIGN_DIR = 'dataset/dataset/data/test/benign';
 
   test('an analysed skin scan carries a tone bin', async (t) => {
-    if (!fs.existsSync(SKIN_DIR)) return t.skip('skin dataset not present');
-    const file = fs.readdirSync(SKIN_DIR).find((f) => /\.(jpe?g|png)$/i.test(f));
+    if (!fs.existsSync(BENIGN_DIR)) return t.skip('skin dataset not present');
+    const file = fs.readdirSync(BENIGN_DIR).find((f) => /\.(jpe?g|png)$/i.test(f));
     if (!file) return t.skip('no skin images');
 
     const form = new FormData();
-    form.append('image', new Blob([fs.readFileSync(`${SKIN_DIR}/${file}`)], { type: 'image/jpeg' }), file);
+    form.append('image', new Blob([fs.readFileSync(`${BENIGN_DIR}/${file}`)], { type: 'image/jpeg' }), file);
     form.append('scanType', 'skin');
 
     const res = await patient.session.postForm('/api/scans/analyze', form);
@@ -173,18 +216,20 @@ describe('skin-tone stratum is recorded', { timeout: TIMEOUT }, () => {
     }
   });
 
-  test('a lung scan never carries one', async () => {
+  test('a lung scan never carries one, and a refused scan carries no model call', async (t) => {
+    if (!refusedLungScanId) return t.skip('lung dataset not present');
     const pool = db();
     try {
       const { rows } = await pool.query(
-        'SELECT skin_tone_bin FROM medical_scans WHERE id = ANY($1)',
-        [scanIds]
+        'SELECT skin_tone_bin, predicted_positive, status FROM medical_scans WHERE id = $1',
+        [refusedLungScanId]
       );
-      // A chest CT has no perilesional skin; asking would produce a number
-      // that means nothing.
-      for (const r of rows) {
-        assert.equal(r.skin_tone_bin, null, 'lung scans must not be given a tone');
-      }
+      assert.equal(rows.length, 1);
+      // A chest image has no perilesional skin; asking would produce a number
+      // that means nothing — and nothing was analysed anyway.
+      assert.equal(rows[0].skin_tone_bin, null, 'lung scans must not be given a tone');
+      assert.equal(rows[0].predicted_positive, null, 'a refused scan must not carry a model call');
+      assert.equal(rows[0].status, 'pending_manual_review');
     } finally {
       await pool.end();
     }
@@ -199,7 +244,16 @@ describe('consent to automated analysis', { timeout: TIMEOUT }, () => {
     const text = res.json.disclosure.join(' ');
     // The miss rate is the fact that determines whether a reasonable person
     // agrees. A disclosure that omits it is not informed consent.
-    assert.match(text, /1 in 5/, 'lung miss rate must be disclosed');
+    assert.match(text, /1 in 30/, 'skin miss rate must be disclosed');
+    assert.match(text, /1 in 4/, 'skin false-alarm rate must be disclosed');
+    // A disclosure must describe what runs. The web-trained lung model is
+    // withdrawn and its miss rate must not be quoted; the nodule characteriser
+    // reads one marked nodule, and its small-sample figures are stated with
+    // the sample size.
+    assert.doesNotMatch(text, /1 in 5/, 'the withdrawn lung model\'s miss rate must not be quoted');
+    assert.match(text, /nodule that a clinician has marked/i);
+    assert.match(text, /4 of 29/, 'the nodule figure carries its denominator');
+    assert.match(text, /not read by any program/i, 'an unmarked CT is not read');
     assert.match(text, /not been approved by any medical regulator/i);
     assert.match(text, /darker skin/i);
     assert.equal(res.json.revocable, true);
@@ -225,14 +279,14 @@ describe('consent to automated analysis', { timeout: TIMEOUT }, () => {
   });
 
   test('a scan submitted without consent is stored, queued, and not given a result', async (t) => {
-    if (!haveImages) return t.skip('lung dataset not present');
+    if (!haveImages) return t.skip('skin dataset not present');
 
     const decliner = await registerPatient('outcome-noconsent');
 
     const form = new FormData();
-    const bytes = fs.readFileSync(`${LUNG_DIR}/${lungImages[0]}`);
-    form.append('image', new Blob([bytes], { type: 'image/jpeg' }), lungImages[0]);
-    form.append('scanType', 'lung');
+    const bytes = fs.readFileSync(`${SKIN_DIR}/${skinCandidates[0]}`);
+    form.append('image', new Blob([bytes], { type: 'image/jpeg' }), skinCandidates[0]);
+    form.append('scanType', 'skin');
 
     const res = await decliner.session.postForm('/api/scans/analyze', form);
     assert.equal(res.status, 200, res.text.slice(0, 200));
@@ -282,7 +336,7 @@ describe('interval arithmetic', { timeout: TIMEOUT }, () => {
 
   test('a small sample is reported as insufficient rather than rounded up', () => {
     const summary = summarise({
-      scanType: 'lung',
+      scanType: 'skin',
       truePositives: 3, falsePositives: 1, trueNegatives: 4, falseNegatives: 1,
       indeterminate: 0, unadjudicated: 12,
     });
@@ -304,7 +358,7 @@ describe('interval arithmetic', { timeout: TIMEOUT }, () => {
   });
 });
 
-describe('recording an outcome', { timeout: TIMEOUT, skip: !haveImages && 'no lung dataset on disk' }, () => {
+describe('recording an outcome', { timeout: TIMEOUT, skip: !haveImages && 'no skin dataset on disk' }, () => {
   test('the model call is stored as a boolean at analysis time', async () => {
     const pool = db();
     try {
@@ -385,29 +439,34 @@ describe('recording an outcome', { timeout: TIMEOUT, skip: !haveImages && 'no lu
   });
 });
 
-describe('production performance', { timeout: TIMEOUT, skip: !haveImages && 'no lung dataset on disk' }, () => {
+describe('production performance', { timeout: TIMEOUT, skip: !haveImages && 'no skin dataset on disk' }, () => {
   test('the matrix is built from adjudicated scans', async () => {
     const res = await radSession.get('/api/models/performance');
     assert.equal(res.status, 200);
 
+    const skin = res.json.models.find((m: any) => m.scanType === 'skin');
+    assert.ok(skin, 'skin should appear once it has predictions');
+    // At least the two adjudicated above. Exactly two only on a database that
+    // holds nothing else, which CI's is and a developer's need not be.
+    assert.ok(skin.adjudicated >= 2, `expected the two adjudications above, got ${skin.adjudicated}`);
+    assert.ok(skin.sensitivity.denominator > 0);
+    assert.ok(skin.sensitivity.interval, 'a rate must carry its interval');
+    // The withdrawn modality has no predictions to measure and must not be
+    // invented into the table.
     const lung = res.json.models.find((m: any) => m.scanType === 'lung');
-    assert.ok(lung, 'lung should appear once it has predictions');
-    assert.equal(lung.adjudicated, 2);
-    assert.ok(lung.sensitivity.denominator > 0);
-    assert.ok(lung.sensitivity.interval, 'a rate must carry its interval');
-    assert.equal(lung.sufficientForInference, false, 'two scans is not a sample');
+    if (lung) assert.equal(lung.adjudicated, 0, 'no lung scan was scored, so none can be adjudicated');
   });
 
   test('restricting the evidence changes the answer', async () => {
     const all = await radSession.get('/api/models/performance');
     const strict = await radSession.get('/api/models/performance?evidence=histopathology');
 
-    const relaxedLung = all.json.models.find((m: any) => m.scanType === 'lung');
-    const strictLung = strict.json.models.find((m: any) => m.scanType === 'lung');
+    const relaxedSkin = all.json.models.find((m: any) => m.scanType === 'skin');
+    const strictSkin = strict.json.models.find((m: any) => m.scanType === 'skin');
 
-    assert.equal(strictLung.evidenceFloor, 'histopathology');
+    assert.equal(strictSkin.evidenceFloor, 'histopathology');
     assert.ok(
-      strictLung.adjudicated <= relaxedLung.adjudicated,
+      strictSkin.adjudicated <= relaxedSkin.adjudicated,
       'a stricter evidence floor cannot admit more scans'
     );
   });

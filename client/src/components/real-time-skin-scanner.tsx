@@ -10,6 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { submitScan, describeRejection, describeNotAnalysed } from '@/lib/submit-scan';
 import DermatologistSchedulingButton from "./dermatologist-scheduling-button";
 
+import { triageLabel, triageClass } from '@/lib/triage';
 interface ScanResult {
   hasCancer: boolean;
   confidence: number;
@@ -409,8 +410,8 @@ export default function RealTimeSkinScanner() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               Analysis Results
-              <Badge className={getRiskColor(scanResult?.riskLevel || 'low')}>
-                {(scanResult?.riskLevel || 'low').toUpperCase()} RISK
+              <Badge className={`${triageClass(scanResult?.riskLevel)} border`}>
+                {triageLabel(scanResult?.riskLevel)}
               </Badge>
             </CardTitle>
           </CardHeader>

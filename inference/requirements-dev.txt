@@ -1,0 +1,7 @@
+# Test dependencies for inference/tests. Installed on top of
+# inference/requirements.txt (which sits on the root requirements.txt).
+#
+#     pip install -r inference/requirements-dev.txt
+#     python -m pytest inference/tests
+#
+pytest>=7

@@ -49,6 +49,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "inference"))
 from dicom_ingest import _window, training_window  # noqa: E402  one windowing implementation
+from nodule_patch import crop  # noqa: E402  one crop implementation, shared with serving
 
 
 def index_series(dicom_root):
@@ -111,17 +112,9 @@ def nodule_id(row):
     return f'{row["patient"]}_{series}_{row["nodule_index"]}'
 
 
-def crop(frame, cx, cy, size):
-    """A square crop centred on (cx, cy), zero-padded at the edges.
-
-    Padding rather than shifting the centre: a nodule near the chest wall is
-    exactly the case where moving the crop would put the lesion off-centre and
-    teach the model that malignancy lives at the edge of the frame.
-    """
-    half = size // 2
-    padded = np.pad(frame, half, mode="constant", constant_values=0)
-    cx, cy = int(round(cx)) + half, int(round(cy)) + half
-    return padded[cy - half:cy + half, cx - half:cx + half]
+# `crop` lives in inference/nodule_patch.py now, so the serving path and this
+# extractor cannot drift apart. It was defined here first; moving it is the
+# whole point.
 
 
 def main():

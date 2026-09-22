@@ -1,8 +1,14 @@
 # HealthAI Assistant
 
-A cancer **screening triage** platform. Two image classifiers — skin and lung —
-produce a calibrated probability and route every result to a clinician. Nothing
-here produces a diagnosis.
+A cancer **screening triage** platform. A skin-lesion classifier produces a
+calibrated probability and routes every result to a clinician; a lung nodule
+characteriser, served under validation terms, does the same for one nodule a
+clinician has marked on a DICOM CT slice. Nothing here produces a diagnosis.
+A web-trained lung classifier served from 2 to 20 September 2026 and was
+**withdrawn** when the platform's own out-of-distribution check found it
+answering real CT it had never been measured on — see
+[MODEL_CARDS.md](MODEL_CARDS.md). `GET /api/capabilities` states what serves,
+what is under validation, and what is only planned.
 
 This line used to read "multi-modal cancer detection across breast, lung, skin,
 colon, and prostate cancers". Breast, colon and prostate have no trained
@@ -102,9 +108,12 @@ Seeding refuses to run when `NODE_ENV=production` unless `ALLOW_PROD_SEED=true`.
 ## 🔧 Features
 
 ### Core Functionality
-- **Two screening modalities**: skin and lung. ResNet50V2 classifiers, evaluated
-  on held-out splits, with calibration and out-of-distribution screening measured
-  and recorded in [MODEL_CARDS.md](MODEL_CARDS.md)
+- **Two serving modalities**: skin (CURRENT) and a clinician-marked lung
+  nodule characteriser (VALIDATION — 97 held-out nodules, 29 malignant). Both
+  evaluated on held-out splits with calibration and out-of-distribution
+  screening measured in both directions, recorded in
+  [MODEL_CARDS.md](MODEL_CARDS.md). The web-trained lung model is withdrawn;
+  breast, colon and prostate have no model.
 - **Refusal by design**: inputs unlike the training distribution are rejected
   rather than classified, and a modality with no validated model returns 503
   with no diagnostic content — never a fabricated negative
@@ -247,9 +256,12 @@ ephemeral secret rather than a known one.
 ### Backing up model artifacts
 
 `dataset/` is gitignored, so the trained models are not version controlled. The
-skin model is rebuildable from `scripts/train-skin-cancer-model.py`; **the lung
-model is not** — no working training script for it remains. Losing that file
-loses the lung modality permanently.
+skin model is rebuildable from `scripts/train-skin-cancer-model.py`, the
+withdrawn lung model from `scripts/train-lung-cancer-model.py`, and the LIDC
+nodule characteriser from `scripts/train-lung-nodule-model.py` (after the
+extraction steps in `scripts/lidc_*.py`). Each costs a training run, and the
+calibration and OOD reference files beside each artifact are not rebuilt by the
+training script — back them up together.
 
 ```bash
 npm run backup:models                    # copy + checksum to ../HealthAiAssist-model-backups

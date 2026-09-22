@@ -32,6 +32,9 @@ import { CheckCircle2, XCircle, AlertTriangle, Database, ChevronDown, Terminal }
 interface ModelCard {
   scanType: string;
   enabled: boolean;
+  /** CURRENT / VALIDATION / DISABLED, computed by the server. */
+  status?: 'CURRENT' | 'VALIDATION' | 'DISABLED';
+  modelClass?: string;
   disabledReason: string | null;
   evaluation: {
     dataset: string;
@@ -142,9 +145,16 @@ export default function AIFeaturesSection() {
                 {/* ── Header ── */}
                 <div className="flex items-center justify-between gap-3 px-6 pt-5 pb-4 border-b border-slate-800">
                   <h3 className="text-lg font-semibold text-white capitalize tracking-tight">
-                    {model.scanType}
+                    {model.scanType.replace(/_/g, ' ')}
                   </h3>
-                  {model.enabled ? (
+                  {model.enabled && model.status === 'VALIDATION' ? (
+                    // Serving, but under validation terms — a small evidence
+                    // base, stated as such rather than as "serving" alone.
+                    <Badge className="bg-cyan-500/10 text-cyan-300 border border-cyan-600/30 font-medium">
+                      <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                      Serving · validation
+                    </Badge>
+                  ) : model.enabled ? (
                     <Badge className="bg-emerald-500/10 text-emerald-300 border border-emerald-600/30 font-medium">
                       <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
                       Serving
@@ -152,7 +162,7 @@ export default function AIFeaturesSection() {
                   ) : (
                     <Badge className="bg-rose-500/10 text-rose-300 border border-rose-600/30 font-medium">
                       <XCircle className="w-3.5 h-3.5 mr-1" />
-                      Disabled
+                      Withdrawn
                     </Badge>
                   )}
                 </div>

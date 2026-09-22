@@ -25,7 +25,7 @@ import { createHash } from 'crypto';
 import { createReadStream } from 'fs';
 import path from 'path';
 
-export type Modality = 'lung' | 'skin';
+export type Modality = 'lung' | 'skin' | 'lung_nodule';
 
 /**
  * Where each artifact lives.
@@ -42,6 +42,13 @@ function artifactPath(modality: Modality): string {
       path.join(process.cwd(), 'dataset', 'lung_cancer_MRI_dataset', 'resnet50v2_lung_cancer_model.h5')
     );
   }
+  if (modality === 'lung_nodule') {
+    // Same variable inference/lung_nodule_service.py honours.
+    return (
+      process.env.LUNG_NODULE_MODEL_PATH ||
+      path.join(process.cwd(), 'dataset', 'lung_nodule_model', 'resnet50v2_lung_nodule_model.h5')
+    );
+  }
   return (
     process.env.SKIN_CANCER_MODEL_PATH ||
     path.join(process.cwd(), 'dataset', 'data', 'resnet50v2_skin_cancer_model.h5')
@@ -52,6 +59,7 @@ function artifactPath(modality: Modality): string {
 const FAMILY: Record<Modality, string> = {
   lung: 'resnet50v2-lung',
   skin: 'resnet50v2-skin',
+  lung_nodule: 'resnet50v2-lung_nodule',
 };
 
 /**

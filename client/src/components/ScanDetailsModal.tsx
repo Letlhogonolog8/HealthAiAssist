@@ -38,6 +38,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Brain, AlertTriangle, CheckCircle, Clock, Stethoscope, Info } from 'lucide-react';
 
+import { triageLabel, triageClass } from '@/lib/triage';
 interface ScanDetailsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -152,7 +153,7 @@ export const ScanDetailsModal: React.FC<ScanDetailsModalProps> = ({ isOpen, onCl
                   </p>
                 </div>
                 {riskLevel ? (
-                  <Badge className={getRiskColor(riskLevel)}>{riskLevel.toUpperCase()} RISK</Badge>
+                  <Badge className={`${triageClass(riskLevel)} border`}>{triageLabel(riskLevel)}</Badge>
                 ) : null}
               </div>
             </CardHeader>

@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, index, doublePrecision } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -127,6 +127,40 @@ export const medicalScans = pgTable("medical_scans", {
    * See docs/DPIA.md for the POPIA analysis.
    */
   skinToneBin: text("skin_tone_bin"),
+
+  /**
+   * How the model reached its number, as numbers.
+   *
+   * `aiConfidence` above is a string ("74%") and `result` is a sentence. Both
+   * stay for the views that read them, but neither is a record of the
+   * decision: the calibrated probability, the threshold it was compared to,
+   * the temperature, whether calibration was applied, the OOD score against
+   * its threshold, the quality-gate outcome, the scanner, and whether the
+   * input was DICOM or a raster export are recorded here at inference time.
+   * Null on rows written before these columns existed, and on scans no model
+   * ran on — reported as "not recorded", never as zero.
+   *
+   * migrations/scan-analysis-detail.sql.
+   */
+  calibratedProbability: doublePrecision("calibrated_probability"),
+  decisionThreshold: doublePrecision("decision_threshold"),
+  calibrationTemperature: doublePrecision("calibration_temperature"),
+  calibrationApplied: boolean("calibration_applied"),
+  oodScore: doublePrecision("ood_score"),
+  oodThreshold: doublePrecision("ood_threshold"),
+  /** 'passed' | 'failed' | 'rejected' | 'skipped' */
+  qualityGate: text("quality_gate"),
+  acquisitionModality: text("acquisition_modality"),
+  acquisitionManufacturer: text("acquisition_manufacturer"),
+  acquisitionModel: text("acquisition_model"),
+  /** 'raster' | 'dicom' — decided from the bytes. */
+  inputSource: text("input_source"),
+  /** MODEL_REGISTRY.modelClass at the time the model ran. */
+  modelClass: text("model_class"),
+  inferenceAt: timestamp("inference_at"),
+  /** True when the stored object is the de-identified DICOM rather than the upload. */
+  storedDeidentified: boolean("stored_deidentified"),
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow(),
   reviewedAt: timestamp("reviewed_at"),
@@ -137,7 +171,49 @@ export const medicalScans = pgTable("medical_scans", {
   scanTypeIdx: index("idx_scans_type").on(table.scanType),
   radiologistIdx: index("idx_scans_radiologist").on(table.radiologistId),
   doctorIdx: index("idx_scans_doctor").on(table.doctorId),
+  acquisitionIdx: index("idx_scans_acquisition_manufacturer").on(table.scanType, table.acquisitionManufacturer),
 }));
+
+/**
+ * Regions on a scan: where somebody, or something, pointed.
+ *
+ * Route 1 of the lung nodule characteriser is "a clinician marks the nodule".
+ * The mark is part of the result — the probability is about THAT region — so
+ * it is recorded with the scan, in pixels of the rendered frame and, where the
+ * acquisition carried spacing, in millimetres. `source` is 'clinician' today;
+ * a detector (P2) writes 'detector' rows with a score, a segmenter (P3)
+ * 'segmenter' rows with a mask path, and `reviewerDisposition` records the
+ * clinician's accept / reject of a proposed region.
+ *
+ * migrations/scan-regions.sql.
+ */
+export const scanRegions = pgTable("scan_regions", {
+  id: serial("id").primaryKey(),
+  scanId: integer("scan_id").references(() => medicalScans.id).notNull(),
+  /** 'clinician' | 'detector' | 'segmenter' */
+  source: text("source").notNull(),
+  /** 'point' | 'box' | 'mask' */
+  geometry: text("geometry").notNull().default("point"),
+  cx: doublePrecision("cx"),
+  cy: doublePrecision("cy"),
+  sizePx: integer("size_px"),
+  frameRows: integer("frame_rows"),
+  frameColumns: integer("frame_columns"),
+  spacingRowMm: doublePrecision("spacing_row_mm"),
+  spacingColMm: doublePrecision("spacing_col_mm"),
+  sizeMm: doublePrecision("size_mm"),
+  detectorScore: doublePrecision("detector_score"),
+  maskPath: text("mask_path"),
+  /** 'accepted' | 'rejected' | null */
+  reviewerDisposition: text("reviewer_disposition"),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  scanIdx: index("idx_scan_regions_scan").on(table.scanId),
+}));
+
+export type ScanRegion = typeof scanRegions.$inferSelect;
+export type InsertScanRegion = typeof scanRegions.$inferInsert;
 
 export const medicalTerms = pgTable("medical_terms", {
   id: serial("id").primaryKey(),

@@ -55,7 +55,7 @@ required components &middot; Category A (TRL&nbsp;4), Track&nbsp;2</p>
 <tr>
   <td><b>AI-enabled functionality and decision support</b></td>
   <td style="color:var(--good)"><b>Implemented</b></td>
-  <td>Two evaluated classifiers with measured calibration, out-of-distribution screening, and a screening operating point chosen on clinical grounds. Held-out figures reproducible from published commands.</td>
+  <td>Two serving evaluated classifiers &mdash; skin (CURRENT) and a clinician-marked lung nodule characteriser on LIDC-IDRI CT (VALIDATION: 97 held-out nodules, 29 malignant, bound 21&nbsp;September&nbsp;2026) &mdash; each with measured calibration, out-of-distribution screening validated in both directions, and an operating point chosen on clinical grounds; a third (web-trained lung) evaluated, served, and <b>withdrawn on 20&nbsp;September&nbsp;2026</b> by that screening when it was found answering real CT it had never been measured on. Every status is served by <code>GET /api/capabilities</code>. Held-out figures reproducible from published commands.</td>
 </tr>
 <tr>
   <td><b>Secure workflow integration (triage, referral)</b></td>
@@ -198,7 +198,8 @@ is measured, not asserted, and each measurement is reproducible.</p>
 <tr><td>No validated model for the modality</td><td>503, no content, queued</td><td>Breast, colon, prostate — registry gated on measured balanced accuracy</td></tr>
 <tr><td>Image outside training distribution</td><td>422, reason given</td><td>Wrong modality 100%, in-distribution 0.8%</td></tr>
 <tr><td>Blank, blurred, over-exposed</td><td>422, reason given</td><td>Pixel variance, level, Laplacian — catches what the feature detector scores as in-distribution</td></tr>
-<tr><td>Clinical DICOM to the lung model</td><td>422, explicit reason</td><td>All windows 20.3–30.4 vs 16.51 threshold</td></tr>
+<tr><td>A model found answering inputs it was never measured on</td><td>Withdrawn from serving</td><td>Lung: 84 of 87 real LIDC-IDRI CT slices passed the screen (3.4% flagged vs a 90% bar); switched off the same day</td></tr>
+<tr><td>Any scan for a withdrawn or absent modality</td><td>503, reason given, queued for a human</td><td>Registry gate ahead of the model; the reason names the withdrawal or the missing model</td></tr>
 <tr><td>Inference service saturated</td><td>503 + Retry-After, queued</td><td>Bounded queue depth 16</td></tr>
 <tr><td>Polygenic score that does not transfer</td><td>No percentile at all</td><td>Martin et al. 2019 transferability</td></tr>
 <tr><td>Partially translated language</td><td>Language not offered</td><td>Safety-critical key gate + human sign-off</td></tr>
@@ -238,12 +239,17 @@ closed.</p>
 </table>
 
 <div class="note crit">
-<p><b>Known blocking limitation.</b> The lung model refuses clinical DICOM. The
-pipeline around it — ingest, de-identify, window, screen, classify, review — is
-complete and tested; the model at the end of it was trained on web-sourced
-images and declines every real acquisition. Retraining on a documented CT dataset
-with patient-level splits is the first item of clinical work, not a later
-refinement. Recorded in the model card rather than left to be discovered.</p>
+<p><b>Known blocking limitation.</b> No lung model is serving. The one that
+did was trained on web-sourced images and was believed, on the strength of one
+bundled test object, to refuse every real CT; measured on 87 real LIDC-IDRI
+slices on 20&nbsp;September&nbsp;2026 its screen passed 84, and it issued
+verdicts with no measured basis. It was withdrawn that day and the earlier claim
+retracted on the model card. The LIDC-IDRI-trained nodule characteriser that
+replaces it was bound the next day, under validation terms: a clinician marks
+one nodule on a DICOM slice, the serving path renders the slice exactly as the
+training patches were rendered, and the de-identified object is what is
+stored. It rests on 29 malignant test nodules and says so on every screen.
+Recorded in the model card rather than left to be discovered.</p>
 </div>
 
 <div class="foot">

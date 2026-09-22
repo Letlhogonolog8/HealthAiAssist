@@ -54,7 +54,7 @@ import { DoctorAppointmentSection } from "./doctor-appointment-section";
 const CancerDetection = lazy(() => import("@/pages/cancer-detection"));
 const EnhancedChatbot = lazy(() => import("./enhanced-chatbot"));
 import CancerRiskQuestionnaire from "./cancer-risk-questionnaire";
-const LungCancerAnalyzer = lazy(() => import("./lung-cancer-analyzer"));
+const LungNoduleTool = lazy(() => import("./lung-nodule-tool"));
 const MedicalImageViewer = lazy(() => import("./medical-image-viewer"));
 const RealTimeSkinScanner = lazy(() => import("./real-time-skin-scanner"));
 import ChatNotifications from "./chat-notifications";
@@ -132,7 +132,7 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
        * there is nothing for the tab to show. A radiologist reads scans; the
        * diary belongs to the referring clinician.
        */
-      tabs: ["overview", "scans", "google-ai"]
+      tabs: ["overview", "scans", "lung-nodule", "google-ai"]
     },
     doctor: {
       icon: Stethoscope,
@@ -144,7 +144,7 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
        * clinician clicking it got a blank page. A developer tab on a clinical
        * portal is the wrong thing to ship even when it does work.
        */
-      tabs: ["overview", "patients", "reports", "appointments", "schedule", "google-ai"]
+      tabs: ["overview", "patients", "reports", "appointments", "schedule", "lung-nodule", "google-ai"]
     },
     patient: {
       icon: User,
@@ -603,7 +603,7 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                   'appointments': <Calendar className="w-4 h-4" />,
                   'schedule': <Clock className="w-4 h-4" />,
                   'questionnaire': <FileText className="w-4 h-4" />,
-                  'lung-analyzer': <Activity className="w-4 h-4" />,
+                  'lung-nodule': <Activity className="w-4 h-4" />,
                   'image-viewer': <Eye className="w-4 h-4" />,
                   'skin-scanner': <Eye className="w-4 h-4" />,
                   'scans': <Activity className="w-4 h-4" />,
@@ -626,7 +626,7 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
                   'appointments': 'Appointments',
                   'schedule': 'Schedule',
                   'questionnaire': 'Risk Assessment',
-                  'lung-analyzer': 'Lung Analysis',
+                  'lung-nodule': 'Lung Nodule',
                   'image-viewer': 'Image Viewer',
                   'skin-scanner': 'Skin Scanner',
                   'scans': 'Scans',
@@ -833,10 +833,11 @@ export default function DashboardLayout({ user, onLogout }: DashboardLayoutProps
               </TabsContent>
             )}
 
-            {/* Lung Cancer Analyzer */}
-            {config.tabs.includes("lung-analyzer") && (
-              <TabsContent value="lung-analyzer">
-                <LungCancerAnalyzer />
+            {/* Lung nodule characterisation: a clinician marks a nodule on a
+                CT slice. Clinician roles only; a patient never sees this tab. */}
+            {config.tabs.includes("lung-nodule") && (
+              <TabsContent value="lung-nodule">
+                <LungNoduleTool />
               </TabsContent>
             )}
 

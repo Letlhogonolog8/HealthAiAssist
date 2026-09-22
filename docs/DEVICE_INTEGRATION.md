@@ -14,7 +14,7 @@ that a submission demonstrate system-level integration across three components:
 | Component | This platform |
 |---|---|
 | Hardware or device capability | **Absent.** No sensor, no instrument, no capture hardware. |
-| AI-enabled functionality and decision support | Implemented. Two evaluated classifiers with calibration, out-of-distribution screening and a screening operating point. See [MODEL_CARDS.md](../MODEL_CARDS.md). |
+| AI-enabled functionality and decision support | Implemented. One serving evaluated classifier (skin) with calibration, out-of-distribution screening and a screening operating point; a second (lung) evaluated, served, and withdrawn by that screening on 20 September 2026; a third (LIDC-IDRI nodule characteriser) trained and awaiting a binding. See [MODEL_CARDS.md](../MODEL_CARDS.md). |
 | Secure workflow integration supporting triage and referral | Implemented. Role-scoped review queues, append-only audit, POPIA §72 consent handling for cross-border processing. |
 
 Two of three. The honest response is not to describe a device we do not have.
@@ -148,37 +148,58 @@ speculative.**
   └───────────────────┘
 ```
 
-De-identification happens **before** anything leaves the clinic network, and
-before the image is stored. The de-identified object is what persists; the
-original is never written to the platform's storage.
+De-identification happens **before** anything leaves the clinic network in the
+receiver design above, and — since 2026-09-21 — before anything is stored in
+the upload path that exists today: `inference/dicom_ingest.py` de-identifies
+the object (identifiers, private tags, instance UIDs replaced, dates to the
+year) and hands it back, and `server/routes.ts` persists that object, never
+the upload. If the service is unavailable the object is not stored at all. The
+de-identifier remains a best-effort PS3.15 Basic Profile implementation, not a
+validated one (DPIA R-19).
 
-### Built, and what it immediately revealed
+### Built, what it appeared to reveal, and what it actually revealed
 
-DICOM ingest is now implemented (`inference/dicom_ingest.py`): detection from
-the DICM preamble rather than a filename or Content-Type, de-identification
-before anything is stored, modality LUT then VOI LUT windowing in the order the
-standard fixes, MONOCHROME1 inversion, and multi-frame handling.
+DICOM ingest is implemented (`inference/dicom_ingest.py`): detection from the
+DICM preamble rather than a filename or Content-Type, de-identification of the
+rendered object, modality LUT then VOI LUT windowing in the order the standard
+fixes, MONOCHROME1 inversion, and multi-frame handling.
 
-Pointing it at real DICOM produced a finding worth more than the feature:
+**In August** the first object put through it — pydicom's bundled
+`CT_small.dcm`, a 128×128 GE acquisition from the 1990s — scored 22.88 against
+the lung model's 16.51 out-of-distribution threshold and was refused. This
+document, the model card and the application text concluded that **the lung
+model refuses real clinical objects** and that the pipeline was complete but
+the model trained on the wrong thing.
 
-**The lung model refuses real clinical objects.** A properly windowed CT scores
-22.88 against a 16.51 out-of-distribution threshold; an MR scores 27.16. Its own
-training images score around 10.9.
+**On 20 September** the same measurement was made on what a chest CT actually
+looks like — 87 LIDC-IDRI slices rendered at the lung window by this module,
+and 12 LIDC DICOM objects through `dicom_to_png_bytes`. The screen passed 84 of
+87 and 11 of 12 (median scores 12.3 and 14.2, the same range as the model's
+own web-sourced test set), and the model issued cancer / no_cancer verdicts on
+them. Real chest CT is inside that model's training distribution in feature
+space; a reconstruction-error screen cannot separate it. The model was trained
+on web-scraped chest imagery and had **no measured performance on CT**, so
+those verdicts were guesses. It was withdrawn from serving the same day
+(`MODEL_CARDS.md`, `docs/MODEL_CHANGELOG.md`).
 
-That is the OOD detector working exactly as intended — the alternative, a
-confident verdict on an image type the model has never seen, is the failure this
-platform is built to prevent. But it means the lung modality cannot be pointed
-at a PACS today. The pipeline around the model is complete; the model is trained
-on the wrong thing.
+Three consequences for this plan:
 
-Two consequences for this plan:
-
-1. Track B is **unblocked on the engineering and blocked on the model**.
-   Retraining on a documented CT dataset with patient-level splits is a
-   prerequisite for a radiology pilot, not a later improvement.
-2. It is evidence that the input screening is not decorative. A system that
-   accepted the CT and returned a probability would have looked more capable in
-   a demonstration and been worthless in a clinic.
+1. Track B is **unblocked on the engineering and blocked on the model**, as
+   before — but the model that was serving was not a safe placeholder while
+   the replacement was built. It is now off.
+2. The replacement exists: the LIDC-IDRI nodule characteriser in
+   `dataset/lung_nodule_model/`, trained on patient-level splits, calibrated,
+   with an OOD reference validated in both directions that refuses whole
+   slices at 90.8%. It answers a narrower question — the malignancy of a
+   nodule a clinician has marked — and it must be served with the same
+   windowing it was trained on (`training_window()` in `dicom_ingest.py`),
+   which the serving path does not yet apply. Binding it is the first
+   engineering item after this submission.
+3. The input screening is not decorative — it is what found the problem, once
+   pointed at the right domain. The lesson recorded in the model card is that a
+   refuse-domain measured on a convenience object is not a measurement, and
+   every future reference is validated against real acquisitions of the
+   modality it exists to refuse.
 
 ### Why this closes the §2 gap credibly
 
@@ -197,10 +218,11 @@ device layer would connect to:
 
 | Capability | Where |
 |---|---|
-| DICOM ingest with de-identification and tag-driven windowing | `inference/dicom_ingest.py` |
+| DICOM ingest: training-window render, de-identification, and the de-identified object is what is persisted | `inference/dicom_ingest.py`, `server/routes.ts` |
+| Lung nodule characterisation on a clinician-marked DICOM slice, under VALIDATION terms | `inference/lung_nodule_service.py`, `client/src/components/lung-nodule-tool.tsx` |
 | Grad-CAM explanation overlays, refused where the model refused | `inference/gradcam.py` |
 | Resident-model inference, ~500 ms, bounded queue | `inference/server.py` |
-| Out-of-distribution refusal — wrong-modality images rejected, not classified | `server/skin_cancer_model.py`, `server/lung-cancer-service.py` |
+| Out-of-distribution refusal, validated in both directions with pre-set bars — and able to fail, which withdrew the lung model | `server/skin_cancer_model.py`, `scripts/build-ood-reference.py` |
 | Calibrated probabilities and a screening operating point | [MODEL_CARDS.md](../MODEL_CARDS.md) |
 | Model provenance recorded per scan, hashed from the artifact | `server/model-fingerprint.ts` |
 | Private object storage for images, signed short-lived reads | `server/google-cloud-service.ts` |
@@ -249,10 +271,16 @@ not connected to anything that reads its output promptly.
 
 ## Honest summary
 
-- **Not built:** dermoscopic capture, device validation, DICOM receiver.
-- **Scheduled:** DICOM ingest with de-identification (build plan P2.2).
-- **Built:** everything downstream of the image — inference, refusal, review,
-  audit, outcome measurement.
+- **Not built:** dermoscopic capture, device validation, DICOM receiver,
+  series ingest and the CT quality gate (Track B, roadmap P1b).
+- **Built:** single-object DICOM ingest with de-identification of the rendered
+  copy and windowing; everything downstream of the image — inference, refusal,
+  review, audit, outcome measurement.
+- **Serving under validation terms:** the LIDC-IDRI nodule characteriser,
+  bound 21 September 2026 — a clinician marks one nodule on a DICOM CT slice
+  and receives a calibrated probability with its evidence attached. The
+  web-trained lung model it replaces was withdrawn on 20 September when the
+  refusal machinery, pointed at real CT, found it answering.
 - **Required before clinical use of any capture device:** re-measurement of
   sensitivity and specificity on images that device produced. A device changes
   the input distribution, and the published figures describe one distribution.

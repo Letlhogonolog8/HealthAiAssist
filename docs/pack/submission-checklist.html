@@ -316,7 +316,7 @@ beginning. Neither is an engineering task.</p>
 </tr>
 <tr>
 <td><code>npm test</code></td>
-<td><strong>171 / 171</strong>, 42 suites</td>
+<td><strong>249 / 249</strong>, 65 suites, 2 skipped without <code>INFERENCE_URL</code> (re-run 2026-09-21 after the lung withdrawal; the three files that hit a remote-database outage mid-run passed standalone)</td>
 </tr>
 <tr>
 <td>Python modules compile</td>
@@ -349,22 +349,22 @@ beginning. Neither is an engineering task.</p>
 <td><strong>exact</strong></td>
 </tr>
 <tr>
-<td>II — skin → lung model</td>
-<td>refused, ~26.1 / 16.51</td>
-<td><code>26.125 / 16.51</code></td>
-</tr>
-<tr>
 <td>III — unsupported modality</td>
 <td>503, no diagnostic content, queued</td>
 <td><strong>exact</strong>, <code>queuedForManualReview: true</code>, no diagnostic field present</td>
 </tr>
 <tr>
 <td>V — clinical DICOM → lung</td>
-<td>422 with explicit reason</td>
-<td><strong>exact</strong></td>
+<td>503, withdrawal reason, <code>queuedForManualReview: true</code></td>
+<td><strong>exact</strong> (re-rehearsed 2026-09-20 after the withdrawal; <code>tests/withdrawn-modality.test.ts</code> pins the card)</td>
 </tr>
 </tbody>
 </table>
+<p><strong>Act V was rewritten on 2026-09-20.</strong> It had claimed the lung model refuses
+every clinical acquisition (rehearsed as a 422 on one DICOM). Measured on 87
+real LIDC-IDRI slices the same day, the screen passed 84, the model was
+withdrawn, and the act now demonstrates the withdrawal. The "skin → lung model"
+row is gone with it: there is no lung model to send a skin image to.</p>
 <p><strong>One correction made during rehearsal.</strong> The script claimed sub-second latency
 while Act I demonstrates Grad-CAM, which costs ~1.2 s. Warm inference is ~470 ms;
 with the overlay it is ~1.7 s. The script now says so, because a panellist
@@ -424,9 +424,13 @@ than omitted from it.</p>
   classification Class B/IIa SaMD, to be confirmed at pre-submission.</li>
 <li>No POPIA compliance claim. The DPIA records six unmet conditions, the first
   being that no Information Officer has been appointed.</li>
-<li><strong>The lung model cannot read clinical DICOM.</strong> Every window tested — 20.3 to
-  30.4 against a 16.51 threshold. Retraining on a documented CT dataset is the
-  first item of clinical work.</li>
+<li><strong>Lung serves only as a clinician-marked nodule characteriser, under
+  validation terms</strong> (97 held-out nodules, 29 malignant; bound 2026-09-21).
+  The web-trained whole-image model was withdrawn on 2026-09-20 after it was
+  found to accept real CT (84 of 87 LIDC-IDRI slices passed its screen) with
+  no measured performance on CT. The earlier claim that it "cannot read
+  clinical DICOM — every window 20.3 to 30.4" was measured on a library test
+  fixture and is retracted on the model card.</li>
 <li><strong>Skin performance on darker skin cannot be established</strong> from the test set.
   4.3% of images are brown or darker; the darkest bin holds four with no
   controls.</li>

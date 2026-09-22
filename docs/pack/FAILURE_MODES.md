@@ -119,6 +119,43 @@ when every individual refusal is correct. Any capture device must be validated
 by re-measuring sensitivity and specificity on images *that device* produced,
 before clinical use — see `docs/DEVICE_INTEGRATION.md`.
 
+### F-08 · A model answers an input it was never measured on, and the screen lets it
+
+| | |
+|---|---|
+| **Cause** | The out-of-distribution reference was validated against a convenience sample of the domain it must refuse, not against real acquisitions of it |
+| **Severity** | **High** — a verdict with no measured basis is indistinguishable from a real one |
+| **Occurred** | **Yes.** 2026-09-20, lung model. See `MODEL_CARDS.md`. |
+
+The lung classifier, trained on web-sourced chest images, was believed to refuse
+real CT because pydicom's bundled 128×128 test object scored 22.9 against a
+16.51 threshold. Measured against 87 real LIDC-IDRI slices through the serving
+code, the screen passed 84 and the model issued verdicts. Real CT sat inside the
+model's training distribution in feature space; the screen had nothing to
+separate.
+
+**Detection:** `scripts/build-ood-reference.py` validates every reference in
+both directions against pre-set bars and exits non-zero on a miss. The failure
+was found the first time the script was pointed at the right domain.
+
+**Mitigation, applied:** the model was withdrawn from serving the same day
+(`MODEL_REGISTRY.lung.enabled = false`; governance state `withdrawn`); the
+real-CT domain is now a permanent `refuse` domain for that model so the failure
+cannot be re-measured away by omission; `tests/withdrawn-modality.test.ts`
+checks the registry's reason against the measurement on disk.
+
+**Mitigation, standing:** no model serves a modality until its OOD reference
+has been validated against real acquisitions of that modality drawn from the
+dataset the model was trained on — not a library's test fixture. The nodule
+characteriser meets this (whole CT slices refused at 90.8%); the withdrawn
+model never did.
+
+**Residual risk:** a screen built on reconstruction error cannot refuse an
+input that resembles the training data. It is one layer. The layers that
+remain are the deterministic gates (DICOM preamble, quality checks), the
+clinician who reviews every result, and the outcome loop that would eventually
+show a model performing worse than its card — slowly, and after the fact.
+
 ---
 
 ## Part 2 — Technical failure modes
@@ -241,6 +278,10 @@ Consolidated so it cannot be missed:
 5. **No Information Officer** (POPIA §22, DPIA R-01)
 6. **No key custody procedure** (T-05)
 7. **No identity verification for MFA recovery** (T-06)
+8. **Lung is a marked-nodule characteriser under validation terms** — the
+   legacy whole-image model is withdrawn (F-08); the replacement rests on 29
+   malignant test nodules and does not find nodules. No DICOM series ingest
+   or CT quality gate yet (roadmap P1b).
 
 Items 1–3 must be closed before any clinical use. They are operational
 commitments a facility makes, not features a vendor ships.

@@ -1,5 +1,4 @@
 import express from 'express';
-import aiRoutes from './ai-routes';
 import { analyticsEngine } from './analytics-engine';
 import { 
   TwoFactorAuth, 
@@ -24,7 +23,11 @@ const router = express.Router();
 // ===================
 // AI ENHANCEMENT ROUTES
 // ===================
-router.use('/ai', aiRoutes);
+// `/ai/*` (server/ai-routes.ts) is gone. It was a second analysis path over
+// TensorFlow.js stand-in models declared for modalities that had no model —
+// breast, eye — and it reported their invented names and versions as status.
+// The one analysis path is POST /api/scans/analyze; the one list of models is
+// MODEL_REGISTRY.
 
 // ===================
 // ADVANCED SECURITY ROUTES

@@ -558,9 +558,20 @@ This phase is *described* in the application under §6, not built before it.
 - [ ] Reader study: 3–5 clinicians read the same set with and without the tool.
       Measure sensitivity, specificity and reading time. This is what §7's
       "clinical utility" criterion means.
-- [ ] Retrain lung on a documented CT dataset (LIDC-IDRI, NLST) with a
-      **patient-level** split. The current set is MRI-labelled PNGs of unrecorded
-      provenance, split by image.
+- [x] Retrain lung on a documented CT dataset with a **patient-level** split.
+      Done 1 September 2026: the LIDC-IDRI nodule characteriser in
+      `dataset/lung_nodule_model/` (route 1 — clinician marks the nodule).
+      Per-nodule test: sensitivity 0.862 [0.69–0.95], specificity 0.691
+      [0.57–0.79], n=97 nodules, 29 malignant. Calibrated; OOD reference
+      validated both directions.
+- [ ] **Bind it.** Registry entry, `MEASUREMENT_BINDINGS` entry with a
+      verification script, model card, changelog entry, `/infer/lung_nodule`
+      endpoint, clinician ROI workflow, and the serving path rendering CT with
+      `training_window()`. The full file-level plan is in the 2026-09-20 audit.
+- [x] Withdraw the web-PNG lung model. Done 20 September 2026, after it was
+      found to accept real CT (84 of 87 LIDC slices passed its screen) with no
+      measured performance on CT. `MODEL_CARDS.md`, F-08 in
+      `docs/pack/FAILURE_MODES.md`.
 - [ ] Fine-tune the skin model's upper blocks — skipped only because the training
       machine was CPU-only with ~1 GB free.
 - [ ] Acquire Fitzpatrick V–VI images with recorded labels, via a dermatology

@@ -96,16 +96,87 @@ describe('measurement bindings', { timeout: TIMEOUT }, () => {
 
   test('the deployed artifacts match their bindings', async (t) => {
     if (!ARTIFACTS_PRESENT) return t.skip('model artifacts absent (gitignored)');
+    const { MODEL_REGISTRY } = await import('../server/model-availability.ts');
     const { allGovernanceStatuses } = await import('../server/model-governance.ts');
     const statuses = await allGovernanceStatuses();
 
     for (const s of statuses) {
+      if (MODEL_REGISTRY[s.modality]?.enabled === false) {
+        // A withdrawn modality still reports which artifact is deployed and
+        // which was measured — the withdrawal is a decision about that file,
+        // and the record has to show it is that file — but it may not serve,
+        // whatever the fingerprints say.
+        assert.equal(s.state, 'withdrawn', `${s.modality} is ${s.state}: ${s.explanation}`);
+        assert.equal(s.mayServe, false, `${s.modality} is withdrawn and must not serve`);
+        assert.ok(s.deployedFingerprint, `${s.modality} withdrawn without naming the artifact`);
+        assert.ok(s.explanation.length > 40, `${s.modality} withdrawn without a reason`);
+        continue;
+      }
       assert.equal(
         s.state,
         'matched',
         `${s.modality} is ${s.state}: ${s.explanation}`
       );
       assert.equal(s.mayServe, true);
+    }
+  });
+
+  test('a withdrawn modality refuses regardless of its binding', async () => {
+    const { MODEL_REGISTRY } = await import('../server/model-availability.ts');
+    const { governanceStatus } = await import('../server/model-governance.ts');
+
+    const withdrawn = Object.entries(MODEL_REGISTRY).filter(([, m]) => !m.enabled);
+    // Written as an invariant over whatever is withdrawn today, so it neither
+    // pins a modality nor passes vacuously once one is re-enabled: the case
+    // below constructs the state if the registry has none.
+    if (withdrawn.length === 0) {
+      MODEL_REGISTRY.skin.enabled = false;
+      try {
+        const status = await governanceStatus('skin');
+        assert.equal(status.state, 'withdrawn');
+        assert.equal(status.mayServe, false);
+      } finally {
+        MODEL_REGISTRY.skin.enabled = true;
+      }
+      return;
+    }
+
+    for (const [modality, entry] of withdrawn) {
+      const status = await governanceStatus(modality);
+      assert.equal(status.state, 'withdrawn', `${modality}: ${status.explanation}`);
+      assert.equal(status.mayServe, false);
+      // The reason a person reads is the registry's, not a generic sentence.
+      assert.equal(status.explanation, entry.disabledReason);
+    }
+  });
+});
+
+describe('scan type resolution', { timeout: TIMEOUT }, () => {
+  test('an exact key wins over a substring match', async () => {
+    const { MODEL_REGISTRY, resolveScanType } = await import('../server/model-availability.ts');
+
+    // The real case: "lung_nodule" contains "lung". Without exact-match-first
+    // it resolved to the withdrawn model, which then absorbed requests meant
+    // for its replacement.
+    assert.ok(MODEL_REGISTRY.lung_nodule, 'the nodule model is registered');
+    assert.equal(resolveScanType('lung_nodule'), 'lung_nodule');
+    assert.equal(resolveScanType('LUNG_NODULE '), 'lung_nodule');
+    assert.equal(resolveScanType('lung_nodule scan'), 'lung_nodule');
+    assert.equal(resolveScanType('lung'), 'lung');
+    assert.equal(resolveScanType('lung scan'), 'lung');
+    assert.equal(resolveScanType('breast'), null);
+
+    // And a synthetic one, so the rule is tested as a rule and not only on
+    // the two keys that happen to exist today.
+    MODEL_REGISTRY.skin_fixture = {
+      enabled: false, disabledReason: 'test fixture', modelClass: 'RESEARCH',
+      intendedUse: 'test fixture', evaluation: null,
+    };
+    try {
+      assert.equal(resolveScanType('skin_fixture'), 'skin_fixture');
+      assert.equal(resolveScanType('skin'), 'skin');
+    } finally {
+      delete MODEL_REGISTRY.skin_fixture;
     }
   });
 });
