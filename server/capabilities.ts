@@ -19,8 +19,11 @@
  *
  * ── The vocabulary ─────────────────────────────────────────────────────────
  *
- *   CURRENT         serving, measured on a held-out set, bound to the deployed
- *                   artifact by fingerprint. Not a claim of clinical validation.
+ *   CURRENT         in the request path and working. For a model that means
+ *                   measured on a held-out set and bound to the deployed
+ *                   artifact by fingerprint; for a pipeline stage it means
+ *                   implemented and covered by tests. Neither is a claim of
+ *                   clinical validation, and neither ever becomes one here.
  *   VALIDATION      serving under research / internal-validation terms: the
  *                   evidence is real but small, and every figure carries an
  *                   interval wide enough to say so. Reviewed by a clinician as
@@ -162,15 +165,39 @@ const DECLARED: Capability[] = [
   {
     id: 'dicom-ingest',
     name: 'DICOM ingest',
-    input: 'A single DICOM object',
+    input: 'A single DICOM object, or one CT series as a set of objects',
+    // Not CURRENT, deliberately. CURRENT is a claim about a model — measured on
+    // a held-out set and fingerprint-bound — and this is file handling with no
+    // model in it. Calling it CURRENT would put it on the homepage beside the
+    // skin classifier as though the two claims were the same kind of thing.
+    // The evidence below is where the detail belongs.
     status: 'IN_DEVELOPMENT',
     evidence:
-      'inference/dicom_ingest.py reads one object, renders it at the training window, ' +
-      'de-identifies it (identifiers, private tags, instance UIDs replaced), and the ' +
-      'de-identified object is what the analysis path persists. Series assembly, the CT ' +
-      'quality gate (slice count, thickness, anatomy) and a salted UID remap for grouping ' +
-      'are not built (roadmap P1b).',
+      'A single object is read, rendered at the training window and de-identified before the ' +
+      'analysis path persists it. A CT series is assembled by SeriesInstanceUID, ordered by ' +
+      'projecting ImagePositionPatient onto the slice normal, put through a quality gate whose ' +
+      'bars were measured on the LIDC-IDRI collection, and stored de-identified with the ' +
+      'study/series/instance tree intact through a salted UID remap; mixed-series uploads, ' +
+      'untrustworthy ordering and unsuitable series are refused and nothing is stored. That ' +
+      'path is implemented and covered by tests (roadmap P1b, 2026-09-22). It ingests what is ' +
+      'uploaded: it does not receive from a PACS, it does not build a volume, and it does not ' +
+      'interpret anything — no model reads a series, so an ingested study carries no ' +
+      'finding about the patient.',
     phase: 'P1b',
+    scanType: null,
+    modelClass: null,
+    stages: {},
+  },
+  {
+    id: 'dicom-network-receive',
+    name: 'DICOM network receive (C-STORE / DICOMweb)',
+    input: 'A study pushed or pulled from a PACS',
+    status: 'PLANNED',
+    evidence:
+      'Series ingestion takes an upload. Nothing listens for a C-STORE association or queries ' +
+      'a DICOMweb endpoint, so a study still reaches this platform because somebody exported ' +
+      'it. See docs/DEVICE_INTEGRATION.md, Track B.',
+    phase: 'P1b+',
     scanType: null,
     modelClass: null,
     stages: {},
@@ -206,7 +233,9 @@ const DECLARED: Capability[] = [
     input: 'A CT series',
     status: 'PLANNED',
     evidence:
-      'The ingest takes the middle frame of a multi-frame object and nothing else. Roadmap P4.',
+      'An ingested series is ordered and its spacing is known, which is what a volume needs — ' +
+      'but nothing resamples one, holds one, or renders one. Inference is still per slice and ' +
+      'synchronous. Roadmap P4.',
     phase: 'P4',
     scanType: null,
     modelClass: null,

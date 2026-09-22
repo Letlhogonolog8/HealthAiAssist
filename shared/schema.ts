@@ -215,6 +215,107 @@ export const scanRegions = pgTable("scan_regions", {
 export type ScanRegion = typeof scanRegions.$inferSelect;
 export type InsertScanRegion = typeof scanRegions.$inferInsert;
 
+/**
+ * Study -> series -> instance, for ingested DICOM.
+ *
+ * `medical_scans` holds one row per analysed image, with one `image_path`.
+ * That shape describes a photograph of a lesion and cannot describe a CT
+ * study, which is a few hundred objects that mean nothing individually and
+ * everything in order.
+ *
+ * Nothing in these three tables is a clinical finding. `ingestStatus`
+ * describes file handling — assembled, ordered, gated, stored — and must
+ * never be read as a statement about the patient. A result about a series
+ * belongs in `medical_scans`, produced by a model and reviewed by a
+ * clinician.
+ *
+ * Every UID column holds the REMAPPED value from inference/uid_remap.py,
+ * never the source UID. See migrations/imaging-series.sql.
+ */
+export const imagingStudies = pgTable("imaging_studies", {
+  id: serial("id").primaryKey(),
+  patientId: integer("patient_id").references(() => users.id).notNull(),
+  /** Remapped StudyInstanceUID. Unique, so a re-uploaded study is recognised. */
+  studyUid: text("study_uid").notNull(),
+  /** Study date after de-identification reduces it to the year. */
+  studyYear: text("study_year"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  uidIdx: index("idx_imaging_studies_uid").on(table.studyUid),
+  patientIdx: index("idx_imaging_studies_patient").on(table.patientId),
+}));
+
+export const imagingSeries = pgTable("imaging_series", {
+  id: serial("id").primaryKey(),
+  studyId: integer("study_id").references(() => imagingStudies.id).notNull(),
+  patientId: integer("patient_id").references(() => users.id).notNull(),
+  /** Remapped SeriesInstanceUID. */
+  seriesUid: text("series_uid").notNull(),
+  modality: text("modality").notNull(),
+  instanceCount: integer("instance_count").notNull(),
+
+  /**
+   * How the slices were ordered, and whether that order can be trusted.
+   * 'image_position_patient' is the only method that is anatomically correct
+   * for any orientation; anything else, or any geometric problem, leaves
+   * `orderingTrusted` false and the series must not have a volume built from it.
+   */
+  orderingMethod: text("ordering_method").notNull(),
+  orderingTrusted: boolean("ordering_trusted").notNull(),
+
+  qualityGatePassed: boolean("quality_gate_passed").notNull(),
+  /** The full structured gate result, so a verdict can be explained later. */
+  qualityGate: text("quality_gate"),
+  anatomyVerified: boolean("anatomy_verified"),
+
+  rows: integer("rows"),
+  columns: integer("columns"),
+  pixelSpacingMm: doublePrecision("pixel_spacing_mm"),
+  sliceThicknessMm: doublePrecision("slice_thickness_mm"),
+  medianSpacingMm: doublePrecision("median_spacing_mm"),
+  manufacturer: text("manufacturer"),
+  manufacturerModel: text("manufacturer_model"),
+  convolutionKernel: text("convolution_kernel"),
+  bodyPart: text("body_part"),
+
+  /** 'deployment' | 'ingestion' — how far the UID mapping reaches. */
+  uidMappingScope: text("uid_mapping_scope").notNull(),
+
+  storagePrefix: text("storage_prefix"),
+  ingestedBy: integer("ingested_by").references(() => users.id),
+  /** File handling only. NOT a clinical status. */
+  ingestStatus: text("ingest_status").notNull().default("ingested"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  uidIdx: index("idx_imaging_series_uid").on(table.seriesUid),
+  studyIdx: index("idx_imaging_series_study").on(table.studyId),
+  patientIdx: index("idx_imaging_series_patient").on(table.patientId),
+}));
+
+export const imagingInstances = pgTable("imaging_instances", {
+  id: serial("id").primaryKey(),
+  seriesId: integer("series_id").references(() => imagingSeries.id).notNull(),
+  /** Position in anatomical order, 0-based — not the upload order. */
+  positionIndex: integer("position_index").notNull(),
+  /** Remapped SOPInstanceUID. */
+  sopUid: text("sop_uid").notNull(),
+  /** ImagePositionPatient projected onto the slice normal, in millimetres. */
+  positionMm: doublePrecision("position_mm"),
+  /** Where the de-identified object is stored. Never the upload. */
+  objectPath: text("object_path"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  seriesPositionIdx: index("idx_imaging_instances_series_position").on(table.seriesId, table.positionIndex),
+  sopIdx: index("idx_imaging_instances_sop").on(table.sopUid),
+}));
+
+export type ImagingStudy = typeof imagingStudies.$inferSelect;
+export type InsertImagingStudy = typeof imagingStudies.$inferInsert;
+export type ImagingSeries = typeof imagingSeries.$inferSelect;
+export type InsertImagingSeries = typeof imagingSeries.$inferInsert;
+export type ImagingInstance = typeof imagingInstances.$inferSelect;
+export type InsertImagingInstance = typeof imagingInstances.$inferInsert;
+
 export const medicalTerms = pgTable("medical_terms", {
   id: serial("id").primaryKey(),
   term: text("term").notNull(),

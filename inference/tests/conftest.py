@@ -135,6 +135,47 @@ def dataset_bytes(ds) -> bytes:
     return buffer.getvalue()
 
 
+def make_ct_series(
+    count: int = 60,
+    *,
+    spacing: float = 2.5,
+    thickness: float = 2.5,
+    orientation: tuple[float, ...] = (1, 0, 0, 0, 1, 0),
+    body_part: str = "CHEST",
+    rows: int = 512,
+    columns: int = 512,
+    modality: str = "CT",
+    series_uid: str | None = None,
+    study_uid: str | None = None,
+    start_z: float = -300.0,
+):
+    """A synthetic CT series: `count` slices, evenly spaced along the normal.
+
+    Built in memory so the series tests run anywhere, including CI with no
+    LIDC download. The defaults sit inside the range measured across 30
+    LIDC-IDRI series, so a series built with them passes the quality gate and
+    a test that wants a failure has to ask for one explicitly.
+    """
+    import pydicom
+    from pydicom.uid import generate_uid
+
+    series_uid = series_uid or generate_uid()
+    study_uid = study_uid or generate_uid()
+    slices = []
+    for index in range(count):
+        ds = make_ct_dataset(rows=rows, cols=columns, modality=modality, with_identity=True)
+        ds.SeriesInstanceUID = series_uid
+        ds.StudyInstanceUID = study_uid
+        ds.SliceThickness = thickness
+        ds.ImageOrientationPatient = list(orientation)
+        ds.ImagePositionPatient = [0.0, 0.0, start_z + index * spacing]
+        ds.SliceLocation = start_z + index * spacing
+        ds.InstanceNumber = index + 1
+        ds.BodyPartExamined = body_part
+        slices.append(ds)
+    return slices
+
+
 @pytest.fixture(scope="session")
 def synthetic_ct_bytes() -> bytes:
     return dataset_bytes(make_ct_dataset())

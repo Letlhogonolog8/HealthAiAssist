@@ -28,6 +28,16 @@ const sessionSecret = () => randomBytes(64).toString('hex');
 /** An encryption key: exactly 32 bytes, which is what AES-256 takes. */
 const encryptionKey = () => randomBytes(32).toString('hex');
 
+/**
+ * DICOM_UID_SALT: the key behind de-identified UID remapping.
+ *
+ * Not decorative. A plain hash of a DICOM UID is reversible in practice —
+ * the UID space one site emits is small enough to enumerate and match — so
+ * the mapping is an HMAC and this is its key. 32 bytes of hex, matching the
+ * minimum inference/uid_remap.py enforces.
+ */
+const uidSalt = () => randomBytes(32).toString('hex');
+
 const rule = (label: string) => {
   console.log('');
   console.log(`── ${label} ${'─'.repeat(Math.max(0, 72 - label.length))}`);
@@ -66,6 +76,12 @@ function printFresh(): void {
     ['SESSION_SECRET', session, 'Signs session cookies. Production will not start without it.'],
     ['ENCRYPTION_KEYS', `k1:${key}`, 'At-rest encryption. The "k1:" prefix is the key id and is required.'],
     ['ENCRYPTION_ACTIVE_KEY_ID', 'k1', 'Which key encrypts new data. All listed keys can decrypt.'],
+    [
+      'DICOM_UID_SALT',
+      uidSalt(),
+      'Keys de-identified DICOM UID remapping. Without it a re-uploaded study becomes a ' +
+        'separate one; changing it has the same effect for everything already ingested.',
+    ],
   ];
 
   if (railway) {

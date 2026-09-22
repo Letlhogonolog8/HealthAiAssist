@@ -57,14 +57,21 @@ import base64
 import hashlib
 import importlib.util
 import io
+import json
 import os
+import shutil
 import sys
+import tempfile
 import threading
 import time
-from typing import Any
+from typing import Any, List
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+
+# Enough of a file to decide whether it is DICOM at all: the 128-byte preamble
+# plus the marker.
+DICOM_HEAD_BYTES = 160
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SERVER_DIR = os.path.join(REPO_ROOT, "server")
@@ -97,6 +104,9 @@ def _load_module(name: str, filename: str):
 # eagerly rather than on first request.
 from dicom_ingest import DicomRejected, dicom_to_model_frame, looks_like_dicom  # noqa: E402
 from gradcam import CAVEAT as GRADCAM_CAVEAT, heatmap_png  # noqa: E402
+from quality_gate import evaluate_ct_series  # noqa: E402
+from series import SeriesRejected, assemble, order_slices, read_instance_metadata  # noqa: E402
+from uid_remap import UidRemapper  # noqa: E402
 import lung_nodule_service  # noqa: E402  constructs the characteriser, loading its model
 
 skin_model = _load_module("skin_cancer_model", "skin_cancer_model.py")
@@ -120,6 +130,13 @@ MAX_UPLOAD_BYTES = int(os.environ.get("INFERENCE_MAX_UPLOAD_BYTES", 10 * 1024 * 
 # whole point of the change is that load produces backpressure instead of an
 # out-of-memory kill.
 MAX_QUEUE_DEPTH = int(os.environ.get("INFERENCE_MAX_QUEUE_DEPTH", 16))
+
+# Series ceilings. A chest CT in the LIDC-IDRI subset runs 109-351 objects at
+# roughly 0.5 MB each, so the defaults leave room for a large study and still
+# bound what one request can cost. Enforced here as well as on the Node side:
+# this service must be safe to run even if something else is talking to it.
+MAX_SERIES_INSTANCES = int(os.environ.get("DICOM_SERIES_MAX_INSTANCES", 1024))
+MAX_SERIES_BYTES = int(os.environ.get("DICOM_SERIES_MAX_BYTES", 1024 * 1024 * 1024))
 
 # TensorFlow's Python-level predict path is not reliably re-entrant across
 # threads on one model instance, and FastAPI runs synchronous endpoints in a
@@ -400,7 +417,7 @@ def infer_lung_nodule(
 
 
 @app.post("/deidentify")
-def deidentify_only(image: UploadFile = File(...)) -> Any:
+def deidentify_only(image: UploadFile = File(...), preview: str = Form(default="true")) -> Any:
     """De-identify a DICOM object without running any model.
 
     For the paths that store an object but do not analyse it — a patient who
@@ -418,18 +435,223 @@ def deidentify_only(image: UploadFile = File(...)) -> Any:
         frame, meta, deidentified = dicom_to_model_frame(data)
     except DicomRejected as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    from PIL import Image
+
+    body = {
+        "acquisition": meta,
+        "deidentifiedObject": base64.b64encode(deidentified).decode(),
+    }
 
     # The rendered frame, so a clinician can see the slice they are about to
     # mark. Rendered by the same function the model input comes from, so what
-    # is marked on screen is what the crop is cut from.
-    preview = io.BytesIO()
-    Image.fromarray(frame).convert("RGB").save(preview, format="PNG")
-    return JSONResponse({
-        "acquisition": meta,
-        "deidentifiedObject": base64.b64encode(deidentified).decode(),
-        "previewPng": "data:image/png;base64," + base64.b64encode(preview.getvalue()).decode(),
-    })
+    # is marked on screen is what the crop is cut from. Skippable, because the
+    # ingest path de-identifies hundreds of slices that nobody is looking at.
+    if _wants_explanation(preview) or str(preview).strip().lower() == "true":
+        from PIL import Image
+
+        buffer = io.BytesIO()
+        Image.fromarray(frame).convert("RGB").save(buffer, format="PNG")
+        body["previewPng"] = "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode()
+
+    return JSONResponse(body)
+
+
+def _series_event(payload: dict) -> bytes:
+    """One newline-delimited JSON event."""
+    return (json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8")
+
+
+@app.post("/ingest/series")
+def ingest_series(files: List[UploadFile] = File(...)) -> Any:
+    """Assemble, order, quality-gate and de-identify one CT series.
+
+    ── Why the response is a stream ───────────────────────────────────────
+
+    A 133-slice chest CT is about 70 MB of pixel data, and the caller needs
+    every de-identified object in order to store them. Returning that as one
+    JSON document means roughly 93 MB of base64 held whole on both sides at
+    once, which is the kind of number that works on a developer's machine and
+    falls over on a clinic's. So the response is newline-delimited JSON: a
+    verdict first, then one event per slice in anatomical order. Each side
+    holds one slice at a time.
+
+    The verdict comes first deliberately. A rejected series emits the verdict
+    and nothing else, so a caller never receives pixel data for a series it is
+    not allowed to store, and never has to unpick a partial write.
+
+    ── Ordering of operations ─────────────────────────────────────────────
+
+    Assemble, order, gate, and only then de-identify and emit. The gate runs
+    against the whole series, which is the only level at which "is this a
+    chest CT that can be read" is answerable — a single slice cannot tell you
+    it is one of forty or one of four hundred.
+
+    ── The originals ──────────────────────────────────────────────────────
+
+    Uploads are spooled to a private temporary directory, read twice (tags,
+    then pixels), and the directory is removed in a finally that runs whether
+    the generator completes, raises, or the client disconnects. Identified
+    bytes never outlive the request.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="No files were supplied.")
+    if len(files) > MAX_SERIES_INSTANCES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"{len(files)} objects exceeds the {MAX_SERIES_INSTANCES} per-series limit.",
+        )
+
+    staging = tempfile.mkdtemp(prefix="healthai-series-")
+    staged: list[str] = []
+    total = 0
+    try:
+        for index, upload in enumerate(files):
+            path = os.path.join(staging, f"{index:05d}.dcm")
+            with open(path, "wb") as handle:
+                while chunk := upload.file.read(1024 * 1024):
+                    total += len(chunk)
+                    if total > MAX_SERIES_BYTES:
+                        raise HTTPException(
+                            status_code=413,
+                            detail=f"The upload exceeds the {MAX_SERIES_BYTES} byte series limit.",
+                        )
+                    handle.write(chunk)
+            staged.append(path)
+    except HTTPException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    except Exception as exc:  # noqa: BLE001
+        shutil.rmtree(staging, ignore_errors=True)
+        raise HTTPException(status_code=400, detail=f"Could not read the upload: {exc}") from exc
+
+    import pydicom
+
+    def rejection(code: str, message: str, detail: dict | None = None) -> Any:
+        shutil.rmtree(staging, ignore_errors=True)
+        return JSONResponse(
+            status_code=422,
+            content={
+                "accepted": False,
+                "stage": code,
+                "reasons": [{"code": code, "message": message, **(detail or {})}],
+            },
+        )
+
+    # --- parse tags only ---------------------------------------------------
+    metas = []
+    unreadable: list[int] = []
+    not_dicom: list[int] = []
+    for index, path in enumerate(staged):
+        with open(path, "rb") as handle:
+            head = handle.read(DICOM_HEAD_BYTES)
+        if not looks_like_dicom(head):
+            not_dicom.append(index)
+            continue
+        try:
+            dataset = pydicom.dcmread(path, stop_before_pixels=True, force=True)
+        except Exception:  # noqa: BLE001
+            unreadable.append(index)
+            continue
+        metas.append(read_instance_metadata(dataset, index))
+
+    if not_dicom:
+        return rejection(
+            "not_dicom",
+            f"{len(not_dicom)} uploaded file(s) are not DICOM objects.",
+            {"sourceIndexes": not_dicom[:20]},
+        )
+    if unreadable:
+        return rejection(
+            "unreadable",
+            f"{len(unreadable)} DICOM object(s) could not be parsed.",
+            {"sourceIndexes": unreadable[:20]},
+        )
+
+    # --- assemble, order, gate --------------------------------------------
+    try:
+        members, assembly = assemble(metas)
+    except SeriesRejected as exc:
+        return rejection(exc.code, exc.message, exc.detail)
+
+    ordering = order_slices(members)
+    gate = evaluate_ct_series(ordering.ordered, ordering)
+
+    remapper = UidRemapper()
+    first = ordering.ordered[0]
+    manifest = {
+        "accepted": gate.passed,
+        "stage": "quality_gate",
+        "uidMappingScope": remapper.scope,
+        "assembly": assembly,
+        "ordering": {
+            "method": ordering.method,
+            "trusted": ordering.trusted,
+            "problems": ordering.problems,
+            "warnings": ordering.warnings,
+            "medianSpacingMm": round(abs(ordering.median_spacing), 4)
+            if ordering.median_spacing is not None
+            else None,
+        },
+        "qualityGate": gate.as_dict(),
+        "instanceCount": len(ordering.ordered),
+        # Remapped identity only. The originals are never in a response.
+        "study": {"studyInstanceUid": remapper(first.study_instance_uid, kind="StudyInstanceUID")}
+        if first.study_instance_uid
+        else {"studyInstanceUid": None},
+        "series": {
+            "seriesInstanceUid": remapper(first.series_instance_uid, kind="SeriesInstanceUID"),
+            "modality": first.modality,
+            "rows": first.rows,
+            "columns": first.columns,
+            "pixelSpacingMm": list(first.pixel_spacing) if first.pixel_spacing else None,
+            "sliceThicknessMm": first.slice_thickness,
+            "manufacturer": first.manufacturer,
+            "manufacturerModel": first.manufacturer_model,
+            "convolutionKernel": first.convolution_kernel,
+            "bodyPartExamined": first.body_part or None,
+        },
+    }
+
+    if not gate.passed:
+        shutil.rmtree(staging, ignore_errors=True)
+        return JSONResponse(status_code=422, content=manifest)
+
+    def stream():
+        try:
+            yield _series_event(manifest)
+            for position, meta in enumerate(ordering.ordered):
+                path = staged[meta.source_index]
+                with open(path, "rb") as handle:
+                    raw = handle.read()
+                try:
+                    _frame, acquisition, deidentified = dicom_to_model_frame(raw, remapper)
+                except DicomRejected as exc:
+                    yield _series_event(
+                        {
+                            "event": "instance_failed",
+                            "index": position,
+                            "reason": str(exc),
+                        }
+                    )
+                    return
+                uids = acquisition.get("deidentifiedUids", {})
+                yield _series_event(
+                    {
+                        "event": "instance",
+                        "index": position,
+                        "sopInstanceUid": uids.get("sopInstanceUid"),
+                        "seriesInstanceUid": uids.get("seriesInstanceUid"),
+                        "studyInstanceUid": uids.get("studyInstanceUid"),
+                        "positionMm": round(meta.projected_position, 4)
+                        if meta.projected_position is not None
+                        else None,
+                        "object": base64.b64encode(deidentified).decode(),
+                    }
+                )
+            yield _series_event({"event": "complete", "instanceCount": len(ordering.ordered)})
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+
+    return StreamingResponse(stream(), media_type="application/x-ndjson")
 
 
 @app.get("/healthz")

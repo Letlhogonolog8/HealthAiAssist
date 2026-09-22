@@ -1,4 +1,4 @@
-import type { Express, Request, Response } from "express";
+import type { Express, NextFunction, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertUserSchema, insertScanSchema, insertTermSchema, erasureRequests } from "@shared/schema";
@@ -10,6 +10,7 @@ import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
 import multer from "multer";
+import os from "os";
 import { hashPassword, verifyPassword, loginLimiter } from "./auth-middleware";
 import {
   getPatientProfile,
@@ -968,6 +969,105 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
   });
+  /**
+   * Ceilings for a series upload, all configurable.
+   *
+   * Sized from the LIDC-IDRI subset the lung pipeline is built around: 109 to
+   * 351 objects per series at roughly 0.5 MB each. The defaults leave room for
+   * a considerably larger study and still bound what one request can cost.
+   */
+  const SERIES_MAX_FILES = Number.parseInt(process.env.DICOM_SERIES_MAX_FILES ?? '', 10) || 1024;
+  const SERIES_MAX_FILE_BYTES =
+    Number.parseInt(process.env.DICOM_SERIES_MAX_FILE_BYTES ?? '', 10) || 50 * 1024 * 1024;
+  const SERIES_MAX_TOTAL_BYTES =
+    Number.parseInt(process.env.DICOM_SERIES_MAX_TOTAL_BYTES ?? '', 10) || 1024 * 1024 * 1024;
+
+  /**
+   * Series uploads stream to disk, not to memory.
+   *
+   * The single-image uploader above uses memory storage, which is correct for
+   * one 10 MB photograph and would hold a whole study per concurrent request
+   * here. The staging directory is private, outside `uploads/`, and is removed
+   * by the handler in a `finally` — it holds the only identified copies of the
+   * objects that exist on this machine.
+   */
+  const seriesUpload = multer({
+    storage: multer.diskStorage({
+      // One directory for the whole request, made by stageSeriesUpload below.
+      // `destination` is called once per file, so creating the directory here
+      // gives a 300-object study 300 separate temporary directories — and a
+      // cleanup that removes the one the first object landed in leaves 299
+      // behind, each holding an identified DICOM object.
+      destination: (req, _file, cb) => cb(null, (req as any).dicomStagingDir),
+      filename: (_req, _file, cb) => cb(null, `${randomUUID()}.dcm`),
+    }),
+    limits: { fileSize: SERIES_MAX_FILE_BYTES, files: SERIES_MAX_FILES },
+  });
+
+  /** Removes a request's staging directory, whatever became of the request. */
+  async function discardStaging(req: Request): Promise<void> {
+    const dir = (req as any).dicomStagingDir;
+    if (!dir) return;
+    (req as any).dicomStagingDir = null;
+    // The only copies of the identified originals on this machine.
+    await fs.promises.rm(dir, { recursive: true, force: true }).catch((error) => {
+      console.error('Failed to remove the DICOM staging directory:', error);
+    });
+  }
+
+  /**
+   * Makes the one staging directory this request's objects land in.
+   *
+   * Outside `uploads/`, so no static handler can serve an identified object,
+   * and per request, so the cleanup is a single recursive remove that cannot
+   * miss a file.
+   */
+  async function stageSeriesUpload(req: Request, _res: Response, next: NextFunction) {
+    try {
+      (req as any).dicomStagingDir = await fs.promises.mkdtemp(
+        path.join(os.tmpdir(), 'healthai-dicom-')
+      );
+      next();
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * multer's limits, with a status that says what happened and the staging
+   * removed.
+   *
+   * Without this an upload one object over a cap reached the global error
+   * handler as a bare MulterError, which carries no `status` — so the caller
+   * got a 500 reading "File too large" and, worse, the route handler never
+   * ran, so the `finally` that removes the staging directory never ran either.
+   * Whatever multer had already written stayed on disk. Both halves are fixed
+   * here.
+   */
+  function receiveSeriesUpload(req: Request, res: Response, next: NextFunction) {
+    seriesUpload.array('files')(req, res, async (error: any) => {
+      if (!error) return next();
+      await discardStaging(req);
+
+      if (error?.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({
+          error:
+            `One object exceeds the ${Math.round(SERIES_MAX_FILE_BYTES / 1e6)} MB per-object ` +
+            'limit for a series upload. Nothing was stored.',
+        });
+      }
+      if (error?.code === 'LIMIT_FILE_COUNT') {
+        return res.status(413).json({
+          error: `A series upload is limited to ${SERIES_MAX_FILES} objects. Nothing was stored.`,
+        });
+      }
+      return res.status(400).json({
+        error: 'The upload could not be read, and nothing was stored.',
+        detail: error?.message ?? String(error),
+      });
+    });
+  }
+
   // Authentication routes
   app.post("/api/auth/login", loginLimiter, validateInput, async (req: AuthenticatedRequest, res) => {
     try {
@@ -4774,6 +4874,186 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (/422/.test(message)) return res.status(422).json({ error: message.replace(/^.*422:?\s*/, '') });
         console.error('DICOM preview failed:', error);
         return res.status(500).json({ error: 'The slice could not be rendered.' });
+      }
+    }
+  );
+
+  /**
+   * Ingests one CT series.
+   *
+   * ── Why this is not the scan-upload endpoint ───────────────────────────
+   *
+   * `/api/scans/analyze` takes one image and produces one result. A CT study
+   * is a few hundred objects that mean nothing individually, and ingesting
+   * one is not analysing anything: it establishes that the series is
+   * readable, internally consistent, ordered by anatomy and suitable for the
+   * lung pipeline, and it stores the de-identified objects. No model runs and
+   * no clinical field is written. Conflating the two would make "we filed
+   * your scan" and "we looked at your scan" the same event.
+   *
+   * ── Uploads go to disk, never to memory ────────────────────────────────
+   *
+   * The single-image path uses multer's memory storage, which is right for
+   * one 10 MB photograph and wrong for a 150 MB study: N concurrent uploads
+   * would each hold a study resident. These stream to a private temporary
+   * directory outside `uploads/`, are read from there by the ingestion, and
+   * the directory is removed in a `finally` that runs on success, on failure
+   * and on a rejected series. Identified bytes never outlive the request.
+   *
+   * Clinician roles only, and audited. Ingesting a study into a patient's
+   * record is a clinical act.
+   */
+  app.post(
+    "/api/dicom/series",
+    auditLog('DICOM_SERIES_INGESTED'),
+    requireAuth,
+    requireMedicalAccess,
+    stageSeriesUpload,
+    receiveSeriesUpload,
+    async (req: AuthenticatedRequest, res) => {
+      const files = ((req as any).files as Express.Multer.File[] | undefined) ?? [];
+      const staged = files.map((f) => f.path).filter(Boolean);
+
+      try {
+        if (!files.length) {
+          return res.status(400).json({ error: 'No DICOM objects were supplied.' });
+        }
+
+        const total = files.reduce((sum, f) => sum + (f.size ?? 0), 0);
+        if (total > SERIES_MAX_TOTAL_BYTES) {
+          return res.status(413).json({
+            error:
+              `The upload totals ${Math.round(total / 1e6)} MB, above the ` +
+              `${Math.round(SERIES_MAX_TOTAL_BYTES / 1e6)} MB limit for one series.`,
+          });
+        }
+
+        const sessionUserId = req.session!.user!.id;
+        const patientIdRaw = req.body?.patientId;
+        const patientId = Number.parseInt(String(patientIdRaw ?? ''), 10);
+        if (!Number.isInteger(patientId) || patientId <= 0) {
+          return res.status(400).json({ error: 'A patientId is required to file a series.' });
+        }
+        const patient = await storage.getUser(patientId);
+        if (!patient) {
+          return res.status(400).json({ error: 'Invalid patient ID' });
+        }
+
+        const { ingestSeries } = await import('./dicom-series');
+        const result = await ingestSeries({
+          filePaths: staged,
+          patientId,
+          ingestedBy: sessionUserId,
+        });
+
+        const { recordAuditEvent: auditIngest } = await import('./security-middleware');
+        await auditIngest({
+          action: result.accepted ? 'DICOM_SERIES_INGESTED' : 'DICOM_SERIES_REJECTED',
+          actorUserId: sessionUserId,
+          actorUsername: req.session!.user!.username,
+          actorRole: req.session!.user!.role,
+          method: req.method,
+          path: '/api/dicom/series',
+          statusCode: result.accepted ? 201 : 422,
+          // De-identified identifiers and counts only; no original UID has
+          // ever been in this process.
+          detail: result.accepted
+            ? `patient=${patientId}; series=${result.seriesId}; instances=${result.instanceCount}; ` +
+              `ordering=${result.ordering.method}; gate=passed; uidScope=${result.uidMappingScope}`
+            : `patient=${patientId}; stage=${result.stage}; files=${files.length}`,
+        });
+
+        if (!result.accepted) {
+          return res.status(422).json({
+            ...result,
+            message:
+              'This series was not ingested and nothing was stored. It is NOT a finding about ' +
+              'the patient: the series did not meet the requirements for the imaging pipeline.',
+          });
+        }
+
+        return res.status(result.alreadyIngested ? 200 : 201).json({
+          ...result,
+          message: result.alreadyIngested
+            ? 'This series is already ingested. Nothing was duplicated.'
+            : 'Series ingested, de-identified and stored. Ingestion is not an interpretation: ' +
+              'no model has looked at this series and no finding has been made.',
+        });
+      } catch (error) {
+        console.error('Series ingestion failed:', error);
+        return res.status(500).json({
+          error: 'The series could not be ingested. Nothing was stored.',
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        await discardStaging(req);
+      }
+    }
+  );
+
+  /**
+   * One ingested series, as it was ingested.
+   *
+   * De-identified throughout: the UIDs are the remapped ones and the source
+   * values do not exist in this process. Clinical staff only, audited, and
+   * gated on a care relationship like every other patient-scoped read.
+   */
+  app.get(
+    "/api/dicom/series/:id",
+    auditLog('READ_DICOM_SERIES'),
+    requireAuth,
+    requireMedicalAccess,
+    requireCareRelationship(async (req) => {
+      const seriesId = parseInt(req.params.id, 10);
+      if (!Number.isInteger(seriesId)) return null;
+      const { getSeries } = await import('./dicom-series');
+      const found = await getSeries(seriesId);
+      return found?.series?.patientId ?? null;
+    }),
+    async (req: AuthenticatedRequest, res) => {
+      try {
+        const seriesId = parseInt(req.params.id, 10);
+        if (!Number.isInteger(seriesId)) {
+          return res.status(400).json({ error: 'Invalid series id' });
+        }
+        const { getSeries } = await import('./dicom-series');
+        const found = await getSeries(seriesId);
+        if (!found) return res.status(404).json({ error: 'Series not found' });
+
+        const { series, instances } = found;
+        return res.json({
+          id: series.id,
+          studyId: series.studyId,
+          seriesInstanceUid: series.seriesUid,
+          modality: series.modality,
+          instanceCount: series.instanceCount,
+          ordering: { method: series.orderingMethod, trusted: series.orderingTrusted },
+          qualityGate: series.qualityGate ? JSON.parse(series.qualityGate) : null,
+          anatomyVerified: series.anatomyVerified,
+          geometry: {
+            rows: series.rows,
+            columns: series.columns,
+            pixelSpacingMm: series.pixelSpacingMm,
+            sliceThicknessMm: series.sliceThicknessMm,
+            medianSpacingMm: series.medianSpacingMm,
+          },
+          acquisition: {
+            manufacturer: series.manufacturer,
+            manufacturerModel: series.manufacturerModel,
+            convolutionKernel: series.convolutionKernel,
+            bodyPart: series.bodyPart,
+          },
+          uidMappingScope: series.uidMappingScope,
+          ingestStatus: series.ingestStatus,
+          ingestedAt: series.createdAt,
+          instances,
+          note:
+            'Ingestion status describes file handling only. No model has read this series and ' +
+            'no clinical finding is recorded here.',
+        });
+      } catch (error) {
+        console.error('Failed to read series:', error);
+        return res.status(500).json({ error: 'The series could not be read.' });
       }
     }
   );

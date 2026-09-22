@@ -36,6 +36,23 @@ if (process.env.NODE_ENV !== 'production') {
   // made that silently start on .env's port, where nothing was listening.
   const RUNTIME_KEYS = new Set(['PORT', 'NODE_ENV']);
 
+  // DATABASE_URL joins them, but only for a server the test harness started.
+  //
+  // tests/helpers/server.ts resolves one database — TEST_DATABASE_URL when set,
+  // otherwise DATABASE_URL with an explicit opt-in — and hands it to the child
+  // precisely so the suite's assertions and the server under test cannot end up
+  // on different databases. Without this exemption they did: .env won in the
+  // child, so `TEST_DATABASE_URL=<disposable> npm test` pointed the assertions
+  // at the disposable database and the *server* at the one in .env, which on
+  // this repository is the hosted instance serving the application. The suite
+  // creates and deletes users, scans and consents. The mechanism that exists to
+  // keep that away from real data silently did nothing.
+  //
+  // Narrow on purpose: the flag is set by the harness alone, so .env still wins
+  // for every ordinary `npm run dev`, which is the rule this file exists to
+  // enforce.
+  if (process.env.HEALTHAI_TEST_HARNESS === 'true') RUNTIME_KEYS.add('DATABASE_URL');
+
   const parsed = dotenv.config().parsed ?? {};
   const shadowed = Object.keys(parsed).filter(
     (key) => !RUNTIME_KEYS.has(key) && process.env[key] !== parsed[key]

@@ -216,6 +216,15 @@ export async function startServer(timeoutMs = 90_000): Promise<void> {
       // foreign key violations against ids that existed, just not where the
       // test was looking.
       DATABASE_URL: TEST_DATABASE_URL,
+      // And this is what makes the line above stick. server/load-env.ts lets
+      // .env beat the environment in development — deliberately, it is the
+      // whole point of that file — so handing the child a DATABASE_URL was not
+      // enough: .env overwrote it, and the suite asserted against one database
+      // while the server wrote to another. Measured, not assumed: a child
+      // started with a disposable DATABASE_URL resolved to the hosted instance
+      // in .env. The flag exempts DATABASE_URL from that override for a
+      // harness-started process only.
+      HEALTHAI_TEST_HARNESS: 'true',
       /**
        * The server under test shares the database's connection budget with this
        * process's own pool. Supabase's pooler allows fifteen clients; the

@@ -350,7 +350,7 @@ by that screening on 20 September 2026. No clinical validation, no patients.
 
 | Quarter | Work |
 |---|---|
-| Q4 2026 | DICOM series ingest with a CT quality gate and salted UID remap (P1b); pretrained nodule detector adopted and re-validated per nodule against a pre-registered bar (P2); structured clinician review with a disagreement metric (P6). Retrospective validation on one SA facility's confirmed outcomes through the existing surveillance endpoint. Reader study, 3–5 clinicians, with and without the tool. |
+| Q4 2026 | DICOM series ingest with a CT quality gate and salted UID remap (P1b) — **done, 22 September 2026**; pretrained nodule detector adopted and re-validated per nodule against a pre-registered bar (P2); structured clinician review with a disagreement metric (P6). Retrospective validation on one SA facility's confirmed outcomes through the existing surveillance endpoint. Reader study, 3–5 clinicians, with and without the tool. |
 | Q1 2027 | SAHPRA pre-submission engagement; IMDRF SaMD risk classification; ISO 14971 risk file; IEC 62304 lifecycle records. FHIR R4 conformance. Independent penetration test. |
 | Q2 2027 | Prospective clinical investigation under an approved protocol. Fitzpatrick V–VI dataset acquisition with a dermatology partner. |
 | Q3 2027 | Multi-site pilot; ISO 13485 QMS. |

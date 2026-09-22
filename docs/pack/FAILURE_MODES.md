@@ -280,8 +280,9 @@ Consolidated so it cannot be missed:
 7. **No identity verification for MFA recovery** (T-06)
 8. **Lung is a marked-nodule characteriser under validation terms** — the
    legacy whole-image model is withdrawn (F-08); the replacement rests on 29
-   malignant test nodules and does not find nodules. No DICOM series ingest
-   or CT quality gate yet (roadmap P1b).
+   malignant test nodules and does not find nodules. A CT series can now be
+   ingested and quality-gated (P1b, 2026-09-22), but nothing reads a series:
+   ingesting a study is filing it, not looking at it.
 
 Items 1–3 must be closed before any clinical use. They are operational
 commitments a facility makes, not features a vendor ships.

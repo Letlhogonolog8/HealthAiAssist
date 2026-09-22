@@ -49,6 +49,8 @@ instrument is a better answer than silence.
 | **Audit events** | 6 years | **Never** | POPIA §19 accountability |
 | **Session records** | 24 hours after expiry | Yes | Operational |
 | **Scan images in object storage** | With their scan record | Follows the scan | Part of the health record |
+| **Ingested CT series** (`imaging_studies` / `imaging_series` / `imaging_instances` and their stored objects) | 6 years from ingestion | **Not yet implemented** — see below | The imaging study is part of the health record; the de-identified objects are what the record points at |
+| **Identified DICOM staged during an upload** | The lifetime of the request | Removed automatically | A working copy, never a record. See DPIA R-21 |
 
 ### Two entries worth expanding
 
@@ -57,6 +59,15 @@ request is not an audit trail — it is the record that demonstrates access was
 appropriate, including the record that this erasure was performed properly. Its
 `detail` column is constrained by design to non-identifying context, so it holds
 no clinical content and no contact details.
+
+**The imaging tables are not in the erasure sweep yet.** `imaging_studies`,
+`imaging_series` and `imaging_instances` were added on 2026-09-22 and hold no
+direct identifier — the UIDs are salted remaps and the stored objects are
+de-identified — but each row carries `patient_id`, so they are personal
+information and an erasure request must reach them. `server/erasure.ts` does
+not touch them today. This is recorded as DPIA R-23 and must close before a
+series is ingested for a real patient; until then the honest statement is that
+this row of the table describes the intended rule, not the implemented one.
 
 **Erasure is tombstoning, not `DELETE`.** The `users` row stays with its personal
 fields replaced, the account deactivated, and MFA material cleared. Deleting it

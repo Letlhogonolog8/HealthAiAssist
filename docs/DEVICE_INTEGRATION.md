@@ -118,8 +118,10 @@ Lung imaging is not photographed. It is produced by installed hardware — CT, C
 DR — which already emits DICOM to a PACS. The device integration here is not new
 hardware. It is speaking the protocol the existing hardware already speaks.
 
-**Implementation is specified in the build plan as P2.2 and is scheduled, not
-speculative.**
+**The half of this that does not need a clinic network is built.** A CT series
+can be ingested, quality-gated and stored de-identified today (roadmap P1b,
+2026-09-22); what remains is the receiver that would let a modality send one
+without a human exporting it.
 
 ### Design
 
@@ -151,11 +153,22 @@ speculative.**
 De-identification happens **before** anything leaves the clinic network in the
 receiver design above, and — since 2026-09-21 — before anything is stored in
 the upload path that exists today: `inference/dicom_ingest.py` de-identifies
-the object (identifiers, private tags, instance UIDs replaced, dates to the
-year) and hands it back, and `server/routes.ts` persists that object, never
-the upload. If the service is unavailable the object is not stored at all. The
-de-identifier remains a best-effort PS3.15 Basic Profile implementation, not a
-validated one (DPIA R-19).
+the object (identifiers, private tags, dates to the year) and hands it back,
+and `server/routes.ts` persists that object, never the upload. If the service
+is unavailable the object is not stored at all.
+
+Since **2026-09-22** the same rule covers a whole series, with one change: the
+study, series and instance UIDs are **remapped** rather than replaced with
+fresh ones. Replacing them destroys the tree that makes a pile of objects a
+series, so nothing could be assembled or compared with a prior. The remap is a
+salted HMAC emitted under the `2.25.` UUID-derived root, which keeps the
+grouping and is not invertible without `DICOM_UID_SALT`
+(`inference/uid_remap.py`, DPIA R-22). The identified uploads themselves live
+only in a per-request staging directory that is removed whatever happens to the
+request (DPIA R-21).
+
+The de-identifier remains a best-effort PS3.15 Basic Profile implementation,
+not a validated one (DPIA R-19).
 
 ### Built, what it appeared to reveal, and what it actually revealed
 
@@ -271,11 +284,22 @@ not connected to anything that reads its output promptly.
 
 ## Honest summary
 
-- **Not built:** dermoscopic capture, device validation, DICOM receiver,
-  series ingest and the CT quality gate (Track B, roadmap P1b).
-- **Built:** single-object DICOM ingest with de-identification of the rendered
-  copy and windowing; everything downstream of the image — inference, refusal,
-  review, audit, outcome measurement.
+- **Not built:** dermoscopic capture, device validation, and the DICOM
+  receiver itself — nothing listens for a C-STORE association or queries a
+  DICOMweb endpoint, so a study still reaches this platform because somebody
+  exported it (declared in the capability manifest as `dicom-network-receive`,
+  PLANNED). Series ingest itself is listed as IN_DEVELOPMENT rather than
+  CURRENT: that status is reserved for a measured, fingerprint-bound model, and
+  ingesting a study involves no model at all.
+- **Built:** single-object DICOM ingest with de-identification and windowing;
+  and, since 2026-09-22, **series ingest with a CT quality gate** — a study is
+  assembled by `SeriesInstanceUID`, ordered by projecting
+  `ImagePositionPatient` onto the slice normal, checked against bars measured
+  on 30 LIDC-IDRI series, and stored de-identified with its study/series/
+  instance tree intact (`POST /api/dicom/series`). Ingest is not
+  interpretation: no model reads a series yet. Everything downstream of a
+  single image — inference, refusal, review, audit, outcome measurement —
+  remains as built.
 - **Serving under validation terms:** the LIDC-IDRI nodule characteriser,
   bound 21 September 2026 — a clinician marks one nodule on a DICOM CT slice
   and receives a calibrated probability with its evidence attached. The

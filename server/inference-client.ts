@@ -56,6 +56,17 @@ const TIMEOUT_MS = Number.parseInt(process.env.INFERENCE_TIMEOUT_MS ?? '', 10) |
  * actually governs.
  */
 const MAX_IN_FLIGHT = Number.parseInt(process.env.INFERENCE_MAX_IN_FLIGHT ?? '', 10) || 24;
+
+/**
+ * How long a whole series may take.
+ *
+ * A 300-slice study is 300 de-identifications and 300 re-serialisations, and
+ * the work is proportional to the study rather than to one request. Ten
+ * minutes is generous for the largest series the limits allow and still short
+ * enough that a wedged service is noticed.
+ */
+const SERIES_TIMEOUT_MS =
+  Number.parseInt(process.env.INFERENCE_SERIES_TIMEOUT_MS ?? '', 10) || 600_000;
 let inFlight = 0;
 
 /** Raised when the local cap is hit. Distinct so callers can answer 503, not 500. */
@@ -179,6 +190,161 @@ export async function deidentifyDicom(
     acquisition: body.acquisition ?? {},
     previewPng: String(body.previewPng ?? ''),
   };
+}
+
+/** One event from the series ingestion stream. */
+export type SeriesIngestEvent =
+  | { kind: 'manifest'; manifest: SeriesManifest }
+  | { kind: 'instance'; index: number; sopInstanceUid: string; positionMm: number | null; object: Buffer }
+  | { kind: 'failed'; index: number; reason: string }
+  | { kind: 'complete'; instanceCount: number };
+
+export interface SeriesManifest {
+  accepted: boolean;
+  stage: string;
+  uidMappingScope: 'deployment' | 'ingestion';
+  assembly: { uploaded: number; unique: number; duplicatesDropped: number; modality: string };
+  ordering: {
+    method: string;
+    trusted: boolean;
+    problems: string[];
+    warnings: string[];
+    medianSpacingMm: number | null;
+  };
+  qualityGate: {
+    passed: boolean;
+    failures: Array<{ code: string; message: string; [key: string]: unknown }>;
+    warnings: string[];
+    measurements: Record<string, unknown>;
+    anatomyVerified: boolean;
+  };
+  instanceCount: number;
+  study: { studyInstanceUid: string | null };
+  series: {
+    seriesInstanceUid: string;
+    modality: string;
+    rows: number;
+    columns: number;
+    pixelSpacingMm: number[] | null;
+    sliceThicknessMm: number | null;
+    manufacturer: string;
+    manufacturerModel: string;
+    convolutionKernel: string;
+    bodyPartExamined: string | null;
+  };
+}
+
+/** A rejected series: the verdict arrives as a 422 body rather than a stream. */
+export class SeriesRejectedError extends Error {
+  readonly body: any;
+  constructor(body: any) {
+    // A refusal before the gate carries `reasons`; the gate's own verdict
+    // carries `qualityGate.failures` instead. Reading only the first meant a
+    // gated series logged "The series was rejected." with the reason sitting
+    // in the body, unread — the message an operator sees first is the one
+    // worth spending a line on.
+    super(
+      body?.reasons?.[0]?.message ??
+        body?.qualityGate?.failures?.[0]?.message ??
+        'The series was rejected.'
+    );
+    this.name = 'SeriesRejectedError';
+    this.body = body;
+  }
+}
+
+/**
+ * Streams one CT series through assembly, ordering, the quality gate and
+ * de-identification.
+ *
+ * ── Why this is a stream and not a call that returns a result ───────────
+ *
+ * A 133-slice chest CT is about 70 MB of pixel data, and every de-identified
+ * object has to come back so it can be stored. As one JSON document that is
+ * ~93 MB of base64 materialised whole on both sides; as a stream it is one
+ * slice at a time on each. The service emits newline-delimited JSON — the
+ * verdict first, then one event per slice in anatomical order — and this
+ * yields them as they arrive so the caller can write each object and drop it.
+ *
+ * The files are opened as lazy Blobs rather than read into memory: undici
+ * streams them from disk, so a 300-slice upload never exists in this process
+ * as a buffer.
+ *
+ * A rejected series throws SeriesRejectedError carrying the structured
+ * verdict, and no pixel data is sent at all — so a caller cannot half-store
+ * something it was not allowed to store.
+ */
+export async function* ingestDicomSeries(
+  filePaths: string[]
+): AsyncGenerator<SeriesIngestEvent> {
+  const base = baseUrl();
+  if (!base) {
+    throw new Error('INFERENCE_URL is not configured');
+  }
+
+  const { openAsBlob } = await import('node:fs');
+  const form = new FormData();
+  for (const [index, filePath] of filePaths.entries()) {
+    form.append('files', await openAsBlob(filePath), `${index}.dcm`);
+  }
+
+  const response = await fetch(`${base}/ingest/series`, {
+    method: 'POST',
+    body: form,
+    // Deliberately longer than the per-image timeout: a 300-slice series is
+    // 300 de-identifications, and timing that out would convert slow into
+    // broken.
+    signal: AbortSignal.timeout(SERIES_TIMEOUT_MS),
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    if (response.status === 422 && body) throw new SeriesRejectedError(body);
+    const detail = body ? JSON.stringify(body).slice(0, 300) : await response.text().catch(() => '');
+    throw new Error(`Series ingestion failed: ${response.status}${detail ? ` ${detail}` : ''}`);
+  }
+  if (!response.body) throw new Error('The inference service returned no stream.');
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffered = '';
+  let sawManifest = false;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffered += decoder.decode(value, { stream: true });
+
+    let newline: number;
+    while ((newline = buffered.indexOf('\n')) >= 0) {
+      const line = buffered.slice(0, newline).trim();
+      buffered = buffered.slice(newline + 1);
+      if (!line) continue;
+
+      const payload = JSON.parse(line);
+      if (!sawManifest) {
+        sawManifest = true;
+        if (!payload.accepted) throw new SeriesRejectedError(payload);
+        yield { kind: 'manifest', manifest: payload as SeriesManifest };
+        continue;
+      }
+      if (payload.event === 'instance') {
+        yield {
+          kind: 'instance',
+          index: payload.index,
+          sopInstanceUid: payload.sopInstanceUid,
+          positionMm: payload.positionMm ?? null,
+          object: Buffer.from(String(payload.object), 'base64'),
+        };
+      } else if (payload.event === 'instance_failed') {
+        yield { kind: 'failed', index: payload.index, reason: payload.reason };
+      } else if (payload.event === 'complete') {
+        yield { kind: 'complete', instanceCount: payload.instanceCount };
+      }
+    }
+  }
+
+  if (!sawManifest) throw new Error('The inference service closed the stream without a verdict.');
 }
 
 /** Liveness and which artifacts are resident. Used by /api/ready. */

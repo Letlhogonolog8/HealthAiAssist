@@ -26,7 +26,7 @@ The request is a read-only audit and a roadmap toward the target pipeline (DICOM
 
 ## Progress
 
-- **Phase 0 — implemented 2026-09-20/21, uncommitted.** Registry withdrawal
+- **Phase 0 — implemented 2026-09-20/21, committed `ece4bf9`.** Registry withdrawal
   with the measured reason; `withdrawn` governance state; registry check ahead
   of governance in `handleScanAnalysis`; explanation refuses a withdrawn
   model before the transport check; disclosure v3; `build-ood-reference.py
@@ -62,9 +62,31 @@ The request is a read-only audit and a roadmap toward the target pipeline (DICOM
   the recorded mark; consent disclosure v4; `inference/tests/` (pytest, 29
   tests; CI step added) and `tests/lung-nodule.test.ts`. Model card, changelog
   and every pack document updated.
-- **Deferred from P1a**: nothing. **Deferred to P1b**: series assembly, CT
-  quality gate (slice count/thickness/anatomy), salted UID remap, large-upload
-  streaming. **Deferred to P6**: structured agree/disagree review fields.
+- **P1b — implemented 2026-09-22.** A CT series is ingested as a study:
+  assembled by `SeriesInstanceUID` (`inference/series.py`), ordered by
+  projecting `ImagePositionPatient` onto the slice normal, put through a CT
+  quality gate whose every bar was measured on 30 LIDC-IDRI series
+  (`inference/quality_gate.py`), de-identified with the study/series/instance
+  tree remapped through a salted HMAC rather than deleted
+  (`inference/uid_remap.py`), streamed back as NDJSON
+  (`POST /ingest/series`), and stored — objects first, rows last in one
+  transaction — behind `POST /api/dicom/series`
+  (`server/dicom-series.ts`, `migrations/imaging-series.sql`, three new tables
+  in `shared/schema.ts`). Uploads stream to one per-request staging directory
+  outside `uploads/` that is removed whatever happens to the request. Read
+  back at `GET /api/dicom/series/:id`, clinician roles only, care-relationship
+  gated. Capability manifest: `dicom-ingest` stays IN_DEVELOPMENT with its
+  evidence rewritten — CURRENT is a claim about a measured, fingerprint-bound
+  model and series ingest has no model in it — plus a new
+  `dicom-network-receive` PLANNED row. 62 new Python tests
+  (`test_uid_remap.py`, `test_series_assembly.py`, `test_quality_gate.py`,
+  `test_server_app.py`) and `tests/dicom-series.test.ts`. What it does not do
+  is anything clinical: no model reads a series, and `ingestStatus` is a
+  statement about file handling. Decisions and limits: PART F, Phase 1b.
+- **Deferred from P1a**: nothing. **Deferred from P1b**: nothing of the
+  ingest scope; volume assembly stays P4 and PACS/DICOMweb receive stays
+  P1b+ (declared PLANNED, not implied). **Deferred to P6**: structured
+  agree/disagree review fields.
 
 # PART A — AUDIT
 
@@ -206,8 +228,8 @@ Ordered by consequence.
 
 | Stage | Status | Evidence |
 |---|---|---|
-| DICOM / medical image | **Partial** | `inference/dicom_ingest.py` single object; 10 MB single file; no series |
-| Quality / safety gate | **Partial** | Pixel checks + `BurnedInAnnotation` refusal; no field-of-view, body-part, dose/kernel, or slice-count checks |
+| DICOM / medical image | **Implemented for upload** | `inference/dicom_ingest.py` single object; `inference/series.py` assembles and orders a series; `POST /api/dicom/series`; no PACS receive |
+| Quality / safety gate | **Implemented for CT series; partial per slice** | Pixel checks + `BurnedInAnnotation` refusal per slice; `inference/quality_gate.py` adds modality, slice count, thickness, spacing regularity, matrix, pixel spacing, rescale, ordering trust and body-part checks with bars measured on LIDC-IDRI; no field-of-view check (needs the organ mask, P3) |
 | OOD detection | **Operational for skin; operational-but-misdescribed for lung; validated for nodule model** | §A1 |
 | Detection | **Missing** | — |
 | Segmentation | **Missing** | — |
@@ -436,11 +458,141 @@ Each phase lists: modify / create / unchanged / migrations / API / ML / frontend
 **Unchanged**: `server/lung-cancer-service.py` (kept for the reproduction commands only), `server/skin_cancer_model.py`, `scripts/lidc_*.py`.
 **Migrations**: the two above (additive). **API**: `scanType=lung_nodule` + ROI. **ML**: none new. **Frontend**: ROI tool. **Tests**: as listed; CI gains the pytest step.
 
-## Phase 1b — DICOM series pipeline and de-identified persistence
+## Phase 1b — DICOM series ingest — **implemented 2026-09-22**
 
-**Modify**: `server/routes.ts` (multer `diskStorage` for series; per-type limits; `persistScanImage` writes the de-identified object(s) returned by the service; acquisition metadata persisted), `server/upload-validation.ts` (zip-of-DICOM verdict), `inference/dicom_ingest.py` (`assemble_series`, UID remap, salt from env), `server/crypto/keyring.ts` manifest (salt), `docs/DPIA.md`, `docs/DISASTER_RECOVERY.md`, `docs/RETENTION.md` (series objects).
-**Create**: `inference/quality_gate.py`, `migrations/imaging-studies.sql`, `server/imaging-series.ts` (storage helpers), `tests/dicom-series.test.ts`, `inference/tests/test_quality_gate.py`, `inference/tests/test_series_assembly.py`.
-**Unchanged**: the nodule model and its OOD/calibration artifacts.
+A real CT study can now be ingested as a de-identified, ordered, quality-gated
+series that a later inference stage could read. Nothing clinical happens: no
+model reads a series, no finding is written, and `ingestStatus` is a statement
+about file handling.
+
+**Created**: `inference/series.py` (assembly and ordering),
+`inference/quality_gate.py`, `inference/uid_remap.py`, `server/dicom-series.ts`
+(storage and persistence), `migrations/imaging-series.sql`,
+`scripts/lidc_find_series.py` (test fixture locator),
+`inference/tests/{test_series_assembly,test_quality_gate,test_uid_remap,test_server_app}.py`,
+`tests/dicom-series.test.ts`.
+**Modified**: `inference/server.py` (`POST /ingest/series`; `/deidentify` gained
+`preview=false`), `inference/dicom_ingest.py` (three-way UID keep/remap/delete
+policy; de-identified UIDs reported back), `server/routes.ts`
+(`POST /api/dicom/series`, `GET /api/dicom/series/:id`, per-request staging,
+multer limits with a status), `server/inference-client.ts` (NDJSON stream
+reader), `shared/schema.ts`, `server/capabilities.ts`, `.env.example`,
+`scripts/generate-secrets.ts`, `package.json`.
+**Unchanged**: the nodule model and its OOD/calibration artifacts; every
+existing migration; every governance, consent and disclosure control.
+
+### Decisions
+
+**A series is assembled from the objects, not from the upload.** Grouping is by
+`SeriesInstanceUID` and ordering is by projecting `ImagePositionPatient` onto
+the slice normal (the cross product of the two `ImageOrientationPatient`
+cosines), falling back to `SliceLocation` and then `InstanceNumber`, each with
+its own `trusted` verdict. Sorting by the z component of
+`ImagePositionPatient` is the common shortcut and is wrong the moment a series
+is not axial. Filename order is never used. Two different series in one upload
+are **refused, not merged**: a merged series is a volume containing slices from
+two acquisitions, and nothing downstream could detect that.
+
+**The quality-gate bars were measured, not chosen.** Across 30 LIDC-IDRI series
+on 2026-09-22: 109-351 slices, 1.0-3.0 mm thickness, uniform spacing, 512x512,
+all CHEST, all axial. The bars sit outside that range —
+`MIN_SLICES = 40`, thickness 0.4-5.0 mm, pixel spacing 0.2-2.0 mm,
+`MIN_MATRIX = 256`, spacing tolerance `max(0.5 mm, 25%)` — so the gate cannot
+refuse the collection the downstream model was trained on. A test asserts that
+property directly. Every check runs every time, so a caller fixing one problem
+does not resubmit a 150 MB study to discover the next.
+
+One deliberate exception to fail-closed: an **absent** `BodyPartExamined` is a
+warning, not a failure, because it is absent from many real exports; the series
+is recorded with `anatomyVerified: false` rather than assumed to be a chest. A
+*wrong* body part is still a refusal.
+
+**UIDs are remapped, not deleted and not randomised.** `HMAC-SHA256(salt,
+"<kind>|<uid>")` truncated to 128 bits, stamped with the RFC 4122 v4 version
+and variant bits, emitted under the PS3.5 Annex B.2 UUID-derived root `2.25.`.
+Deleting UIDs destroys the study/series/instance tree, so a series cannot be
+assembled and a prior cannot be found. Hashing in the clear preserves the tree
+and reintroduces a join key to the source PACS, because the UID space one site
+emits is small enough to enumerate. A salted HMAC gives both properties at
+once. The salt is `DICOM_UID_SALT`; without it (or below 32 characters) the
+service generates a per-process salt, warns once, and reports
+`uidMappingScope: "ingestion"` instead of `"deployment"` — the mapping still
+works within one ingestion, and the manifest and the stored row both say which
+regime produced them rather than leaving it to be assumed.
+
+**The response is a stream.** A 133-slice chest CT is roughly 93 MB of base64
+as one JSON document, held whole on both sides. `POST /ingest/series` answers
+newline-delimited JSON: the verdict first, then one event per slice in
+anatomical order, then a completion line. The verdict comes first so a rejected
+series emits no pixel data at all.
+
+**Order of operations is the safety property.** Assemble, order, gate,
+de-identify, store objects, and write rows last in one transaction. A failure at
+any point deletes the stored objects and writes no rows. Writing rows as
+instances arrive would produce a half-series that looks like a complete study
+to everything downstream. A truncated stream is reported as `incomplete_series`:
+partial is not a study.
+
+**Re-ingestion is recognised, not duplicated.** Deterministic remapping means
+the same series produces the same de-identified `seriesUid`, which is unique in
+`imaging_series`; a second upload returns 200 with `alreadyIngested: true`
+rather than a second row or a silent no-op.
+
+### Persistence
+
+`imaging_studies` (patient, remapped `study_uid` unique), then `imaging_series`
+(remapped `series_uid` unique, modality, instance count, ordering method and
+trust, quality-gate verdict and its JSON, `anatomy_verified`, geometry,
+acquisition, `uid_mapping_scope`, storage prefix, `ingested_by`,
+`ingest_status`), then `imaging_instances` (position index, remapped `sop_uid`,
+position in mm, object path). Additive migration; no existing migration was
+touched. No clinical column exists on any of the three.
+
+### Security and privacy
+
+Clinician roles only (`requireMedicalAccess`), audited as
+`DICOM_SERIES_INGESTED` / `DICOM_SERIES_REJECTED` with counts and de-identified
+identifiers only; the read is care-relationship gated. Uploads stream to disk,
+never to memory: one staging directory per request, outside `uploads/`, removed
+in a `finally` that runs on success, on refusal, on an exception and on a
+multer limit. The original UIDs never cross the service boundary, are never
+logged, and appear in no response — including rejections, which carry counts.
+The bytes written to the object store are the de-identified ones, never the
+upload.
+
+### Verified
+
+91 Python tests pass (29 pre-existing plus 62 new). `npx tsc --noEmit` and
+`npm run build` clean. End to end against the resident service with 45 real
+LIDC-IDRI CT objects on 2026-09-22: 43 checks, all passing — gate passed,
+ordering trusted, median spacing 2.5 mm, every returned object marked
+`PatientIdentityRemoved=YES` with no original identifier in its bytes, dates
+reduced to the year, private tags gone, pixel data and geometry intact, the
+remap deterministic across two ingestions, and mixed-series, too-few-slices,
+non-DICOM and empty uploads all refused with no pixel data streamed.
+`tests/dicom-series.test.ts` covers the HTTP layer and writes to a database, so
+it runs with the rest of `npm test` against a disposable one.
+
+### Known limitations
+
+- **Not a volume.** The series is ordered and its spacing is known; nothing
+  resamples, holds or renders a volume. That is P4.
+- **Nothing reads a series.** `medical_scans` and the nodule characteriser are
+  still per slice; an ingested series is not yet an input to inference.
+- **Upload only.** No C-STORE SCP, no DICOMweb. A study reaches the platform
+  because somebody exported it. Declared as `dicom-network-receive` PLANNED.
+- **Best-effort de-identification.** PS3.15 Basic Profile by keyword plus
+  wholesale private-tag removal; burned-in pixel text is refused via
+  `BurnedInAnnotation`, not detected by OCR. Unchanged from P1a and still
+  stated as best-effort.
+- **The salt is the control.** Without `DICOM_UID_SALT` the mapping is
+  per-process, so two ingestions in different processes will not agree and a
+  prior cannot be found. Recorded per series as `uid_mapping_scope`.
+- **`GET /api/dicom/series/:id` returns metadata, not pixels.** There is no
+  slice-serving endpoint and no viewer yet.
+- **One patient per upload is asserted by the caller.** The service checks that
+  the objects are one series; that the named patient is the right one is the
+  clinician's act, and it is audited.
 
 ## Phase 2 — Nodule detection (route 2), CPU-only, pretrained
 
@@ -512,8 +664,8 @@ Claim sweep after every phase: `grep -rn "22.9\|22.88\|refuses every\|every clin
 |---|---|---|---|---|
 | Skin lesion analysis | CURRENT (research prototype; not clinically validated) | `dataset/data/resnet50v2_skin_cancer_model.h5`, `server/skin_cancer_model.py`, `MODEL_REGISTRY.skin`, binding `ed06b8a0468e` re_measured, BA 0.864 on 660 | Labelled dark-skin validation; optional fine-tuning; no serving change | P5 |
 | Lung analysis | WITHDRAWN (D1); nodule characteriser VALIDATION-class, not served | Legacy: `dataset/lung_cancer_MRI_dataset/*`, accepts 38/40 real CT slices (measured 2026-09-20). Nodule: `dataset/lung_nodule_model/*`, sens 0.862/spec 0.691 per nodule (n=97, 29 malignant) | Withdraw legacy; promote nodule model via governance; ROI route | P0, P1a |
-| DICOM | PARTIAL | `inference/dicom_ingest.py` single object; `server/upload-validation.ts` DICM sniff; 10 MB single file; stored identified; display window honoured | `training_window` in serving; de-identified persistence; UID remap; series assembly; size limits | P1a, P1b |
-| CT | PARTIAL (data + label pipeline present; no CT-validated model serving) | 229 LIDC series in `dataset/manifest-1600709154662/`, `scripts/lidc_*.py`, `dataset/lidc-ct/patches.csv` | Promote nodule model; quality gate; series pipeline | P1 |
+| DICOM | Upload ingest implemented for a single object and a CT series (manifest status IN_DEVELOPMENT: no model is involved); no network receive | `inference/dicom_ingest.py` + `inference/series.py` + `inference/quality_gate.py` + `inference/uid_remap.py`; `POST /ingest/series` streams NDJSON; `POST /api/dicom/series` stores de-identified objects and the study/series/instance tree (`migrations/imaging-series.sql`); `training_window` on every serving render | C-STORE SCP / DICOMweb (P1b+); a slice-serving endpoint and viewer (P4) | done: P1a, P1b |
+| CT | PARTIAL: ingest and quality gate are implemented; characterisation serves under VALIDATION terms, per slice | 229 LIDC series in `dataset/manifest-1600709154662/`, `scripts/lidc_*.py`, `dataset/lidc-ct/patches.csv`; gate bars measured on 30 of those series (2026-09-22); `lung_nodule` bound `9faf49cdca48` | Series-level inference (P2+); volume (P4) | done: P1a, P1b |
 | 3D imaging | MISSING | `_select_frame` takes the middle frame only | Volume assembly, async jobs, viewer | P4 |
 | Detection | MISSING | none (`lung_nodule_training.json.doesNotAnswer`: "There is no nodule detector") | Pretrained detector + LIDC per-nodule validation with pre-registered bar | P2 |
 | Segmentation | MISSING | none; LIDC contours parsed for centroids only (`lidc_build_labels.py`) | Organ mask for QC, nodule mask validated by Dice | P3 |
@@ -528,7 +680,7 @@ Claim sweep after every phase: `grep -rn "22.9\|22.88\|refuses every\|every clin
 | Fairness monitoring | CURRENT for skin (offline ITA report + production bin); NOT POSSIBLE for LIDC | `server/fairness.ts`, `skin_tone_performance.json`, `medical_scans.skin_tone_bin`; `lung_nodule_training.json.knownGaps[0]` | Labelled-tone validation; acquisition-stratified monitoring for CT | P5, P6 |
 | Real-time notifications | CURRENT | `server/websocket.ts` session-authenticated; `tests/realtime.test.ts` | Job progress events; Redis adapter for >1 replica | P4 |
 | Audit logging | CURRENT | `audit_events`, `auditLog` on ~40 routes, `SCAN_ANALYSED` | Add review/ROI/candidate actions | P1a, P6 |
-| POPIA controls | CURRENT with two shadow controls and one latent gap | consent scopes, erasure with holds, encryption keyring, break-glass; `CARE_RELATIONSHIP_ENFORCE`/`MFA_ENFORCE` off; DICOM would be stored identified | De-identified persistence; enforce care relationship before clinician-marking; DPIA update | P1a/P1b |
+| POPIA controls | CURRENT with two shadow controls | consent scopes, erasure with holds, encryption keyring, break-glass; `CARE_RELATIONSHIP_ENFORCE`/`MFA_ENFORCE` still off; every DICOM path now persists the de-identified object, series UIDs salted-remapped, identified uploads removed with the request | Enforce care relationship before clinician-marking; erasure to cover `imaging_*` | P6 |
 | Breast roadmap | FUTURE (no model, no data) | "breast" listed in `cancer-detection-section.tsx` as "No model"; `MODEL_CARDS.md` "Modalities with no model" | Manifest status only | P10 |
 | Colon roadmap | FUTURE (not mentioned anywhere today) | none | Manifest status only | P11 |
 | Prostate roadmap | FUTURE (no model, no data) | listed as "No model" | Manifest status only | P12 |

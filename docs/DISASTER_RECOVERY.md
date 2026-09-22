@@ -19,14 +19,33 @@ any single file.
 | Store | Holds | Backed up by |
 |---|---|---|
 | **Postgres (Supabase)** | Everything relational: users, scans, appointments, `audit_events`, `scan_outcomes`, `adverse_events`, consents, care relationships | Supabase's own snapshots — **not verified by us** |
-| **Object storage (Google Cloud Storage)** | Scan images | GCS bucket policy — **not verified by us** |
-| **Local disk (`uploads/`)** | Scan images, whenever object storage is unconfigured *or* fails | **Nothing.** Ephemeral on a container |
+| **Object storage (Google Cloud Storage)** | Scan images; de-identified CT series objects under `series/<patient>/<seriesUid>/` | GCS bucket policy — **not verified by us** |
+| **Local disk (`uploads/`)** | Scan images and series objects, whenever object storage is unconfigured *or* fails | **Nothing.** Ephemeral on a container |
 | **`dataset/`** | Model weights, calibration, thresholds, OOD references, split manifests | `npm run backup:models` |
 
 **A restore of one without the others is not a restore.** The database holds
 `image_path`; the bytes live elsewhere. Recovering the rows alone gives every
 scan a pointer to an image that no longer exists, and the failure surfaces to a
 radiologist as a blank viewer rather than as an error.
+
+An ingested series makes that worse in one specific way. `imaging_instances`
+holds one `object_path` per slice, and a series is only a series if all of them
+are there — a restore that recovers 200 of 250 objects produces a study that
+looks complete in the row count and is not. Ingestion writes the rows last, in
+one transaction, precisely so that a half-written series never exists; a
+restore has no such guarantee, so **verify the object count against
+`imaging_series.instance_count` before a restored series is read by anyone**:
+
+```sql
+SELECT s.id, s.instance_count, count(i.id) AS objects_referenced
+  FROM imaging_series s
+  LEFT JOIN imaging_instances i ON i.series_id = s.id
+ GROUP BY s.id, s.instance_count
+HAVING count(i.id) <> s.instance_count;
+```
+
+That finds rows that disagree with themselves. Whether the bytes each row
+points at survived is a separate check against the bucket.
 
 ### The `file://` trap
 

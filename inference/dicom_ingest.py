@@ -38,6 +38,8 @@ from typing import Any
 
 import numpy as np
 
+from uid_remap import UidRemapper
+
 DICOM_MAGIC_OFFSET = 128
 DICOM_MAGIC = b"DICM"
 
@@ -141,37 +143,54 @@ _UID_KEEP = frozenset((
     "ReferencedSOPClassUID",
     "CodingSchemeUID",
 ))
-# Instance UIDs a conformant object must carry; replaced, not removed.
-_UID_REPLACE = frozenset((
+# Instance UIDs a conformant object must carry, plus the references that hold
+# the study/series/instance tree together. Remapped, not removed: randomising
+# them is safe but destroys the grouping that makes a series a series, and a
+# series cannot be assembled from objects whose SeriesInstanceUID was thrown
+# away on the way in. See inference/uid_remap.py for why the mapping is keyed.
+_UID_REMAP = frozenset((
     "SOPInstanceUID",
     "MediaStorageSOPInstanceUID",
     "StudyInstanceUID",
     "SeriesInstanceUID",
     "FrameOfReferenceUID",
+    "SynchronizationFrameOfReferenceUID",
+    "ReferencedSOPInstanceUID",
+    "ReferencedFrameOfReferenceUID",
+    "SourceImageSequence",
+    "IrradiationEventUID",
+    "ConcatenationUID",
 ))
 
 
-def _scrub_uids(dataset: Any) -> None:
-    """Removes or replaces every instance-level UID, recursing into sequences."""
-    from pydicom.uid import generate_uid
+def _scrub_uids(dataset: Any, remap: Any) -> None:
+    """Applies the three-way UID policy, recursing into sequences.
 
+    keep    class and transfer-syntax UIDs, which identify a kind of thing
+            rather than a particular one
+    remap   the instance identity and the references between instances, so
+            the study/series/instance tree survives de-identification
+    delete  every other UI element. An unrecognised UID is vendor-defined,
+            undocumented and unreasonable to keep: there is no way to know
+            what it points at or who can resolve it.
+    """
     for element in list(dataset):
         if element.VR == "SQ":
             for item in element.value:
-                _scrub_uids(item)
+                _scrub_uids(item, remap)
             continue
         if element.VR != "UI":
             continue
         keyword = element.keyword
         if keyword in _UID_KEEP:
             continue
-        if keyword in _UID_REPLACE:
-            dataset[element.tag].value = generate_uid()
+        if keyword in _UID_REMAP and element.value:
+            dataset[element.tag].value = remap(str(element.value), kind=keyword)
         else:
             del dataset[element.tag]
 
 
-def deidentify(dataset: Any) -> Any:
+def deidentify(dataset: Any, remapper: Any = None) -> Any:
     """Removes direct identifiers in place and returns the dataset.
 
     Private tags go wholesale. Their meaning is vendor-defined and undocumented,
@@ -179,13 +198,18 @@ def deidentify(dataset: Any) -> Any:
     institution, and there is no way to reason about an unknown tag's contents —
     so the only defensible treatment is removal.
 
-    UIDs are replaced with fresh ones or removed rather than remapped.
-    Remapping preserves the ability to group a study, which is genuinely
-    useful and is what a research pipeline would do; it also preserves a join
-    key back to the source PACS unless the remap is salted. Since nothing here
-    needs study grouping yet, the safer option costs nothing. Roadmap P1b adds
-    the salted remap for series assembly.
+    UIDs are remapped through a keyed, salted function rather than randomised
+    or hashed in the clear. Randomising is safe and destroys series grouping;
+    hashing in the clear preserves grouping and reintroduces a join key back
+    to the source PACS, because the UID space a site emits is small enough to
+    enumerate. A salted HMAC gives both properties at once — see
+    inference/uid_remap.py, including what happens when no salt is configured.
+
+    `remapper` lets one ingestion share a context across every object in a
+    series. Passing none creates a fresh one, which is equivalent for a single
+    object because the mapping is deterministic under a configured salt.
     """
+    remap = remapper if remapper is not None else UidRemapper()
     dataset.remove_private_tags()
 
     for keyword in _IDENTIFYING_KEYWORDS:
@@ -194,13 +218,12 @@ def deidentify(dataset: Any) -> Any:
 
     # Every UID that could join this object back to its source, wherever it
     # sits — top level or nested in a sequence such as ReferencedImageSequence.
-    # Instance-level UIDs the object needs to remain conformant are replaced
-    # with freshly generated ones rather than deleted; a fresh UID identifies
-    # nothing outside this object. (Roadmap P1b replaces the fresh UIDs with a
-    # salted remap so a series can still be grouped without a join key.)
-    _scrub_uids(dataset)
+    # Study, series and instance UIDs are remapped rather than deleted, so the
+    # study/series/instance tree survives and a series can still be assembled;
+    # the rest are deleted. Which is which is _UID_REMAP below.
+    _scrub_uids(dataset, remap)
     if hasattr(dataset, "file_meta") and dataset.file_meta is not None:
-        _scrub_uids(dataset.file_meta)
+        _scrub_uids(dataset.file_meta, remap)
 
     # Dates and times are quasi-identifiers: a study date plus a modality plus a
     # postal district is frequently enough to re-identify. Kept only to the year.
@@ -375,7 +398,7 @@ def _first_float(value: Any, default: float | None = None) -> float | None:
         return default
 
 
-def dicom_to_model_frame(data: bytes) -> tuple[np.ndarray, dict, bytes]:
+def dicom_to_model_frame(data: bytes, remapper: Any = None) -> tuple[np.ndarray, dict, bytes]:
     """DICOM bytes to the frame a model sees, the acquisition record, and the
     de-identified object.
 
@@ -454,7 +477,15 @@ def dicom_to_model_frame(data: bytes) -> tuple[np.ndarray, dict, bytes]:
         "frames": int(pixels.shape[0]) if pixels.ndim >= 3 and pixels.shape[-1] not in (3, 4) else 1,
     }
 
-    deidentify(dataset)
+    deidentify(dataset, remapper)
+
+    # Read back AFTER de-identification, so what the caller receives is the
+    # remapped identity and the original can never be returned by this path.
+    acquisition["deidentifiedUids"] = {
+        "studyInstanceUid": str(getattr(dataset, "StudyInstanceUID", "") or ""),
+        "seriesInstanceUid": str(getattr(dataset, "SeriesInstanceUID", "") or ""),
+        "sopInstanceUid": str(getattr(dataset, "SOPInstanceUID", "") or ""),
+    }
 
     out = io.BytesIO()
     try:
