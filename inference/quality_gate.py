@@ -29,7 +29,7 @@ Every bar below sits outside that observed range, so no series resembling the
 training data is refused by it. Each one states what it is protecting against;
 a threshold without a reason is a number somebody will later move.
 
-── The one advisory check ─────────────────────────────────────────────────
+── The two advisory checks ────────────────────────────────────────────────
 
 `BodyPartExamined` is absent from a great many real exports. Failing on its
 absence would refuse legitimate chest CT, so an absent value is recorded as
@@ -37,6 +37,25 @@ absence would refuse legitimate chest CT, so an absent value is recorded as
 value is therefore visible in the result rather than silently treated as
 correct — which is what "not silently accepting" requires. A value that is
 *present and wrong* is a hard failure.
+
+`BurnedInAnnotation` works the same way, and matters more, because burned-in
+patient identifiers are the one de-identification failure no tag edit can
+repair. Four states, three outcomes:
+
+    YES          refused
+    NO           accepted at face value
+    absent       accepted, with a warning and
+                 `measurements.burnedInAnnotationDeclared: false`
+    anything     refused — `burned_in_annotation_unreadable`
+    else
+
+Absent is advisory because the attribute is missing from many real exports and
+refusing on it would refuse legitimate studies; the gap goes into the result
+instead of into a reader's assumption. Present-and-unreadable is a refusal, for
+the same reason a present-and-wrong BodyPartExamined is: a field this
+consequential cannot be treated as reassurance when nobody can say what it
+says. Nothing here establishes that a series carries no burned-in annotation —
+only that none was declared, and this gate does not read pixels.
 """
 from __future__ import annotations
 
@@ -133,6 +152,52 @@ def evaluate_ct_series(instances: list[InstanceMeta], ordering: OrderingResult) 
             f"{len(burned)} object(s) declare burned-in annotation, which may render patient "
             "identifiers into the pixel data. No tag edit can remove those.",
             count=len(burned),
+        )
+
+    # Absent, and present-but-unreadable, are two different things.
+    #
+    # This check refuses an explicit YES, which is all the metadata can support
+    # — nothing here reads pixels. An object that simply omits
+    # BurnedInAnnotation used to pass in silence, so a result carried no trace
+    # of the fact that the one de-identification failure no tag edit can fix
+    # had not been ruled out.
+    #
+    # Absence is advisory, the way absent anatomy is: the series is accepted on
+    # its other properties and the gap is recorded in the result rather than
+    # left to a reader's assumption. A value that is *present and not
+    # interpretable* is a refusal, which is the same rule BodyPartExamined
+    # already follows — a field this consequential cannot be read as
+    # reassurance when nobody can say what it means.
+    absent = [i.source_index for i in instances if not i.burned_in_annotation]
+    unreadable = [
+        i.source_index
+        for i in instances
+        if i.burned_in_annotation and i.burned_in_annotation not in ("YES", "NO")
+    ]
+    if unreadable:
+        values = sorted({
+            i.burned_in_annotation
+            for i in instances
+            if i.burned_in_annotation and i.burned_in_annotation not in ("YES", "NO")
+        })
+        _fail(
+            failures,
+            "burned_in_annotation_unreadable",
+            f"{len(unreadable)} object(s) state BurnedInAnnotation as "
+            f"{', '.join(repr(v) for v in values)}. DICOM defines YES and NO; a value that "
+            "cannot be read is not a declaration that the pixels are clean, and burned-in "
+            "identifiers cannot be removed by editing tags.",
+            count=len(unreadable),
+            values=values,
+        )
+
+    burned_in_declared = bool(instances) and not absent and not unreadable
+    if absent:
+        warnings.append(
+            f"{len(absent)} object(s) do not state BurnedInAnnotation, so it is not known "
+            "whether patient identifiers are rendered into the pixel data. Absence of the "
+            "attribute is not a declaration that there is none, and this pipeline does not "
+            "read pixels to find out."
         )
 
     # --- multi-frame -------------------------------------------------------
@@ -353,6 +418,9 @@ def evaluate_ct_series(instances: list[InstanceMeta], ordering: OrderingResult) 
         "orderingMethod": ordering.method,
         "orderingTrusted": ordering.trusted,
         "bodyPart": sorted(body_parts) or None,
+        # False when the objects do not state BurnedInAnnotation at all. It
+        # does not mean annotation is present; it means nothing ruled it out.
+        "burnedInAnnotationDeclared": burned_in_declared,
         "manufacturer": first.manufacturer,
         "manufacturerModel": first.manufacturer_model,
         "convolutionKernel": first.convolution_kernel,

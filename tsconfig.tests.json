@@ -1,0 +1,21 @@
+// Typechecks the integration suite, which the main tsconfig does not.
+//
+// `tsconfig.json` includes client, server, shared and scripts — not `tests/`.
+// So `npx tsc --noEmit` reported clean while a test file could carry a type
+// error that only surfaced when the runner reached it, minutes into a run,
+// as a failure that looked like the code under test.
+//
+// Separate from the main config rather than folded into it because the suite
+// imports with explicit `.ts` extensions (`./helpers/server.ts`), which needs
+// `allowImportingTsExtensions` — a setting the application build must not
+// have.
+//
+//     npx tsc -p tsconfig.tests.json
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "noEmit": true
+  },
+  "include": ["tests/**/*.ts", "server/**/*", "shared/**/*"]
+}

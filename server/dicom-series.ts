@@ -76,6 +76,29 @@ export interface IngestSuccess {
 
 export type IngestResult = IngestSuccess | IngestRejection;
 
+/**
+ * The same de-identified UID already exists under a different patient.
+ *
+ * Thrown inside the transaction so nothing is written, and caught outside so
+ * the objects this run stored are removed before the caller is told.
+ *
+ * It carries no identifier for the other record. A clinician filing a study
+ * for the wrong patient must be told the filing is refused; telling them
+ * *whose* record the UID already belongs to would answer a question they did
+ * not have a care relationship to ask.
+ */
+class PatientUidCollision extends Error {
+  constructor(readonly level: 'study' | 'series') {
+    super(
+      `This ${level} is already filed under a different patient record. ` +
+        'Ingestion was refused and nothing was stored or changed. Check the patient this ' +
+        'study belongs to; if two patients genuinely share it, the records need correcting ' +
+        'before it can be ingested.'
+    );
+    this.name = 'PatientUidCollision';
+  }
+}
+
 /** Where one instance of a series is stored. Never the client's filename. */
 function objectName(patientId: number, seriesUid: string, index: number): string {
   // The series UID is already de-identified, and it is what makes the layout
@@ -236,11 +259,21 @@ export async function ingestSeries(options: {
       const studyUid =
         manifest!.study.studyInstanceUid ?? `series-only:${manifest!.series.seriesInstanceUid}`;
 
+      // Looked up by UID across all patients, then checked against this one.
+      //
+      // The unique index on study_uid is global, so a lookup narrowed to the
+      // patient would miss a row belonging to someone else and the insert
+      // would then fail on the constraint with nothing useful to say. Finding
+      // it and comparing is what turns a constraint violation into a refusal a
+      // clinician can act on — and it is what stops a second patient's series
+      // being attached to the first patient's study, which is what happened
+      // before: the lookup was by UID alone and whatever it found was used.
       let [study] = await tx
         .select()
         .from(imagingStudies)
         .where(eq(imagingStudies.studyUid, studyUid))
         .limit(1);
+      if (study && study.patientId !== patientId) throw new PatientUidCollision('study');
       if (!study) {
         [study] = await tx
           .insert(imagingStudies)
@@ -253,6 +286,12 @@ export async function ingestSeries(options: {
         .from(imagingSeries)
         .where(eq(imagingSeries.seriesUid, manifest!.series.seriesInstanceUid))
         .limit(1);
+      if (existing && existing.patientId !== patientId) {
+        // The dangerous one. Returning this row would hand the caller a
+        // seriesId belonging to a patient they did not ask about, labelled as
+        // a successful ingest of the study they did.
+        throw new PatientUidCollision('series');
+      }
       if (existing) {
         // Deterministic UID remapping makes a re-upload recognisable rather
         // than a duplicate. Reported, not silently ignored.
@@ -355,6 +394,21 @@ export async function ingestSeries(options: {
     };
   } catch (error) {
     await removeObjects(stored.map((s) => s.objectPath));
+    if (error instanceof PatientUidCollision) {
+      // The transaction rolled back and the objects are gone, so neither
+      // patient's records were touched.
+      return {
+        accepted: false,
+        stage: 'uid_collision',
+        reasons: [
+          {
+            code: `${error.level}_uid_belongs_to_another_patient`,
+            message: error.message,
+            level: error.level,
+          },
+        ],
+      };
+    }
     throw error;
   }
 }

@@ -96,7 +96,7 @@ function resolveSeries(maxFiles: number, patient?: string): SeriesFixture | null
 
 const series = resolveSeries(45);
 /** A second patient's series, for the two-series-in-one-upload case. */
-const otherSeries = series ? resolveSeries(20, 'LIDC-IDRI-0003') : null;
+const otherSeries = series ? resolveSeries(45, 'LIDC-IDRI-0003') : null;
 
 const WITHOUT_DATASET = !series && 'LIDC-IDRI download absent (gitignored)';
 const WITHOUT_SERVICE = !INFERENCE_CONFIGURED && 'INFERENCE_URL is not set';
@@ -105,6 +105,8 @@ const FULL_PATH = WITHOUT_DATASET || WITHOUT_SERVICE;
 let patient: Awaited<ReturnType<typeof registerPatient>>;
 let radSession: Session;
 let ingestedSeriesId: number | null = null;
+let secondPatientId: number | null = null;
+let secondSeriesId: number | null = null;
 
 function blobFor(file: string): Blob {
   return new Blob([fs.readFileSync(path.join(process.cwd(), file))], {
@@ -479,6 +481,131 @@ describe('with the resident inference service', { timeout: TIMEOUT }, () => {
       assert.deepEqual(missing, [], 're-ingestion deleted objects the stored rows point at');
     } finally {
       await pool.end();
+    }
+  });
+
+  // ── the same study arriving under the wrong patient ──────────────────────
+  //
+  // Lookup was by UID alone, so whatever row it found was used. A study filed
+  // for a second patient was attached to the first patient's study row, and —
+  // worse — the re-ingest path answered with the *first* patient's seriesId,
+  // labelled as a successful ingest of the study the caller had just sent.
+
+  test('the same series filed for another patient is refused', { skip: FULL_PATH }, async () => {
+    const other = await registerPatient('series-other');
+    try {
+      const mine = await countSeries(patient.id);
+      const theirs = await countSeries(other.id);
+
+      const res = await ingest(radSession, series!.files, other.id);
+
+      assert.equal(res.status, 422, res.text.slice(0, 400));
+      assert.equal(res.json.accepted, false);
+      assert.equal(res.json.stage, 'uid_collision');
+      assert.match(res.json.reasons[0].code, /belongs_to_another_patient/);
+      assert.match(res.json.message, /NOT a finding/);
+
+      // The refusal must not hand back the other patient's record.
+      assert.equal(res.json.seriesId, undefined);
+      assert.equal(res.json.studyId, undefined);
+      assert.ok(!res.text.includes(`"${ingestedSeriesId}"`));
+      assert.doesNotMatch(res.text, new RegExp(`\\b${patient.id}\\b`));
+
+      // And neither patient's records changed.
+      assert.equal(await countSeries(patient.id), mine, "the first patient's series is untouched");
+      assert.equal(await countSeries(other.id), theirs, 'nothing was stored for the second');
+
+      const pool = db();
+      try {
+        const { rows } = await pool.query(
+          'SELECT patient_id FROM imaging_series WHERE id = $1',
+          [ingestedSeriesId]
+        );
+        assert.equal(rows[0].patient_id, patient.id, 'the series was not reassociated');
+        const studies = await pool.query(
+          'SELECT count(*)::int AS n FROM imaging_studies WHERE patient_id = $1',
+          [other.id]
+        );
+        assert.equal(studies.rows[0].n, 0, 'no study row was created for the second patient');
+      } finally {
+        await pool.end();
+      }
+    } finally {
+      await other.session.post('/api/auth/logout').catch(() => {});
+    }
+  });
+
+  test('a different patient with distinct UIDs ingests normally', { skip: FULL_PATH }, async () => {
+    if (!otherSeries) return;
+    const second = await registerPatient('series-second');
+    secondPatientId = second.id;
+
+    const res = await ingest(radSession, otherSeries.files, second.id);
+
+    assert.equal(res.status, 201, res.text.slice(0, 400));
+    assert.equal(res.json.accepted, true);
+    assert.equal(res.json.alreadyIngested, false);
+    assert.equal(res.json.instanceCount, otherSeries.instanceCount);
+    assert.notEqual(res.json.seriesId, ingestedSeriesId);
+    secondSeriesId = res.json.seriesId;
+
+    // The guard refuses collisions, not second patients.
+    assert.equal(await countSeries(second.id), 1);
+    assert.equal(await countSeries(patient.id), 1, 'the first patient is unaffected');
+  });
+
+  test('a study already filed for another patient refuses a new series', { skip: FULL_PATH }, async () => {
+    if (!otherSeries || !secondSeriesId) return;
+
+    // The state this constructs is the one real mis-filing produces: a study
+    // row belongs to one patient, and a *different* series of that study then
+    // arrives for another. No LIDC patient has two CT series of 40+ slices in
+    // one study, so the series rows are removed and the study row left in
+    // place — which is exactly the shape the study guard exists to catch, and
+    // cannot be reached through the series guard.
+    const pool = db();
+    let studyUid: string;
+    try {
+      const { rows } = await pool.query(
+        `SELECT st.study_uid FROM imaging_series s
+           JOIN imaging_studies st ON st.id = s.study_id WHERE s.id = $1`,
+        [secondSeriesId]
+      );
+      studyUid = rows[0].study_uid;
+      await pool.query('DELETE FROM imaging_instances WHERE series_id = $1', [secondSeriesId]);
+      await pool.query('DELETE FROM imaging_series WHERE id = $1', [secondSeriesId]);
+    } finally {
+      await pool.end();
+    }
+
+    const third = await registerPatient('series-third');
+    const res = await ingest(radSession, otherSeries.files, third.id);
+
+    assert.equal(res.status, 422, res.text.slice(0, 400));
+    assert.equal(res.json.accepted, false);
+    assert.equal(res.json.stage, 'uid_collision');
+    assert.equal(res.json.reasons[0].code, 'study_uid_belongs_to_another_patient');
+    assert.equal(res.json.reasons[0].level, 'study');
+    assert.equal(res.json.seriesId, undefined);
+    assert.equal(res.json.studyId, undefined);
+    // No patient identifier of the other record leaks into the refusal.
+    assert.doesNotMatch(res.text, new RegExp(`\\b${secondPatientId}\\b`));
+
+    const pool2 = db();
+    try {
+      const owner = await pool2.query(
+        'SELECT patient_id FROM imaging_studies WHERE study_uid = $1',
+        [studyUid]
+      );
+      assert.equal(owner.rows.length, 1, 'no duplicate study row was created');
+      assert.equal(owner.rows[0].patient_id, secondPatientId, 'ownership is unchanged');
+      const created = await pool2.query(
+        'SELECT count(*)::int AS n FROM imaging_series WHERE patient_id = $1',
+        [third.id]
+      );
+      assert.equal(created.rows[0].n, 0, 'nothing was stored for the third patient');
+    } finally {
+      await pool2.end();
     }
   });
 

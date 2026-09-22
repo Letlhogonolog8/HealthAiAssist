@@ -71,6 +71,33 @@ import sys
 UUID_ROOT = "2.25."
 MAX_UID_LENGTH = 64
 
+# ── The kinds a UID is mapped under ────────────────────────────────────────
+#
+# `kind` is part of the HMAC key, so two UIDs mapped under different kinds get
+# different outputs even when the input string is identical. That is wanted
+# between *entities* — a study and an instance that happen to share a string
+# should not be correlatable — and is a defect between *references to the same
+# entity*.
+#
+# It was keyed on the DICOM tag keyword until 2026-09-22, which meant a
+# SOPInstanceUID and a ReferencedSOPInstanceUID naming that same instance
+# mapped to two different values. Measured:
+#
+#     A.SOPInstanceUID after : 2.25.150523158721408463707979919028524583689
+#     B's reference to A     : 2.25.836846637000815288119019365694271456
+#
+# so every reference in a de-identified object pointed at nothing. The kind is
+# the semantic role now: every attribute naming an instance maps under
+# ROLE_INSTANCE, every attribute naming a frame of reference under ROLE_FRAME,
+# and so on. Which keyword carries which role is inference/dicom_ingest.py's
+# business, because it depends on the enclosing sequence.
+ROLE_STUDY = "study"
+ROLE_SERIES = "series"
+ROLE_INSTANCE = "instance"
+ROLE_FRAME_OF_REFERENCE = "frame-of-reference"
+ROLE_IRRADIATION_EVENT = "irradiation-event"
+ROLE_CONCATENATION = "concatenation"
+
 # Which secret is in use, and therefore how far the linkage reaches.
 SCOPE_DEPLOYMENT = "deployment"
 SCOPE_INGESTION = "ingestion"

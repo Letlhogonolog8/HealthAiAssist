@@ -106,7 +106,7 @@ from dicom_ingest import DicomRejected, dicom_to_model_frame, looks_like_dicom  
 from gradcam import CAVEAT as GRADCAM_CAVEAT, heatmap_png  # noqa: E402
 from quality_gate import evaluate_ct_series  # noqa: E402
 from series import SeriesRejected, assemble, order_slices, read_instance_metadata  # noqa: E402
-from uid_remap import UidRemapper  # noqa: E402
+from uid_remap import ROLE_SERIES, ROLE_STUDY, UidRemapper  # noqa: E402
 import lung_nodule_service  # noqa: E402  constructs the characteriser, loading its model
 
 skin_model = _load_module("skin_cancer_model", "skin_cancer_model.py")
@@ -594,11 +594,11 @@ def ingest_series(files: List[UploadFile] = File(...)) -> Any:
         "qualityGate": gate.as_dict(),
         "instanceCount": len(ordering.ordered),
         # Remapped identity only. The originals are never in a response.
-        "study": {"studyInstanceUid": remapper(first.study_instance_uid, kind="StudyInstanceUID")}
+        "study": {"studyInstanceUid": remapper(first.study_instance_uid, kind=ROLE_STUDY)}
         if first.study_instance_uid
         else {"studyInstanceUid": None},
         "series": {
-            "seriesInstanceUid": remapper(first.series_instance_uid, kind="SeriesInstanceUID"),
+            "seriesInstanceUid": remapper(first.series_instance_uid, kind=ROLE_SERIES),
             "modality": first.modality,
             "rows": first.rows,
             "columns": first.columns,

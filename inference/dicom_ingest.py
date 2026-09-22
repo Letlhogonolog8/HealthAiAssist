@@ -38,7 +38,15 @@ from typing import Any
 
 import numpy as np
 
-from uid_remap import UidRemapper
+from uid_remap import (
+    ROLE_CONCATENATION,
+    ROLE_FRAME_OF_REFERENCE,
+    ROLE_INSTANCE,
+    ROLE_IRRADIATION_EVENT,
+    ROLE_SERIES,
+    ROLE_STUDY,
+    UidRemapper,
+)
 
 DICOM_MAGIC_OFFSET = 128
 DICOM_MAGIC = b"DICM"
@@ -113,6 +121,51 @@ _IDENTIFYING_KEYWORDS = (
     "StationName",
     "StudyID",
 )
+_IDENTIFYING = frozenset(_IDENTIFYING_KEYWORDS)
+
+# Dates and times are quasi-identifiers: a study date plus a modality plus a
+# postal district is frequently enough to re-identify. Dates are kept to the
+# year, times are removed outright.
+_DATE_KEYWORDS = frozenset(("StudyDate", "SeriesDate", "AcquisitionDate", "ContentDate"))
+_TIME_KEYWORDS = frozenset(("StudyTime", "SeriesTime", "AcquisitionTime", "ContentTime"))
+
+
+def _scrub_identifiers(dataset: Any) -> None:
+    """Removes named identifiers and reduces dates, recursing into sequences.
+
+    The recursion is the point. This ran as a flat loop over the top level
+    until 2026-09-22, while private tags and UIDs were already being handled
+    recursively — so an identifier nested one level down survived intact.
+    Measured on a synthetic object carrying a RequestAttributesSequence, the
+    shape a scanner writes from the RIS order:
+
+        top-level PatientName removed: True
+        nested identifiers that survived: PatientName, PatientID,
+            AccessionNumber, InstitutionName, StudyDate
+
+    LIDC-IDRI objects carry no such sequence, which is why every test passed
+    with the hole open.
+
+    An identifying element is deleted before the sequence check, so a sequence
+    that is itself an identifier — PatientInsurancePlanCodeSequence — goes
+    wholesale rather than being descended into and emptied.
+    """
+    for element in list(dataset):
+        keyword = element.keyword
+        if keyword in _IDENTIFYING:
+            del dataset[element.tag]
+            continue
+        if element.VR == "SQ":
+            for item in element.value:
+                _scrub_identifiers(item)
+            continue
+        if keyword in _DATE_KEYWORDS:
+            value = str(element.value or "")
+            if len(value) >= 4:
+                dataset[element.tag].value = f"{value[:4]}0101"
+            continue
+        if keyword in _TIME_KEYWORDS:
+            del dataset[element.tag]
 
 # Kept, and why: each one changes how the pixels must be read, or describes the
 # acquisition rather than the person.
@@ -148,22 +201,54 @@ _UID_KEEP = frozenset((
 # them is safe but destroys the grouping that makes a series a series, and a
 # series cannot be assembled from objects whose SeriesInstanceUID was thrown
 # away on the way in. See inference/uid_remap.py for why the mapping is keyed.
-_UID_REMAP = frozenset((
-    "SOPInstanceUID",
-    "MediaStorageSOPInstanceUID",
-    "StudyInstanceUID",
-    "SeriesInstanceUID",
-    "FrameOfReferenceUID",
-    "SynchronizationFrameOfReferenceUID",
-    "ReferencedSOPInstanceUID",
-    "ReferencedFrameOfReferenceUID",
-    "SourceImageSequence",
-    "IrradiationEventUID",
-    "ConcatenationUID",
-))
+#
+# The value is the *semantic role*, not the keyword. Every attribute that names
+# an instance maps under the same role, so a reference to an instance comes out
+# equal to that instance's own new UID. Keying on the keyword instead — which
+# is what this did until 2026-09-22 — gave the same UID two different values
+# depending on which attribute it was reached through, and every reference in a
+# de-identified object pointed at nothing.
+#
+# SourceImageSequence used to be listed here and had no effect: it is VR SQ, and
+# _scrub_uids returns on SQ before reaching this table. Sequences are traversed,
+# not mapped; the UIDs inside them are what this table applies to.
+_UID_ROLE = {
+    "StudyInstanceUID": ROLE_STUDY,
+    "SeriesInstanceUID": ROLE_SERIES,
+    "SOPInstanceUID": ROLE_INSTANCE,
+    # file_meta's copy of the instance UID. It has to equal SOPInstanceUID or
+    # the object is non-conformant — another thing keyword-keying broke.
+    "MediaStorageSOPInstanceUID": ROLE_INSTANCE,
+    "ReferencedSOPInstanceUID": ROLE_INSTANCE,
+    "FrameOfReferenceUID": ROLE_FRAME_OF_REFERENCE,
+    "SynchronizationFrameOfReferenceUID": ROLE_FRAME_OF_REFERENCE,
+    "ReferencedFrameOfReferenceUID": ROLE_FRAME_OF_REFERENCE,
+    "IrradiationEventUID": ROLE_IRRADIATION_EVENT,
+    "ConcatenationUID": ROLE_CONCATENATION,
+}
+
+# A ReferencedSOPInstanceUID means whatever the sequence around it references.
+# Inside ReferencedStudySequence it names the study — the legacy study-component
+# reference, which in practice carries the StudyInstanceUID — so mapping it as
+# an instance would break the link to StudyInstanceUID.
+#
+# Deliberately short. ReferencedSeriesSequence is absent because the series it
+# names is carried by a plain SeriesInstanceUID, and the ReferencedSOPInstanceUID
+# nested below it inside ReferencedInstanceSequence really is an instance; the
+# immediate parent is what is consulted, so both land correctly by default.
+_SEQUENCE_REFERENCE_ROLE = {
+    "ReferencedStudySequence": ROLE_STUDY,
+}
 
 
-def _scrub_uids(dataset: Any, remap: Any) -> None:
+def _uid_role(keyword: str, context: str | None) -> str | None:
+    """The role a UID plays here, or None if it is not one we keep."""
+    if keyword == "ReferencedSOPInstanceUID" and context in _SEQUENCE_REFERENCE_ROLE:
+        return _SEQUENCE_REFERENCE_ROLE[context]
+    return _UID_ROLE.get(keyword)
+
+
+def _scrub_uids(dataset: Any, remap: Any, context: str | None = None) -> None:
     """Applies the three-way UID policy, recursing into sequences.
 
     keep    class and transfer-syntax UIDs, which identify a kind of thing
@@ -173,19 +258,23 @@ def _scrub_uids(dataset: Any, remap: Any) -> None:
     delete  every other UI element. An unrecognised UID is vendor-defined,
             undocumented and unreasonable to keep: there is no way to know
             what it points at or who can resolve it.
+
+    `context` is the keyword of the enclosing sequence, because what a
+    ReferencedSOPInstanceUID refers to depends on where it sits.
     """
     for element in list(dataset):
         if element.VR == "SQ":
             for item in element.value:
-                _scrub_uids(item, remap)
+                _scrub_uids(item, remap, context=element.keyword)
             continue
         if element.VR != "UI":
             continue
         keyword = element.keyword
         if keyword in _UID_KEEP:
             continue
-        if keyword in _UID_REMAP and element.value:
-            dataset[element.tag].value = remap(str(element.value), kind=keyword)
+        role = _uid_role(keyword, context)
+        if role and element.value:
+            dataset[element.tag].value = remap(str(element.value), kind=role)
         else:
             del dataset[element.tag]
 
@@ -212,9 +301,10 @@ def deidentify(dataset: Any, remapper: Any = None) -> Any:
     remap = remapper if remapper is not None else UidRemapper()
     dataset.remove_private_tags()
 
-    for keyword in _IDENTIFYING_KEYWORDS:
-        if keyword in dataset:
-            delattr(dataset, keyword)
+    # Named identifiers and the date/time reduction, at every depth. All three
+    # passes here recurse into sequences now; until 2026-09-22 this one did not,
+    # and a nested PatientName survived de-identification.
+    _scrub_identifiers(dataset)
 
     # Every UID that could join this object back to its source, wherever it
     # sits — top level or nested in a sequence such as ReferencedImageSequence.
@@ -224,17 +314,6 @@ def deidentify(dataset: Any, remapper: Any = None) -> Any:
     _scrub_uids(dataset, remap)
     if hasattr(dataset, "file_meta") and dataset.file_meta is not None:
         _scrub_uids(dataset.file_meta, remap)
-
-    # Dates and times are quasi-identifiers: a study date plus a modality plus a
-    # postal district is frequently enough to re-identify. Kept only to the year.
-    for keyword in ("StudyDate", "SeriesDate", "AcquisitionDate", "ContentDate"):
-        value = getattr(dataset, keyword, None)
-        if value and len(str(value)) >= 4:
-            setattr(dataset, keyword, f"{str(value)[:4]}0101")
-
-    for keyword in ("StudyTime", "SeriesTime", "AcquisitionTime", "ContentTime"):
-        if keyword in dataset:
-            delattr(dataset, keyword)
 
     dataset.PatientIdentityRemoved = "YES"
     # VR LO caps at 64 characters. A longer value is written but is

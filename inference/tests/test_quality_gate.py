@@ -173,6 +173,87 @@ def test_burned_in_annotation_is_refused():
     assert "burned_in_annotation" in codes(result)
 
 
+def test_one_declared_yes_among_declared_nos_is_still_refused():
+    series = make_ct_series(count=120)
+    for ds in series:
+        ds.BurnedInAnnotation = "NO"
+    series[3].BurnedInAnnotation = "YES"
+    result = gate_for(series)
+    assert not result.passed
+    assert "burned_in_annotation" in codes(result)
+    assert result.measurements["burnedInAnnotationDeclared"] is True, "every slice declared"
+
+
+def test_burned_in_annotation_declared_no_is_accepted_at_face_value():
+    series = make_ct_series(count=120)
+    for ds in series:
+        ds.BurnedInAnnotation = "NO"
+    result = gate_for(series)
+    assert result.passed, result.failures
+    assert result.measurements["burnedInAnnotationDeclared"] is True
+    assert not any("BurnedInAnnotation" in w for w in result.warnings)
+
+
+def test_an_absent_burned_in_annotation_is_surfaced_rather_than_assumed():
+    """The one de-identification failure no tag edit can repair is patient
+    identifiers rendered into the pixels. This gate reads metadata, not pixels,
+    so the absence of the attribute establishes nothing — and used to pass in
+    silence, leaving the result indistinguishable from a declared 'NO'."""
+    series = make_ct_series(count=120)
+    for ds in series:
+        if "BurnedInAnnotation" in ds:
+            del ds.BurnedInAnnotation
+    result = gate_for(series)
+
+    assert result.passed, "absence is advisory, not a refusal"
+    assert result.measurements["burnedInAnnotationDeclared"] is False
+    warning = next((w for w in result.warnings if "BurnedInAnnotation" in w), None)
+    assert warning is not None, result.warnings
+    # It must not read as evidence of absence.
+    assert "not a declaration" in warning
+
+
+def test_an_unreadable_burned_in_annotation_is_refused_not_warned():
+    """Present and uninterpretable is not the same as absent. DICOM defines
+    YES and NO; anything else cannot be read as "the pixels are clean", and
+    this is the one de-identification failure a tag edit cannot repair."""
+    series = make_ct_series(count=120)
+    for ds in series:
+        ds.BurnedInAnnotation = "MAYBE"
+    result = gate_for(series)
+
+    assert not result.passed
+    assert "burned_in_annotation_unreadable" in codes(result)
+    failure = next(f for f in result.failures if f["code"] == "burned_in_annotation_unreadable")
+    assert failure["values"] == ["MAYBE"], "the caller is told what it actually said"
+    assert result.measurements["burnedInAnnotationDeclared"] is False
+    # Not reported as absent: the attribute is there.
+    assert not any("do not state BurnedInAnnotation" in w for w in result.warnings)
+
+
+def test_a_lowercase_declaration_is_read_not_refused():
+    """Case and whitespace are normalised on the way in, so 'no' is a
+    declaration rather than a malformed value. Refusing it would refuse real
+    exports for a formatting difference."""
+    series = make_ct_series(count=120)
+    for ds in series:
+        ds.BurnedInAnnotation = " no "
+    result = gate_for(series)
+
+    assert result.passed, result.failures
+    assert result.measurements["burnedInAnnotationDeclared"] is True
+
+
+def test_a_partially_declared_series_is_not_treated_as_declared():
+    series = make_ct_series(count=120)
+    for ds in series:
+        ds.BurnedInAnnotation = "NO"
+    del series[17].BurnedInAnnotation
+    result = gate_for(series)
+    assert result.passed
+    assert result.measurements["burnedInAnnotationDeclared"] is False
+
+
 def test_an_untrustworthy_ordering_fails_the_gate():
     series = make_ct_series(count=120)
     for ds in series:
