@@ -105,6 +105,7 @@ def _load_module(name: str, filename: str):
 from dicom_ingest import DicomRejected, dicom_to_model_frame, looks_like_dicom  # noqa: E402
 from gradcam import CAVEAT as GRADCAM_CAVEAT, heatmap_png  # noqa: E402
 from quality_gate import evaluate_ct_series  # noqa: E402
+from detection_service import detector_status  # noqa: E402
 from series import SeriesRejected, assemble, order_slices, read_instance_metadata  # noqa: E402
 from uid_remap import ROLE_SERIES, ROLE_STUDY, UidRemapper  # noqa: E402
 import lung_nodule_service  # noqa: E402  constructs the characteriser, loading its model
@@ -713,6 +714,12 @@ def healthz() -> Any:
                 "temperature": nodule.temperature,
                 "input": "DICOM CT slice plus a marked centre (cx, cy); raster refused",
             },
+            # The candidate detector slot. Empty: no trained checkpoint exists
+            # in this repository and none can be trained on this hardware.
+            # Reported so the Node side reads the answer from the service
+            # rather than assuming it, and so registering one later needs no
+            # change on the other side of the wire.
+            "lung_detector": detector_status(),
         },
     }
 

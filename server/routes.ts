@@ -5069,6 +5069,254 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
+  /**
+   * Detection over one ingested series.
+   *
+   * ── Why this is asynchronous ───────────────────────────────────────────
+   *
+   * Searching a CT volume is minutes of CPU, not milliseconds. Doing it
+   * inside the request would exceed any sensible timeout and leave the caller
+   * unable to tell a slow search from a dead one. The request creates a run
+   * and returns its id; the run row is the progress, so there is nothing to
+   * fabricate.
+   *
+   * ── What the three outcomes mean ───────────────────────────────────────
+   *
+   * A completed run with no candidates means the volume was searched and
+   * nothing scored above the threshold. A refused run means it was not
+   * searched. A failed run means something broke. They must never collapse
+   * into "no nodules found", which is why the run carries an `interpretation`
+   * sentence rather than leaving a UI to assemble one.
+   */
+  app.post(
+    "/api/dicom/series/:id/detection",
+    auditLog('DETECTION_REQUESTED'),
+    requireAuth,
+    requireMedicalAccess,
+    requireCareRelationship(async (req) => {
+      const seriesId = parseInt(req.params.id, 10);
+      if (!Number.isInteger(seriesId)) return null;
+      const { getSeries } = await import('./dicom-series');
+      const found = await getSeries(seriesId);
+      return found?.series?.patientId ?? null;
+    }),
+    async (req: AuthenticatedRequest, res) => {
+      const seriesId = parseInt(req.params.id, 10);
+      if (!Number.isInteger(seriesId)) {
+        return res.status(400).json({ error: 'Invalid series id' });
+      }
+
+      const detection = await import('./detection');
+      const { recordAuditEvent } = await import('./security-middleware');
+      const actor = req.session!.user!;
+
+      let run;
+      try {
+        run = await detection.requestDetection({ seriesId, requestedBy: actor.id });
+      } catch (error) {
+        if (error instanceof detection.DetectionConflict) {
+          return res.status(409).json({
+            error: error.message,
+            runId: error.runId,
+            code: 'detection_already_in_flight',
+          });
+        }
+        if (error instanceof detection.SeriesNotReady) {
+          return res.status(422).json({
+            accepted: false,
+            code: error.code,
+            error: error.message,
+            message:
+              'This series was NOT searched. That is not a finding about the patient and ' +
+              'must not be read as an absence of one.',
+          });
+        }
+        console.error('Detection request failed:', error);
+        return res.status(500).json({ error: 'The detection run could not be created.' });
+      }
+
+      // The model slot is empty: no detector checkpoint exists in this
+      // repository and none can be trained on this hardware. The run is
+      // refused and recorded as such, which is deliberately the same shape a
+      // future real refusal takes and completely different from a clear study.
+      const { detectorStatus } = await import('./inference-client');
+      const status = await detectorStatus();
+      if (!status.available) {
+        await detection.refuseRun(
+          run.id,
+          'model_unavailable',
+          status.note ??
+            'No candidate detector is registered, so no search was performed.'
+        );
+        await recordAuditEvent({
+          action: 'DETECTION_REFUSED',
+          actorUserId: actor.id,
+          actorUsername: actor.username,
+          actorRole: actor.role,
+          method: req.method,
+          path: `/api/dicom/series/${seriesId}/detection`,
+          statusCode: 503,
+          detail: `series=${seriesId}; run=${run.id}; code=model_unavailable`,
+        });
+        const refused = await detection.getRun(run.id);
+        return res.status(503).json({
+          ...detection.describeRun(refused!),
+          error:
+            'No candidate detector is available, so this series was not searched. This is ' +
+            'NOT a negative result and NOT a statement that the study is clear.',
+        });
+      }
+
+      await recordAuditEvent({
+        action: 'DETECTION_REQUESTED',
+        actorUserId: actor.id,
+        actorUsername: actor.username,
+        actorRole: actor.role,
+        method: req.method,
+        path: `/api/dicom/series/${seriesId}/detection`,
+        statusCode: 202,
+        detail: `series=${seriesId}; run=${run.id}`,
+      });
+      return res.status(202).json(detection.describeRun(run));
+    }
+  );
+
+  /** One detection run. The status is the progress; nothing is simulated. */
+  app.get(
+    "/api/detection/runs/:id",
+    auditLog('READ_DETECTION_RUN'),
+    requireAuth,
+    requireMedicalAccess,
+    requireCareRelationship(async (req) => {
+      const runId = parseInt(req.params.id, 10);
+      if (!Number.isInteger(runId)) return null;
+      const { getRun } = await import('./detection');
+      const run = await getRun(runId);
+      return run?.patientId ?? null;
+    }),
+    async (req: AuthenticatedRequest, res) => {
+      const runId = parseInt(req.params.id, 10);
+      if (!Number.isInteger(runId)) {
+        return res.status(400).json({ error: 'Invalid run id' });
+      }
+      const { getRun, describeRun } = await import('./detection');
+      const run = await getRun(runId);
+      if (!run) return res.status(404).json({ error: 'Detection run not found' });
+      return res.json(describeRun(run));
+    }
+  );
+
+  /**
+   * Candidates proposed for a series.
+   *
+   * The run is returned alongside them, because a bare empty list cannot say
+   * whether the series was searched.
+   */
+  app.get(
+    "/api/dicom/series/:id/candidates",
+    auditLog('READ_DETECTION_CANDIDATES'),
+    requireAuth,
+    requireMedicalAccess,
+    requireCareRelationship(async (req) => {
+      const seriesId = parseInt(req.params.id, 10);
+      if (!Number.isInteger(seriesId)) return null;
+      const { getSeries } = await import('./dicom-series');
+      const found = await getSeries(seriesId);
+      return found?.series?.patientId ?? null;
+    }),
+    async (req: AuthenticatedRequest, res) => {
+      const seriesId = parseInt(req.params.id, 10);
+      if (!Number.isInteger(seriesId)) {
+        return res.status(400).json({ error: 'Invalid series id' });
+      }
+      const detection = await import('./detection');
+      const run = await detection.latestRunForSeries(seriesId);
+      const candidates = run ? await detection.candidatesForSeries(seriesId) : [];
+
+      return res.json({
+        seriesId,
+        run: run ? detection.describeRun(run) : null,
+        candidates: candidates.map((candidate: any) => ({
+          id: candidate.id,
+          runId: candidate.runId,
+          voxel: { i: candidate.voxelI, j: candidate.voxelJ, k: candidate.voxelK },
+          patient: { xMm: candidate.xMm, yMm: candidate.yMm, zMm: candidate.zMm },
+          coordinateSystem: candidate.coordinateSystem,
+          positionIndex: candidate.positionIndex,
+          scoreRaw: candidate.scoreRaw,
+          scoreCalibrated: candidate.scoreCalibrated,
+          mergedFrom: candidate.mergedFrom,
+          review: {
+            disposition: candidate.reviewDisposition,
+            note: candidate.reviewNote,
+            reviewedAt: candidate.reviewedAt,
+          },
+        })),
+        note:
+          'A candidate is a location a detector proposed for review. It is not a finding, ' +
+          'not a nodule, and says nothing about malignancy. Characterisation is a separate ' +
+          'step a clinician requests after reviewing a candidate.',
+      });
+    }
+  );
+
+  /**
+   * A clinician's disposition on one candidate.
+   *
+   * The vocabulary is closed and holds no clinical conclusion: a reviewer
+   * says whether a proposal is worth looking at, not what it is.
+   */
+  app.patch(
+    "/api/candidates/:id/review",
+    auditLog('DETECTION_CANDIDATE_REVIEWED'),
+    requireAuth,
+    requireMedicalAccess,
+    requireCareRelationship(async (req) => {
+      const candidateId = parseInt(req.params.id, 10);
+      if (!Number.isInteger(candidateId)) return null;
+      const { getCandidate } = await import('./detection');
+      const candidate = await getCandidate(candidateId);
+      return candidate?.patientId ?? null;
+    }),
+    async (req: AuthenticatedRequest, res) => {
+      const candidateId = parseInt(req.params.id, 10);
+      if (!Number.isInteger(candidateId)) {
+        return res.status(400).json({ error: 'Invalid candidate id' });
+      }
+      const detection = await import('./detection');
+      const disposition = String(req.body?.disposition ?? '');
+      if (!detection.REVIEW_DISPOSITIONS.includes(disposition as any)) {
+        return res.status(400).json({
+          error:
+            `disposition must be one of ${detection.REVIEW_DISPOSITIONS.join(', ')}. ` +
+            'A review records whether the proposal is worth looking at, not what it is.',
+        });
+      }
+
+      const candidate = await detection.getCandidate(candidateId);
+      if (!candidate) return res.status(404).json({ error: 'Candidate not found' });
+
+      const updated = await detection.reviewCandidate({
+        candidateId,
+        disposition: disposition as any,
+        note: req.body?.note ?? null,
+        reviewerId: req.session!.user!.id,
+      });
+
+      return res.json({
+        id: updated.id,
+        review: {
+          disposition: updated.reviewDisposition,
+          note: updated.reviewNote,
+          reviewedAt: updated.reviewedAt,
+        },
+        note:
+          'This records a clinician disposition on a detector proposal. It is not a ' +
+          'diagnosis and does not characterise the location.',
+      });
+    }
+  );
+
   app.post("/api/scan/upload", auditLog('SCAN_SUBMITTED'), requireAuth, upload.single('image'), handleScanAnalysis);
   app.post("/api/scans/analyze", auditLog('SCAN_SUBMITTED'), requireAuth, upload.single('image'), handleScanAnalysis);
 

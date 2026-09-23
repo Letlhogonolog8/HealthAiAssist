@@ -208,9 +208,17 @@ const DECLARED: Capability[] = [
     input: 'A whole CT study',
     status: 'PLANNED',
     evidence:
-      'No detector exists. The LIDC-IDRI series, label pipeline and whole-slice OOD sets that ' +
-      'a detector would be validated against are on disk. Roadmap P2: adopt a pretrained ' +
-      'detector and re-validate per nodule against a pre-registered bar.',
+      'No detector exists: there is no trained checkpoint in this repository and none can be ' +
+      'trained on this hardware, which has no GPU. The engineering pipeline around the empty ' +
+      'model slot is built and tested — HU volume construction with a determined anatomical ' +
+      'polarity, a lung-region constraint, candidate proposal with millimetre-space ' +
+      'suppression, patient-space coordinates, run and candidate persistence, and a clinician ' +
+      'review vocabulary that holds no clinical conclusion. A detection request therefore ' +
+      'refuses with model_unavailable and records the refusal, which is deliberately ' +
+      'distinguishable from a searched study with no candidates. Promotion needs a checkpoint, ' +
+      'a pre-registered bar that somebody has approved, a defined localisation tolerance, ' +
+      'detector-specific OOD and calibration, and a per-nodule validation on a patient-disjoint ' +
+      'split. See docs/ML_CHANGE_PROCESS.md and docs/bars/p2.json.',
     phase: 'P2',
     scanType: null,
     modelClass: null,

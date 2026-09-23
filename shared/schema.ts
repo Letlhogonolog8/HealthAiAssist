@@ -1046,3 +1046,112 @@ export type Appointment = typeof appointments.$inferSelect;
 export type ChatMessage = typeof chatMessages.$inferSelect;
 export type InsertChatMessage = typeof chatMessages.$inferInsert;
 
+
+/**
+ * A detection run over one ingested series.
+ *
+ * The row exists so that three outcomes stay distinguishable: a complete run
+ * with no candidates (searched, nothing above the threshold), a refusal (not
+ * searched — out of distribution, failed gate, or no model), and a failure
+ * (something broke). Without it all three read as "no candidates", and an
+ * infrastructure failure looks like a normal negative result.
+ *
+ * Nothing here is a clinical conclusion. There is no malignancy, risk or
+ * priority column, and characterisation is a separate model reached only
+ * after a clinician reviews a candidate.
+ */
+export const detectionRuns = pgTable("detection_runs", {
+  id: serial("id").primaryKey(),
+  seriesId: integer("series_id").references(() => imagingSeries.id).notNull(),
+  /** Denormalised so an isolation check needs no join to be correct. */
+  patientId: integer("patient_id").references(() => users.id).notNull(),
+
+  /** 'queued' | 'running' | 'complete' | 'refused' | 'failed'. */
+  status: text("status").notNull().default("queued"),
+  /** Why it refused or failed. Null on a complete run. */
+  failureCode: text("failure_code"),
+  failureDetail: text("failure_detail"),
+  /** Null is not zero: zero means searched and clear, null means never got there. */
+  candidateCount: integer("candidate_count"),
+
+  detectorVersion: text("detector_version"),
+  detectorFingerprint: text("detector_fingerprint"),
+  preprocessingVersion: text("preprocessing_version"),
+  preprocessingFingerprint: text("preprocessing_fingerprint"),
+  detectionConfigFingerprint: text("detection_config_fingerprint"),
+  lungMaskVersion: text("lung_mask_version"),
+
+  /** 'passed' | 'refused' | 'unavailable'. No detector OOD reference exists yet. */
+  oodStatus: text("ood_status"),
+  oodScore: doublePrecision("ood_score"),
+  oodThreshold: doublePrecision("ood_threshold"),
+
+  /** 'applied' | 'unavailable'. No detector calibration artifact exists yet. */
+  calibrationStatus: text("calibration_status"),
+  calibrationVersion: text("calibration_version"),
+  calibrationFingerprint: text("calibration_fingerprint"),
+
+  volumeSlices: integer("volume_slices"),
+  volumeRows: integer("volume_rows"),
+  volumeColumns: integer("volume_columns"),
+  sliceSpacingMm: doublePrecision("slice_spacing_mm"),
+  slicePolarity: text("slice_polarity"),
+
+  requestedBy: integer("requested_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+}, (table) => ({
+  seriesIdx: index("idx_detection_runs_series").on(table.seriesId),
+  patientIdx: index("idx_detection_runs_patient").on(table.patientId),
+  statusIdx: index("idx_detection_runs_status").on(table.status),
+}));
+
+/**
+ * One proposed location. Never a finding.
+ *
+ * The score answers "would a radiologist have marked something here" — the
+ * only question the LIDC annotations support. It is not a malignancy
+ * probability, and `scoreCalibrated` stays null rather than echoing the raw
+ * score, because presenting an uncalibrated number as a probability is the
+ * thing calibration exists to prevent.
+ */
+export const detectionCandidates = pgTable("detection_candidates", {
+  id: serial("id").primaryKey(),
+  runId: integer("run_id").references(() => detectionRuns.id).notNull(),
+  seriesId: integer("series_id").references(() => imagingSeries.id).notNull(),
+  patientId: integer("patient_id").references(() => users.id).notNull(),
+
+  voxelI: doublePrecision("voxel_i").notNull(),
+  voxelJ: doublePrecision("voxel_j").notNull(),
+  voxelK: integer("voxel_k").notNull(),
+  xMm: doublePrecision("x_mm").notNull(),
+  yMm: doublePrecision("y_mm").notNull(),
+  zMm: doublePrecision("z_mm").notNull(),
+  /** Always 'dicom_patient_lps'. Stored, not implied. */
+  coordinateSystem: text("coordinate_system").notNull().default("dicom_patient_lps"),
+
+  /** The ordered slice a reviewer opens; not always equal to voxelK. */
+  positionIndex: integer("position_index").notNull(),
+
+  scoreRaw: doublePrecision("score_raw").notNull(),
+  scoreCalibrated: doublePrecision("score_calibrated"),
+  mergedFrom: integer("merged_from").notNull().default(1),
+
+  /** 'accepted' | 'rejected' | 'uncertain' | 'missed_candidate_added'. Null is unreviewed. */
+  reviewDisposition: text("review_disposition"),
+  reviewNote: text("review_note"),
+  reviewedBy: integer("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  runIdx: index("idx_detection_candidates_run").on(table.runId),
+  seriesIdx: index("idx_detection_candidates_series").on(table.seriesId),
+  patientIdx: index("idx_detection_candidates_patient").on(table.patientId),
+}));
+
+export type DetectionRun = typeof detectionRuns.$inferSelect;
+export type InsertDetectionRun = typeof detectionRuns.$inferInsert;
+export type DetectionCandidate = typeof detectionCandidates.$inferSelect;
+export type InsertDetectionCandidate = typeof detectionCandidates.$inferInsert;

@@ -386,3 +386,60 @@ export async function inferenceHealth(): Promise<
     };
   }
 }
+
+/**
+ * Whether a candidate detector is registered in the resident service.
+ *
+ * There is none: no trained checkpoint exists in this repository and none can
+ * be trained on this hardware. The call exists so the answer comes from the
+ * service rather than from an assumption baked into the Node side, and so
+ * that registering one later needs no change here.
+ *
+ * A failure to reach the service is reported as unavailable rather than
+ * thrown, because the caller's next move is the same either way: refuse the
+ * run and say so. What must never happen is an unreachable service producing
+ * an empty candidate list.
+ */
+export async function detectorStatus(): Promise<{
+  available: boolean;
+  version: string | null;
+  note: string | null;
+}> {
+  const base = baseUrl();
+  if (!base) {
+    return {
+      available: false,
+      version: null,
+      note: 'INFERENCE_URL is not configured, so no detector can be reached.',
+    };
+  }
+  try {
+    const response = await fetch(`${base}/healthz`, {
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) {
+      return { available: false, version: null, note: `The inference service answered ${response.status}.` };
+    }
+    const body: any = await response.json();
+    const detector = body?.models?.lung_detector;
+    if (!detector || !detector.available) {
+      return {
+        available: false,
+        version: detector?.version ?? null,
+        note:
+          detector?.note ??
+          'No candidate detector is registered. Detection refuses; it does not return an ' +
+            'empty candidate list.',
+      };
+    }
+    return { available: true, version: detector.version ?? null, note: null };
+  } catch (error) {
+    return {
+      available: false,
+      version: null,
+      note: `The inference service could not be reached: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    };
+  }
+}
