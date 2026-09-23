@@ -34,7 +34,17 @@
   "dataset": {
     "name": "LIDC-IDRI",
     "versionOnDisk": "manifest-1600709154662",
-    "seriesAvailableLocally": 228,
+    "patientsWithPixelDataLocally": 228,
+    "seriesWithPixelDataLocally": 229,
+    "dicomObjectsLocally": 37970,
+    "$seriesAvailableLocallyCorrection": "This field previously read 228 series. 228 is the PATIENT count; 229 series are on disk, one patient having two. Measured by scripts/lidc_series_availability.py.",
+    "availabilityIndex": "docs/splits/lidc-availability.json",
+    "localAvailabilityIsAThirdOfTheSplit": {
+      "note": "The split assigns all 748 series in the label table. 229 have pixel data here, so the usable size of every split is smaller than its assigned size, and it is the usable size that sets interval width.",
+      "seriesAvailable": { "train": 149, "validation": 27, "calibration": 21, "test": 32 },
+      "nodulesAvailable": { "train": 518, "validation": 90, "calibration": 88, "test": 126 },
+      "consequenceForTheProposedGate": "On the 126 test nodules available here, an observed sensitivity of 0.849 carries a 95% Wilson interval of 0.776-0.901 and an observed 0.897 carries 0.832-0.939. A 0.85 bar cannot be DEMONSTRATED as met at this sample size. See docs/P2_TRAINING_FEASIBILITY.md."
+    },
     "labelTable": "dataset/lidc-labels.csv",
     "labelTableNodules": 1703,
     "labelProvenance": "Radiologist malignancy ratings and ROI centroids, clustered across up to four readers. Impressions, not histology.",
@@ -50,10 +60,18 @@
   "splits": {
     "unit": "patient",
     "strategy": "Train, validation, calibration and test mutually patient-disjoint. Manifest and seed committed before training.",
-    "manifest": "NOT YET CREATED",
-    "seed": null,
+    "manifest": "docs/splits/lidc-split-v1.json",
+    "builtBy": "scripts/lidc_build_splits.py",
+    "seed": "healthai-lidc-split-v1",
+    "method": "HMAC-SHA256(seed, source LIDC patient id) -> [0,1), compared against cumulative bounds. Adding a patient moves only that patient, so two training runs stay comparable.",
+    "fingerprint": "f55f6cd5188ae3ee",
+    "patients": { "train": 474, "validation": 93, "calibration": 71, "test": 102 },
+    "nodules": { "train": 1083, "validation": 208, "calibration": 168, "test": 244 },
+    "leakageAudit": "clean — no patient, series or nodule in more than one split. Re-derived independently by audit_splits and reproducible with: python scripts/lidc_build_splits.py --audit-only",
+    "classBalanceIsNotStratified": "Malignant share runs from 30.3% (validation) to 41.1% (calibration). Assignment is hashed on patient identity and does not balance labels; stratifying would destroy the stability property above. Evaluation must account for this rather than assume matched prevalence.",
     "calibrationSplitDisjointFromTest": true,
-    "oodSplitDisjointFromTrain": true
+    "oodSplitDisjointFromTrain": true,
+    "note": "The manifest fixes WHO is in which set, before anyone can see a result and be tempted to move the line. It is not a measurement, and no detector has been trained on it."
   },
 
   "preprocessing": {
@@ -71,7 +89,8 @@
     "localisationTolerance": {
       "proposedRule": "A candidate matches a reference nodule when its centre lies within the reference nodule's radius.",
       "status": "BLOCKED",
-      "blockedBy": "Per-nodule diameters are not yet in dataset/lidc-labels.csv. scripts/lidc_extract_diameters.py derives them from reader contours; the aggregation convention must be agreed before this rule can be applied.",
+      "blockedBy": "The matching rule itself is undecided. The data blocker is cleared — scripts/lidc_extract_diameters.py measures 995 nodules across 207 series in three conventions — but which convention, which floor, and how duplicate and ambiguous matches resolve are owner decisions, recorded as STATUS: PENDING in docs/P2_LOCALIZATION_METHODOLOGY.md.",
+      "decisionRecord": "docs/P2_LOCALIZATION_METHODOLOGY.md",
       "note": "Any sensitivity figure quoted without a defined localisation tolerance is not interpretable."
     },
     "stratification": [
@@ -136,6 +155,24 @@
   "reproducibility": {
     "artifactFingerprint": "SHA-256, bound through server/model-governance.ts MEASUREMENT_BINDINGS",
     "requiresCommittedSplitManifest": true,
+    "splitManifestCommittedAt": "docs/splits/lidc-split-v1.json",
     "requiresReproductionCommand": true
+  },
+
+  "evaluationMachinery": {
+    "module": "inference/detection_eval.py",
+    "tests": "inference/tests/test_detection_eval.py",
+    "status": "IMPLEMENTED AND UNIT-TESTED ON SYNTHETIC GEOMETRY",
+    "hasEverBeenRunOnADetectorOutput": false,
+    "refusesWithoutAnApprovedRule": "rule_from_bar raises MethodologyUndecided while localisationTolerance.status is not APPROVED, so the pre-registration cannot be bypassed by an evaluator supplying its own tolerance.",
+    "note": "Engineering readiness. NOT model performance, NOT validation, NOT evidence that any figure can be produced."
+  },
+
+  "trainingFeasibility": {
+    "record": "docs/P2_TRAINING_FEASIBILITY.md",
+    "gpu": "none — torch 2.1.0+cpu, torch.cuda.is_available() False, 0 CUDA devices, Intel Iris Xe integrated",
+    "measuredThroughput": "2.3 patches/second on a 69,953-parameter toy 3D backbone at 96^3, batch 4",
+    "conclusion": "A detector cannot be trained on this hardware. Any P2 plan assuming training must first name where the compute comes from.",
+    "py310EnvironmentInstantiated": false
   }
 }

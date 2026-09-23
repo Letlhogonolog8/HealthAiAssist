@@ -106,18 +106,42 @@ evidence for that specific claim:
 - medical-grade performance
 - production readiness for clinical use
 
+## What exists around the empty slot
+
+None of this is evidence about a detector. It is the scaffolding that would
+have to be in place before a figure could mean anything, and it is listed here
+so that its presence is not mistaken for progress on the model itself.
+
+| | |
+|---|---|
+| Patient-disjoint splits | `docs/splits/lidc-split-v1.json`, seed `healthai-lidc-split-v1`, fingerprint `f55f6cd5188ae3ee`, leakage audit clean |
+| Local availability | `docs/splits/lidc-availability.json` — 229 of 748 series have pixel data here; the test split holds **126** nodules, not 244 |
+| Evaluation arithmetic | `inference/detection_eval.py` — FROC, Wilson intervals, one-to-one matching, exclusion accounting. Never run on a detector output |
+| Pre-registration | `docs/bars/p2.json`, `DRAFT_NOT_APPROVED` |
+
+On 126 test nodules an observed sensitivity of 0.849 would carry a 95%
+interval of 0.776–0.901, so **the available test split cannot demonstrate that
+a 0.85 bar was met**. That is a property of the sample size, known before any
+detector exists; it is not a result.
+
 ## Blocked before any evaluation can mean anything
 
 1. **Localisation tolerance is undefined.** Deciding whether a candidate *is*
    a given reference nodule needs a rule. The sizes now exist in three forms —
    max in-plane diameter, equivalent-area diameter, slice span — and which one
    defines the tolerance is a methodology decision nobody has made. A
-   sensitivity figure quoted without it is not interpretable.
+   sensitivity figure quoted without it is not interpretable. The options and
+   the eight dimensions a decision must settle are in
+   `docs/P2_LOCALIZATION_METHODOLOGY.md`, **STATUS: PENDING**.
 2. **The performance bar is unapproved.** `docs/bars/p2.json` records
    `≥0.85 sensitivity at ≤4 FP/scan` as `approved: false`. It appears in the
    roadmap as an example, not a derivation, and is not an established clinical
    threshold.
-3. **No training infrastructure.** No GPU.
+3. **No training infrastructure.** No GPU: torch 2.1.0+cpu,
+   `torch.cuda.is_available()` False, 0 CUDA devices, Intel Iris Xe
+   integrated, 7.8 GB RAM. Measured on a 69,953-parameter toy 3D backbone at
+   96³: 2.3 patches per second. A real 3D detector is two to three orders of
+   magnitude more work. `docs/P2_TRAINING_FEASIBILITY.md`.
 4. **No detector OOD reference.** The characteriser's cannot be reused: it is
    fitted on 224×224 RGB patch features, not volumes.
 5. **No detector calibration.** A detector confidence and a malignancy
