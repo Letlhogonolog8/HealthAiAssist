@@ -270,9 +270,36 @@ export const imagingSeries = pgTable("imaging_series", {
 
   rows: integer("rows"),
   columns: integer("columns"),
+  /**
+   * The first DICOM PixelSpacing value only. Kept for the rows written before
+   * the geometry migration; new code reads pixelSpacingRowMm / ColMm, which
+   * say which is which.
+   */
   pixelSpacingMm: doublePrecision("pixel_spacing_mm"),
   sliceThicknessMm: doublePrecision("slice_thickness_mm"),
   medianSpacingMm: doublePrecision("median_spacing_mm"),
+
+  /**
+   * The geometry a coordinate system is built from. Without these a voxel
+   * cannot be placed in the patient: the orientation gives the image plane,
+   * the two spacings give the step along each in-plane axis, and the
+   * per-instance ImagePositionPatient gives each slice's origin.
+   */
+  imageOrientationPatient: text("image_orientation_patient"),
+  pixelSpacingRowMm: doublePrecision("pixel_spacing_row_mm"),
+  pixelSpacingColMm: doublePrecision("pixel_spacing_col_mm"),
+
+  /**
+   * 'feet_to_head' | 'indeterminate'. Which anatomical direction increasing
+   * slice index runs in. A volume must refuse 'indeterminate': it would not
+   * know which end of its z axis is the head, and a mirrored volume is
+   * undetectable downstream.
+   */
+  slicePolarity: text("slice_polarity"),
+  /** Whether the raw order was reversed to meet that convention. */
+  slicePolarityNormalised: boolean("slice_polarity_normalised"),
+  /** The unit slice normal used, after any reversal. JSON array of three. */
+  sliceNormal: text("slice_normal"),
   manufacturer: text("manufacturer"),
   manufacturerModel: text("manufacturer_model"),
   convolutionKernel: text("convolution_kernel"),
@@ -301,6 +328,14 @@ export const imagingInstances = pgTable("imaging_instances", {
   sopUid: text("sop_uid").notNull(),
   /** ImagePositionPatient projected onto the slice normal, in millimetres. */
   positionMm: doublePrecision("position_mm"),
+  /**
+   * ImagePositionPatient itself: this slice's origin in patient LPS
+   * millimetres, which is what `positionMm` was projected from. The
+   * projection orders slices; only the full vector can place one.
+   */
+  ippX: doublePrecision("ipp_x"),
+  ippY: doublePrecision("ipp_y"),
+  ippZ: doublePrecision("ipp_z"),
   /** Where the de-identified object is stored. Never the upload. */
   objectPath: text("object_path"),
   createdAt: timestamp("created_at").defaultNow().notNull(),

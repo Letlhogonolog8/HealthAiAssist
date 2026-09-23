@@ -590,6 +590,12 @@ def ingest_series(files: List[UploadFile] = File(...)) -> Any:
             "medianSpacingMm": round(abs(ordering.median_spacing), 4)
             if ordering.median_spacing is not None
             else None,
+            # Which anatomical direction increasing slice index runs in, and
+            # whether the raw order was reversed to get there. A volume
+            # builder must refuse 'indeterminate'.
+            "polarity": ordering.polarity,
+            "polarityNormalised": ordering.polarity_normalised,
+            "normal": list(ordering.normal) if ordering.normal else None,
         },
         "qualityGate": gate.as_dict(),
         "instanceCount": len(ordering.ordered),
@@ -603,6 +609,13 @@ def ingest_series(files: List[UploadFile] = File(...)) -> Any:
             "rows": first.rows,
             "columns": first.columns,
             "pixelSpacingMm": list(first.pixel_spacing) if first.pixel_spacing else None,
+            # Split out, because DICOM PixelSpacing is (between rows, between
+            # columns) and a caller holding one number cannot tell which.
+            "pixelSpacingRowMm": first.pixel_spacing[0] if first.pixel_spacing else None,
+            "pixelSpacingColMm": first.pixel_spacing[1] if first.pixel_spacing else None,
+            "imageOrientationPatient": list(first.image_orientation)
+            if first.image_orientation
+            else None,
             "sliceThicknessMm": first.slice_thickness,
             "manufacturer": first.manufacturer,
             "manufacturerModel": first.manufacturer_model,
@@ -643,6 +656,13 @@ def ingest_series(files: List[UploadFile] = File(...)) -> Any:
                         "studyInstanceUid": uids.get("studyInstanceUid"),
                         "positionMm": round(meta.projected_position, 4)
                         if meta.projected_position is not None
+                        else None,
+                        # The slice's origin in patient LPS millimetres. The
+                        # projection above orders the slices; only this places
+                        # one, and a candidate coordinate is unanchored
+                        # without it.
+                        "imagePositionPatient": list(meta.image_position)
+                        if meta.image_position
                         else None,
                         "object": base64.b64encode(deidentified).decode(),
                     }

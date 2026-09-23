@@ -195,7 +195,15 @@ export async function deidentifyDicom(
 /** One event from the series ingestion stream. */
 export type SeriesIngestEvent =
   | { kind: 'manifest'; manifest: SeriesManifest }
-  | { kind: 'instance'; index: number; sopInstanceUid: string; positionMm: number | null; object: Buffer }
+  | {
+      kind: 'instance';
+      index: number;
+      sopInstanceUid: string;
+      positionMm: number | null;
+      /** The slice's origin in patient LPS millimetres, or null if absent. */
+      imagePositionPatient: [number, number, number] | null;
+      object: Buffer;
+    }
   | { kind: 'failed'; index: number; reason: string }
   | { kind: 'complete'; instanceCount: number };
 
@@ -210,6 +218,10 @@ export interface SeriesManifest {
     problems: string[];
     warnings: string[];
     medianSpacingMm: number | null;
+    /** 'feet_to_head' | 'indeterminate'. A volume must refuse the latter. */
+    polarity: string;
+    polarityNormalised: boolean;
+    normal: [number, number, number] | null;
   };
   qualityGate: {
     passed: boolean;
@@ -226,6 +238,9 @@ export interface SeriesManifest {
     rows: number;
     columns: number;
     pixelSpacingMm: number[] | null;
+    pixelSpacingRowMm: number | null;
+    pixelSpacingColMm: number | null;
+    imageOrientationPatient: number[] | null;
     sliceThicknessMm: number | null;
     manufacturer: string;
     manufacturerModel: string;
@@ -334,6 +349,7 @@ export async function* ingestDicomSeries(
           index: payload.index,
           sopInstanceUid: payload.sopInstanceUid,
           positionMm: payload.positionMm ?? null,
+          imagePositionPatient: payload.imagePositionPatient ?? null,
           object: Buffer.from(String(payload.object), 'base64'),
         };
       } else if (payload.event === 'instance_failed') {

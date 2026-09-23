@@ -5034,8 +5034,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
             rows: series.rows,
             columns: series.columns,
             pixelSpacingMm: series.pixelSpacingMm,
+            pixelSpacingRowMm: series.pixelSpacingRowMm,
+            pixelSpacingColMm: series.pixelSpacingColMm,
+            imageOrientationPatient: series.imageOrientationPatient
+              ? JSON.parse(series.imageOrientationPatient)
+              : null,
             sliceThicknessMm: series.sliceThicknessMm,
             medianSpacingMm: series.medianSpacingMm,
+            // Which anatomical direction increasing slice index runs in.
+            // 'indeterminate' means a volume must not be built from this
+            // series: it would not know which end of its z axis is the head.
+            slicePolarity: series.slicePolarity,
+            slicePolarityNormalised: series.slicePolarityNormalised,
+            sliceNormal: series.sliceNormal ? JSON.parse(series.sliceNormal) : null,
           },
           acquisition: {
             manufacturer: series.manufacturer,

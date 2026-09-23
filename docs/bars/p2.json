@@ -1,0 +1,141 @@
+{
+  "$comment": [
+    "Pre-registration for P2 nodule detection. Written BEFORE any detector",
+    "exists, so that the acceptance criteria cannot be chosen after seeing a",
+    "result. See docs/ML_CHANGE_PROCESS.md.",
+    "",
+    "Nothing in this file is a measurement. Every target carries its own",
+    "status, and none of them has been approved or justified against an",
+    "external benchmark yet."
+  ],
+  "modelChangeId": "p2-nodule-detection",
+  "phase": "P2",
+  "registryKey": null,
+  "status": "DRAFT_NOT_APPROVED",
+  "createdOn": "2026-09-23",
+  "supersedes": null,
+
+  "intendedUse": {
+    "answers": "Locations in a chest CT series where a radiologist would likely have marked a nodule, offered as candidates for review.",
+    "doesNotAnswer": "Whether a nodule is malignant, whether the patient has cancer, and how large a nodule is. Malignancy is a separate model with its own evidence; size is P3.",
+    "route": "Candidate generator for the existing lung nodule characteriser. Never an autonomous output."
+  },
+
+  "predictedEvent": {
+    "definition": "P(a radiologist marked a nodule at this location | this candidate)",
+    "notTheSameAs": [
+      "per-scan sensitivity",
+      "false positives per scan",
+      "malignancy probability",
+      "clinical risk"
+    ]
+  },
+
+  "dataset": {
+    "name": "LIDC-IDRI",
+    "versionOnDisk": "manifest-1600709154662",
+    "seriesAvailableLocally": 228,
+    "labelTable": "dataset/lidc-labels.csv",
+    "labelTableNodules": 1703,
+    "labelProvenance": "Radiologist malignancy ratings and ROI centroids, clustered across up to four readers. Impressions, not histology.",
+    "licence": "CC BY 3.0 — recorded in dataset/lung_nodule_model/lung_nodule_training.json",
+    "luna16": {
+      "present": false,
+      "status": "NOT CURRENTLY IN REPOSITORY",
+      "decision": "REQUIRES PROJECT DECISION",
+      "ifUsed": "Overlap with local LIDC series must be excluded before evaluation, joined on SOURCE SeriesInstanceUIDs from the dataset manifests. The platform's stored UIDs are salted HMAC remaps and must not be the join key."
+    }
+  },
+
+  "splits": {
+    "unit": "patient",
+    "strategy": "Train, validation, calibration and test mutually patient-disjoint. Manifest and seed committed before training.",
+    "manifest": "NOT YET CREATED",
+    "seed": null,
+    "calibrationSplitDisjointFromTest": true,
+    "oodSplitDisjointFromTrain": true
+  },
+
+  "preprocessing": {
+    "version": "NOT YET DEFINED",
+    "note": "Detector preprocessing is HU-based and is NOT the 8-bit lung-windowed render the characteriser uses (CT_LUNG_WINDOW -600/1500 in inference/dicom_ingest.py). Reusing that render for a detector would repeat the class of defect that withdrew the legacy lung model.",
+    "resampleSpacingMm": "REQUIRES EMPIRICAL SELECTION",
+    "patchSizePx": "REQUIRES EMPIRICAL SELECTION",
+    "stridePx": "REQUIRES EMPIRICAL SELECTION"
+  },
+
+  "metrics": {
+    "primary": "per-nodule sensitivity at a stated false-positives-per-scan operating point",
+    "curve": "FROC",
+    "confidenceIntervals": "Wilson, on every reported proportion",
+    "localisationTolerance": {
+      "proposedRule": "A candidate matches a reference nodule when its centre lies within the reference nodule's radius.",
+      "status": "BLOCKED",
+      "blockedBy": "Per-nodule diameters are not yet in dataset/lidc-labels.csv. scripts/lidc_extract_diameters.py derives them from reader contours; the aggregation convention must be agreed before this rule can be applied.",
+      "note": "Any sensitivity figure quoted without a defined localisation tolerance is not interpretable."
+    },
+    "stratification": [
+      "nodule size",
+      "slice thickness",
+      "reconstruction kernel",
+      "central versus peripheral"
+    ],
+    "stratificationNotPossible": {
+      "demographics": "LIDC records sex for 29% of patients, age for 20%, ethnic group for 4%. A demographic breakdown is not possible from this dataset and must be reported as such rather than omitted."
+    }
+  },
+
+  "proposedGate": {
+    "sensitivity": 0.85,
+    "falsePositivesPerScan": 4,
+    "status": "PROPOSED — REQUIRES PROJECT DECISION OR EXTERNAL BENCHMARK JUSTIFICATION",
+    "source": "Appears as an example ('e.g.') in docs/AUDIT_AND_ROADMAP_2026-09-20.md Part B2.",
+    "isNotAnEstablishedThreshold": true,
+    "isNotRegulatorilyDerived": true,
+    "isNotBenchmarkJustified": true,
+    "approval": {
+      "approved": false,
+      "approvedBy": null,
+      "approvedOn": null,
+      "justification": null
+    },
+    "ifMissed": "Do not ship candidates. The roadmap's stated fallback is that P2 stops at 'candidates not shown' and the pipeline stays at route 1. Lowering the bar after measuring is not an option."
+  },
+
+  "calibration": {
+    "method": "temperature scaling, as scripts/calibrate-model.py already implements",
+    "reportedMetrics": ["ECE", "Brier"],
+    "split": "patient-disjoint from train and test",
+    "status": "NOT YET PERFORMED"
+  },
+
+  "ood": {
+    "requirement": "Both directions, with pre-set bars, as scripts/build-ood-reference.py already enforces.",
+    "acceptDomains": ["held-out LIDC chest CT series"],
+    "refuseDomains": ["non-chest CT", "non-CT modalities", "series failing the geometry or quality gate"],
+    "existingReferenceReusable": false,
+    "note": "The characteriser's reference is fitted on 224x224 RGB patch features and cannot be reused for volumes.",
+    "status": "NOT YET BUILT"
+  },
+
+  "validationState": {
+    "current": "not started",
+    "highestClaimableOnCompletion": "research / internal validation",
+    "prohibitedClaims": [
+      "clinically validated",
+      "clinically safe",
+      "production-ready for clinical use",
+      "medical-grade",
+      "radiologist-level",
+      "detects cancer",
+      "diagnoses lung cancer",
+      "high risk"
+    ]
+  },
+
+  "reproducibility": {
+    "artifactFingerprint": "SHA-256, bound through server/model-governance.ts MEASUREMENT_BINDINGS",
+    "requiresCommittedSplitManifest": true,
+    "requiresReproductionCommand": true
+  }
+}

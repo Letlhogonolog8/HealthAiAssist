@@ -1,0 +1,27 @@
+# Training and validation environment, Python >= 3.10.
+#
+# NOT the inference service. See inference/py310/README.md for why there are
+# two environments and what must never cross between them.
+#
+# This file is nearly empty on purpose. The P2 detector has not been chosen,
+# so its dependencies are not knowable, and installing a machine-learning
+# stack against the possibility of needing it would mean carrying licence,
+# supply-chain and maintenance obligations for libraries nothing imports.
+#
+# Adding a line here is a decision that belongs in docs/ML_CHANGE_PROCESS.md:
+# the package, what needs it, its licence, and — for anything shipping
+# pretrained weights — the licence of those weights and of the data they were
+# trained on.
+#
+# Deliberately absent until something needs them:
+#   SimpleITK / nibabel   volume I/O and resampling
+#   monai                 detection models and transforms
+#   scikit-image          connected components, morphology
+#   onnxruntime           portable CPU inference
+#   pylidc                LIDC access — the XML is parsed directly instead
+
+# Enough to run the offline scripts and their tests under 3.10, matching the
+# versions the 3.8 environment already uses.
+pydicom==2.4.4
+numpy>=1.24,<2
+pytest>=7.4

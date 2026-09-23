@@ -178,7 +178,13 @@ export async function ingestSeries(options: {
   }
 
   let manifest: SeriesManifest | null = null;
-  const stored: Array<{ index: number; sopUid: string; positionMm: number | null; objectPath: string }> = [];
+  const stored: Array<{
+    index: number;
+    sopUid: string;
+    positionMm: number | null;
+    imagePositionPatient: [number, number, number] | null;
+    objectPath: string;
+  }> = [];
 
   try {
     for await (const event of ingestDicomSeries(filePaths)) {
@@ -196,6 +202,7 @@ export async function ingestSeries(options: {
           index: event.index,
           sopUid: event.sopInstanceUid,
           positionMm: event.positionMm,
+          imagePositionPatient: event.imagePositionPatient,
           objectPath: await storeObject(event.object, name),
         });
         continue;
@@ -328,6 +335,20 @@ export async function ingestSeries(options: {
           rows: manifest!.series.rows,
           columns: manifest!.series.columns,
           pixelSpacingMm: manifest!.series.pixelSpacingMm?.[0] ?? null,
+          // The geometry a coordinate system is built from. Stored as JSON
+          // text for the vectors, following the qualityGate precedent in this
+          // table, and as separate columns for the two spacings so that
+          // neither can be mistaken for the other.
+          imageOrientationPatient: manifest!.series.imageOrientationPatient
+            ? JSON.stringify(manifest!.series.imageOrientationPatient)
+            : null,
+          pixelSpacingRowMm: manifest!.series.pixelSpacingRowMm ?? null,
+          pixelSpacingColMm: manifest!.series.pixelSpacingColMm ?? null,
+          slicePolarity: manifest!.ordering.polarity,
+          slicePolarityNormalised: manifest!.ordering.polarityNormalised,
+          sliceNormal: manifest!.ordering.normal
+            ? JSON.stringify(manifest!.ordering.normal)
+            : null,
           sliceThicknessMm: manifest!.series.sliceThicknessMm,
           medianSpacingMm: manifest!.ordering.medianSpacingMm,
           manufacturer: manifest!.series.manufacturer,
@@ -347,6 +368,9 @@ export async function ingestSeries(options: {
           positionIndex: instance.index,
           sopUid: instance.sopUid,
           positionMm: instance.positionMm,
+          ippX: instance.imagePositionPatient?.[0] ?? null,
+          ippY: instance.imagePositionPatient?.[1] ?? null,
+          ippZ: instance.imagePositionPatient?.[2] ?? null,
           objectPath: instance.objectPath,
         }))
       );
@@ -427,6 +451,11 @@ export async function getSeries(seriesId: number) {
       positionIndex: imagingInstances.positionIndex,
       sopUid: imagingInstances.sopUid,
       positionMm: imagingInstances.positionMm,
+      // The slice origin, so a caller holding a candidate coordinate can
+      // place it without re-reading the stored objects.
+      ippX: imagingInstances.ippX,
+      ippY: imagingInstances.ippY,
+      ippZ: imagingInstances.ippZ,
     })
     .from(imagingInstances)
     .where(eq(imagingInstances.seriesId, seriesId))

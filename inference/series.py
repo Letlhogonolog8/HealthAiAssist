@@ -41,6 +41,36 @@ from typing import Any, Iterable
 # acquisition; a different acquisition moves them a great deal more.
 ORIENTATION_TOLERANCE = 1e-3
 
+# ── Polarity: which end of the ordered series is the patient's head ────────
+#
+# Sorting by the projection onto the slice normal puts the slices in
+# anatomical order, and says nothing about which direction that order runs in.
+# The normal is the cross product of the two direction cosines, so its sign
+# follows how the acquisition happened to be described — reverse the row and
+# column cosines and the same anatomy orders the other way round.
+#
+# That is not a detail a volume can be built on. A volume assembled with the
+# polarity inverted is a superior-inferior mirror of the patient: a candidate
+# reported in the right upper lobe is shown in the right lower lobe, and
+# nothing downstream can detect it, because every slice is individually valid
+# and the spacing is uniform either way.
+#
+# DICOM PS3.3 C.7.6.2.1.1 fixes the patient coordinate system as LPS, so +z is
+# towards the head. The convention here is therefore: **index 0 is the most
+# inferior slice and the index increases towards the head**, obtained by
+# orienting the normal so its z component is positive. Whether that required
+# reversing the raw order is recorded rather than done quietly.
+POLARITY_FEET_TO_HEAD = "feet_to_head"
+POLARITY_INDETERMINATE = "indeterminate"
+
+# Below this, the slice normal lies in the axial plane and the through-plane
+# direction is not superior-inferior at all — a coronal or sagittal
+# acquisition. There is no head end to find, so polarity is reported as
+# indeterminate rather than resolved by rounding a number that is nearly zero.
+# The value is small because the quantity is a unit-vector component: anything
+# above it is a real, if oblique, superior-inferior direction.
+POLARITY_MIN_Z_COMPONENT = 0.01
+
 # Two slices closer together than this along the normal are at the same
 # position: a duplicate, not a thin slice. Well under any real reconstruction
 # interval (the thinnest in the LIDC-IDRI subset is 1.0 mm).
@@ -94,6 +124,21 @@ class OrderingResult:
     warnings: list[str] = field(default_factory=list)
     spacings: list[float] = field(default_factory=list)
     median_spacing: float | None = None
+
+    # Which anatomical direction the ordered index runs in, and how it was
+    # arrived at. Separate from `trusted` on purpose: a coronal series can be
+    # ordered perfectly well and still have no superior-inferior polarity, so
+    # conflating the two would refuse a correctly ordered series. A volume
+    # builder needs both — it must refuse `indeterminate`, because it has to
+    # know which end of its z axis is the head.
+    polarity: str = POLARITY_INDETERMINATE
+    # True when the raw projection order ran head-to-feet and was reversed to
+    # meet the convention. Recorded so the decision is inspectable rather than
+    # silent.
+    polarity_normalised: bool = False
+    # The unit slice normal the ordering actually used, after any reversal.
+    # This is the volume's +z direction in patient LPS millimetres.
+    normal: tuple[float, float, float] | None = None
 
 
 def _as_float_tuple(value: Any, length: int) -> tuple[float, ...] | None:
@@ -313,6 +358,9 @@ def order_slices(instances: list[InstanceMeta]) -> OrderingResult:
     """
     problems: list[str] = []
     warnings: list[str] = []
+    polarity = POLARITY_INDETERMINATE
+    polarity_normalised = False
+    unit: tuple[float, ...] | None = None
 
     with_geometry = [i for i in instances if i.image_position and i.image_orientation]
 
@@ -341,6 +389,27 @@ def order_slices(instances: list[InstanceMeta]) -> OrderingResult:
             return OrderingResult(ordered, "instance_number", False, problems, warnings)
 
         unit = tuple(component / magnitude for component in normal)
+
+        # Orient the normal towards the patient's head, so index 0 is the most
+        # inferior slice whichever way round the acquisition described itself.
+        if abs(unit[2]) >= POLARITY_MIN_Z_COMPONENT:
+            polarity = POLARITY_FEET_TO_HEAD
+            if unit[2] < 0:
+                unit = tuple(-component for component in unit)
+                polarity_normalised = True
+                warnings.append(
+                    "The slice normal pointed towards the feet, so the ordering was reversed "
+                    "to run inferior to superior. The anatomy is unchanged; only the index "
+                    "direction is."
+                )
+        else:
+            warnings.append(
+                "The slice normal lies in the axial plane, so this series has no "
+                "superior-inferior direction to order by — it is a coronal or sagittal "
+                "acquisition. The ordering is still geometric and reproducible, but a volume "
+                "cannot be built from it without a polarity."
+            )
+
         for instance in instances:
             instance.projected_position = sum(
                 p * n for p, n in zip(instance.image_position, unit)  # type: ignore[arg-type]
@@ -404,4 +473,9 @@ def order_slices(instances: list[InstanceMeta]) -> OrderingResult:
         warnings=warnings,
         spacings=spacings,
         median_spacing=median_spacing,
+        polarity=polarity,
+        polarity_normalised=polarity_normalised,
+        # Rounded so two assemblies of the same series produce byte-identical
+        # values to persist and compare, rather than differing in the last bit.
+        normal=tuple(round(component, 9) for component in unit) if unit else None,  # type: ignore[arg-type]
     )
