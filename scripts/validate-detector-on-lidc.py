@@ -105,14 +105,52 @@ def detector_available() -> tuple[bool, str]:
 
 
 def tolerance_defined(bar: dict) -> tuple[bool, str]:
-    tolerance = bar.get("metrics", {}).get("localisationTolerance", {})
-    status = tolerance.get("status", "UNKNOWN")
-    if status != "BLOCKED":
-        return True, status
-    return False, tolerance.get(
-        "blockedBy",
-        "the localisation tolerance is not defined in docs/bars/p2.json.",
-    )
+    """Asks the evaluator itself, rather than re-reading the bar separately.
+
+    inference/detection_eval.rule_from_bar is the only thing that turns the
+    pre-registration into a usable rule, and it refuses while the tolerance is
+    unsettled. Consulting it here means this script and the evaluation agree
+    by construction instead of by coincidence.
+    """
+    sys.path.insert(0, os.path.join(ROOT, "inference"))
+    try:
+        import detection_eval  # noqa: PLC0415
+    except Exception as exc:  # noqa: BLE001
+        return False, f"the evaluation machinery could not be imported: {exc}"
+    try:
+        rule = detection_eval.rule_from_bar()
+    except detection_eval.MethodologyUndecided as exc:
+        return False, str(exc)
+    return True, json.dumps(rule.describe())
+
+
+def evaluation_machinery() -> dict:
+    """What exists to compute with, kept separate from what has been computed.
+
+    The FROC arithmetic, the Wilson intervals, the one-to-one matching and the
+    exclusion accounting are implemented and unit-tested on synthetic geometry.
+    That is engineering readiness and nothing else: the module has never seen a
+    detector output, because there is no detector.
+    """
+    return {
+        "module": "inference/detection_eval.py",
+        "tests": "inference/tests/test_detection_eval.py",
+        "implemented": [
+            "one-to-one greedy nearest-first candidate matching",
+            "per-nodule sensitivity with Wilson 95% intervals",
+            "false positives per scan over searched scans only",
+            "FROC sweep over thresholds candidates actually carried",
+            "operating point selection without interpolation",
+            "scan accounting that keeps evaluated, OOD-refused, quality-refused, "
+            "failed and not-run apart",
+            "stratification by any scan-level attribute",
+        ],
+        "hasEverBeenRunOnADetectorOutput": False,
+        "note": (
+            "Tested on synthetic geometry invented in the tests. This is engineering "
+            "readiness, not model performance and not clinical validation."
+        ),
+    }
 
 
 def bar_approved(bar: dict) -> tuple[bool, str]:
@@ -156,6 +194,8 @@ def main() -> int:
         "blockers": blockers,
         "referenceNodulesAvailable": nodules,
         "referencePatientsAvailable": patients,
+        "evaluationMachinery": evaluation_machinery(),
+        "splitManifest": bar.get("splits", {}).get("manifest"),
         "proposedGate": {
             "sensitivity": bar.get("proposedGate", {}).get("sensitivity"),
             "falsePositivesPerScan": bar.get("proposedGate", {}).get("falsePositivesPerScan"),
@@ -186,6 +226,9 @@ def main() -> int:
             print(f"    {blocker['detail']}")
             print()
         print(f"reference nodules available locally: {nodules} across {patients} patients")
+        print(f"split manifest: {report['splitManifest']}")
+        print("evaluation machinery: implemented and unit-tested "
+              "(inference/detection_eval.py); never run on a detector output")
         print(f"proposed gate: {report['proposedGate']['sensitivity']} sensitivity at "
               f"<= {report['proposedGate']['falsePositivesPerScan']} FP/scan")
         print(f"  approved: {approved} — {approval_note}")
