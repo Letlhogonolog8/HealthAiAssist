@@ -30,7 +30,7 @@
  * refusal. That is deliberately indistinguishable in shape from a future real
  * refusal and completely distinguishable from a clear study.
  */
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt } from 'drizzle-orm';
 
 import { db } from './db';
 import {
@@ -133,8 +133,56 @@ export function seriesReadiness(series: any): { ready: boolean; code?: string; m
   return { ready: true };
 }
 
-/** The run in flight for a series, if there is one. */
+/**
+ * How long a run may stay queued or running before it is presumed abandoned.
+ *
+ * Searching a CT volume is minutes of CPU, so thirty is generous for the work
+ * and short enough that a crash does not strand a series for a shift.
+ */
+export const STALE_RUN_AFTER_MS =
+  Number.parseInt(process.env.DETECTION_STALE_RUN_MS ?? '', 10) || 30 * 60 * 1000;
+
+/**
+ * Marks runs that were left in flight as failed, and says how many.
+ *
+ * Without this a crash between creating a run and finishing it strands the
+ * series permanently: the partial unique index refuses any new in-flight run,
+ * so every later request answers 409 forever and the only remedy is manual
+ * SQL. Found by audit — a `queued` row was inserted directly and the next
+ * insert was rejected by the constraint, with no path back.
+ *
+ * Reaped as `failed` rather than deleted, because the run genuinely did fail
+ * and erasing the evidence would make a crash look like it never happened.
+ * `abandoned` distinguishes it from a run that failed while actually working.
+ */
+export async function reapStaleRuns(seriesId: number): Promise<number> {
+  const cutoff = new Date(Date.now() - STALE_RUN_AFTER_MS);
+  const reaped = await (db as any)
+    .update(detectionRuns)
+    .set({
+      status: RUN_FAILED,
+      failureCode: 'abandoned',
+      failureDetail:
+        `The run was still ${RUN_QUEUED}/${RUN_RUNNING} after ` +
+        `${Math.round(STALE_RUN_AFTER_MS / 60000)} minutes and was presumed abandoned. ` +
+        'Nothing was searched and no conclusion about the study follows from it.',
+      candidateCount: null,
+      completedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(detectionRuns.seriesId, seriesId),
+        inArray(detectionRuns.status, IN_FLIGHT_STATUSES),
+        lt(detectionRuns.createdAt, cutoff)
+      )
+    )
+    .returning();
+  return reaped.length;
+}
+
+/** The run in flight for a series, if there is one. Reaps stale runs first. */
 export async function inFlightRun(seriesId: number): Promise<DetectionRun | null> {
+  await reapStaleRuns(seriesId);
   const [run] = await (db as any)
     .select()
     .from(detectionRuns)

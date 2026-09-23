@@ -66,6 +66,19 @@ MIN_COMPONENT_FRACTION = 0.005
 # cost of admitting some chest wall. Erring towards including a true finding.
 DILATION_VOXELS = 3
 
+# Real CT carries a padding value outside the reconstruction circle — the
+# corners of the frame, where no measurement was made. LIDC writes -2048 there;
+# other scanners use -3024. It is not air and not anatomy, and a candidate
+# proposed in it would be anatomically impossible.
+#
+# The threshold already excludes it, but the dilation below grows back into it:
+# measured on a real 45-slice LIDC series, 7,836 voxels of padding ended up
+# inside the mask, 0.6% of it. Small, and still a hole in exactly the thing
+# this module exists to provide. The floor sits below any real air — lung is
+# around -800, air in the trachea and outside the body around -1000 to -1024 —
+# so removing everything under it cost zero lung-band voxels on that series.
+OUT_OF_FIELD_HU = -1100.0
+
 # Below this fraction of the volume the result is not plausibly two lungs, and
 # saying so is better than handing a detector a mask that excludes the organ.
 MIN_LUNG_FRACTION = 0.01
@@ -281,12 +294,26 @@ def build_lung_mask(
         )
 
     grown = _dilate(keep, dilation_voxels)
+
+    # Growing the mask must not grow it out of the reconstruction circle. The
+    # chest wall the dilation is there to include is dense — well above this
+    # floor — so nothing the dilation exists for is lost.
+    out_of_field = array < OUT_OF_FIELD_HU
+    reclaimed = int((grown & out_of_field).sum())
+    grown = grown & ~out_of_field
+
     grown_fraction = float(grown.sum()) / float(grown.size)
     if dilation_voxels:
         warnings.append(
             f"The mask was grown by {dilation_voxels} voxels in plane so that a nodule "
             "against the pleura is not excluded by the threshold. It therefore includes "
             "some chest wall and is not an organ boundary."
+        )
+    if reclaimed:
+        warnings.append(
+            f"{reclaimed} voxel(s) of out-of-field padding were removed from the grown mask. "
+            "Outside the reconstruction circle nothing was measured, so a candidate there "
+            "would be anatomically impossible."
         )
 
     return LungMask(

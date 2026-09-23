@@ -402,6 +402,9 @@ export async function inferenceHealth(): Promise<
  */
 export async function detectorStatus(): Promise<{
   available: boolean;
+  /** False when the service could not be reached at all, as opposed to
+   *  answering that it has no detector. Different operational states. */
+  reachable: boolean;
   version: string | null;
   note: string | null;
 }> {
@@ -409,22 +412,40 @@ export async function detectorStatus(): Promise<{
   if (!base) {
     return {
       available: false,
+      reachable: false,
       version: null,
       note: 'INFERENCE_URL is not configured, so no detector can be reached.',
     };
   }
   try {
+    // Generous, because /healthz is not cheap: it re-hashes three 92 MB model
+    // artifacts on every call to report their fingerprints. Measured warm on
+    // this machine at 4.0-4.4 s, and slower on a cold file cache.
+    //
+    // A five-second budget sat directly on top of that and turned a running
+    // service into "unreachable", which is a different operational state
+    // entirely and would have sent an operator looking for a downed process.
+    // The endpoint's cost is a separate, pre-existing problem; this only has
+    // to not trip over it.
     const response = await fetch(`${base}/healthz`, {
-      signal: AbortSignal.timeout(5_000),
+      signal: AbortSignal.timeout(
+        Number.parseInt(process.env.INFERENCE_HEALTHZ_TIMEOUT_MS ?? '', 10) || 15_000
+      ),
     });
     if (!response.ok) {
-      return { available: false, version: null, note: `The inference service answered ${response.status}.` };
+      return {
+        available: false,
+        reachable: false,
+        version: null,
+        note: `The inference service answered ${response.status}.`,
+      };
     }
     const body: any = await response.json();
     const detector = body?.models?.lung_detector;
     if (!detector || !detector.available) {
       return {
         available: false,
+        reachable: true,
         version: detector?.version ?? null,
         note:
           detector?.note ??
@@ -432,10 +453,11 @@ export async function detectorStatus(): Promise<{
             'empty candidate list.',
       };
     }
-    return { available: true, version: detector.version ?? null, note: null };
+    return { available: true, reachable: true, version: detector.version ?? null, note: null };
   } catch (error) {
     return {
       available: false,
+      reachable: false,
       version: null,
       note: `The inference service could not be reached: ${
         error instanceof Error ? error.message : String(error)

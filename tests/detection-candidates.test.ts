@@ -74,14 +74,37 @@ before(async () => {
   assert.equal(login.status, 200);
 
   if (!FULL_PATH) {
-    const form = new FormData();
-    for (const file of series!.files) {
-      form.append('files',
-        new Blob([fs.readFileSync(path.join(process.cwd(), file))], { type: 'application/dicom' }),
-        path.basename(file));
+    // Retried once, deliberately.
+    //
+    // The server warms the googleapis import *after* it starts listening —
+    // that ordering is itself a fix, because doing it before the database
+    // check silently downgraded sessions to memory. It costs about twelve
+    // seconds of blocked event loop, and a 24 MB multipart upload arriving in
+    // that window has its connection reset. `/api/ready` cannot cover it,
+    // since the server is genuinely ready and merely busy.
+    //
+    // This suite is exposed where others are not because it ingests in
+    // `before` rather than inside a test. One retry after a pause is honest
+    // about what is happening; widening the request timeout would not help,
+    // because the connection is reset rather than slow.
+    const ingest = async () => {
+      const form = new FormData();
+      for (const file of series!.files) {
+        form.append('files',
+          new Blob([fs.readFileSync(path.join(process.cwd(), file))], { type: 'application/dicom' }),
+          path.basename(file));
+      }
+      form.append('patientId', String(patient.id));
+      return radSession.postForm('/api/dicom/series', form, INGEST_TIMEOUT_MS);
+    };
+
+    let res;
+    try {
+      res = await ingest();
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 15_000));
+      res = await ingest();
     }
-    form.append('patientId', String(patient.id));
-    const res = await radSession.postForm('/api/dicom/series', form, INGEST_TIMEOUT_MS);
     if (res.status === 201 || res.status === 200) seriesId = res.json.seriesId;
   }
 });
@@ -303,6 +326,51 @@ describe('patient isolation', { timeout: TIMEOUT }, () => {
           WHERE table_name = 'detection_candidates' AND column_name = 'patient_id'`);
       assert.equal(rows.length, 1);
     } finally {
+      await pool.end();
+    }
+  });
+
+  test('a crashed run does not strand the series forever', { skip: FULL_PATH }, async () => {
+    // Found by audit. The partial unique index refuses a second in-flight
+    // run, so a crash between creating one and finishing it left the series
+    // answering 409 permanently, recoverable only by hand-written SQL.
+    const detection = await import('../server/detection.ts');
+    const pool = db();
+    try {
+      await pool.query(
+        `INSERT INTO detection_runs (series_id, patient_id, status, created_at)
+         VALUES ($1, $2, 'queued', now() - interval '3 hours')`,
+        [seriesId, patient.id]
+      );
+
+      const blocked = await radSession.post(`/api/dicom/series/${seriesId}/detection`);
+      assert.notEqual(blocked.status, 409, 'the stale run must not block a new request');
+
+      const { rows } = await pool.query(
+        `SELECT status, failure_code, candidate_count FROM detection_runs
+          WHERE series_id = $1 AND failure_code = 'abandoned'`,
+        [seriesId]
+      );
+      assert.equal(rows.length, 1, 'the stranded run was reaped');
+      assert.equal(rows[0].status, 'failed', 'failed, not deleted — a crash is evidence');
+      assert.equal(rows[0].candidate_count, null, 'null, never 0');
+    } finally {
+      await pool.end();
+    }
+  });
+
+  test('a genuinely in-flight run still blocks a second with 409', { skip: FULL_PATH }, async () => {
+    const pool = db();
+    try {
+      await pool.query(
+        `INSERT INTO detection_runs (series_id, patient_id, status) VALUES ($1, $2, 'running')`,
+        [seriesId, patient.id]
+      );
+      const res = await radSession.post(`/api/dicom/series/${seriesId}/detection`);
+      assert.equal(res.status, 409, res.text.slice(0, 200));
+      assert.equal(res.json.code, 'detection_already_in_flight');
+    } finally {
+      await pool.query?.('SELECT 1').catch(() => {});
       await pool.end();
     }
   });

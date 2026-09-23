@@ -17,6 +17,7 @@ import pytest
 
 from lung_mask import (
     LUNG_HU_MAX,
+    OUT_OF_FIELD_HU,
     LUNG_HU_MIN,
     MASK_VERSION,
     MAX_LUNG_FRACTION,
@@ -234,3 +235,44 @@ def test_the_record_says_what_it_is_without_claiming_a_segmentation():
     assert record["version"] == MASK_VERSION
     assert "lungFraction" in record and "voxelCount" in record
     assert not any(k.lower().startswith("dice") for k in record), "no validation is claimed"
+
+
+# ── out-of-field padding ───────────────────────────────────────────────────
+#
+# Found by auditing against a real LIDC series rather than a phantom: the
+# threshold excludes the -2048 padding outside the reconstruction circle, and
+# then the dilation grows back into it. 7,836 voxels on a 45-slice series.
+
+def test_out_of_field_padding_is_not_dilated_into():
+    """A candidate outside the reconstruction circle is anatomically
+    impossible — nothing was measured there."""
+    size = 64
+    array = np.full((4, size, size), -2048.0, dtype=np.float32)  # padding everywhere
+    yy, xx = np.mgrid[0:size, 0:size]
+    body = (yy > 10) & (yy < size - 10) & (xx > 10) & (xx < size - 10)
+    disc = (yy - size // 2) ** 2 + (xx - size // 2) ** 2 <= 10 ** 2
+    for k in range(4):
+        array[k][body] = 40.0
+        array[k][disc] = -800.0
+
+    result = build_lung_mask(FakeVolume(array), dilation_voxels=5)
+
+    padding = array < OUT_OF_FIELD_HU
+    assert int((result.mask & padding).sum()) == 0, "no padding voxel is inside the mask"
+
+
+def test_removing_padding_does_not_cost_the_dilation_its_purpose():
+    """The chest wall the dilation exists to include is dense, far above the
+    floor, so the floor cannot remove it."""
+    volume = phantom()
+    tight = build_lung_mask(volume, dilation_voxels=0)
+    grown = build_lung_mask(volume, dilation_voxels=3)
+
+    assert grown.voxel_count > tight.voxel_count, "the dilation still grows the mask"
+
+
+def test_the_floor_sits_below_any_real_air():
+    """Air in the trachea and around the patient runs to about -1024. A floor
+    above that would start removing real anatomy."""
+    assert OUT_OF_FIELD_HU < -1024.0
+    assert OUT_OF_FIELD_HU > -2048.0

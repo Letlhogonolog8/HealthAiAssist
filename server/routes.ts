@@ -5142,9 +5142,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { detectorStatus } = await import('./inference-client');
       const status = await detectorStatus();
       if (!status.available) {
+        // Two different operational states that must not share a code: a
+        // model nobody has deployed, and a service that is down. Both refuse,
+        // but an operator filtering on failure_code needs to tell them apart.
+        const failureCode = status.reachable === false
+          ? 'inference_unreachable'
+          : 'model_unavailable';
         await detection.refuseRun(
           run.id,
-          'model_unavailable',
+          failureCode,
           status.note ??
             'No candidate detector is registered, so no search was performed.'
         );
@@ -5156,7 +5162,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           method: req.method,
           path: `/api/dicom/series/${seriesId}/detection`,
           statusCode: 503,
-          detail: `series=${seriesId}; run=${run.id}; code=model_unavailable`,
+          detail: `series=${seriesId}; run=${run.id}; code=${failureCode}`,
         });
         const refused = await detection.getRun(run.id);
         return res.status(503).json({
