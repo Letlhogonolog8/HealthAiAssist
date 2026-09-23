@@ -151,6 +151,42 @@ export async function getSignedScanUrl(objectUri: string, ttlMinutes = 10): Prom
 }
 
 /**
+ * Deletes one stored object, for an erasure request.
+ *
+ * Reports rather than throws, and never reports success it did not achieve.
+ * The delete permission is a different IAM grant from the write permission the
+ * upload path needs, so a deployment can be perfectly able to store objects
+ * and unable to remove them. That state has to reach the data subject as "this
+ * could not be deleted", not as a silent no-op inside a completed erasure.
+ *
+ * An object that is already gone counts as removed: absence is the goal.
+ */
+export async function deleteScanObject(
+  objectUri: string
+): Promise<{ removed: true; uri: string } | { removed: false; uri: string; reason: string }> {
+  if (!storageClient) {
+    return { removed: false, uri: objectUri, reason: 'Cloud Storage client not initialized' };
+  }
+
+  const match = /^gs:\/\/([^/]+)\/(.+)$/.exec(objectUri);
+  if (!match) {
+    return { removed: false, uri: objectUri, reason: 'not a Cloud Storage object URI' };
+  }
+
+  const [, bucketName, objectName] = match;
+  try {
+    await storageClient.bucket(bucketName).file(objectName).delete({ ignoreNotFound: true });
+    return { removed: true, uri: objectUri };
+  } catch (error: any) {
+    return {
+      removed: false,
+      uri: objectUri,
+      reason: error?.message ?? 'Cloud Storage delete failed',
+    };
+  }
+}
+
+/**
  * Whether scan images can be written to durable object storage.
  *
  * Named for what it gates. The previous name — `isGoogleCloudAvailable` —

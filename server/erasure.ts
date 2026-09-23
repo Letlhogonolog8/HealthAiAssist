@@ -39,17 +39,30 @@ import { db } from './db';
 import {
   adverseEvents,
   chatMessages,
+  detectionCandidates,
+  detectionRuns,
   genomicConsents,
   genomicProfiles,
   genomicVariants,
+  imagingInstances,
+  imagingSeries,
+  imagingStudies,
   medicalScans,
   notifications,
   riskAssessments,
   users,
 } from '@shared/schema';
+import { removeStoredObjects } from './object-store';
 
 /** Minimum retention for a clinical record, from the last entry. */
 export const CLINICAL_RETENTION_YEARS = 6;
+
+/**
+ * Named once. The execution gates on a category string matching the
+ * assessment's, so a typo in one of them would silently skip an erasure while
+ * reporting it as done.
+ */
+export const IMAGING_CATEGORY = 'CT imaging series and detection candidates';
 
 export type ErasureDisposition = 'erased' | 'retained' | 'not_applicable';
 
@@ -91,11 +104,25 @@ export async function assessErasure(patientId: number): Promise<ErasureAssessmen
     .from(medicalScans)
     .where(eq(medicalScans.patientId, patientId));
 
+  // A CT series is a clinical record in its own right and can exist without a
+  // medical_scans row: the DICOM ingest path writes imaging_series directly.
+  // Computing the hold from scans alone would let a patient with imaging and
+  // no scan fall through with no clinical hold at all, and would date the hold
+  // from an old scan while a newer series sat unerased. "Last entry" in the
+  // National Health Act sense means the last entry in the record, not the last
+  // row in one table.
+  const series = await (db as any)
+    .select({ id: imagingSeries.id, createdAt: imagingSeries.createdAt })
+    .from(imagingSeries)
+    .where(eq(imagingSeries.patientId, patientId));
+
+  const entryDates = [...scans, ...series].map((row: any) => new Date(row.createdAt));
+
   let clinicalHoldUntil: Date | null = null;
-  if (scans.length) {
-    const lastEntry = scans
-      .map((scan: any) => new Date(scan.createdAt))
-      .reduce((latest: Date, current: Date) => (current > latest ? current : latest));
+  if (entryDates.length) {
+    const lastEntry = entryDates.reduce((latest: Date, current: Date) =>
+      current > latest ? current : latest
+    );
     clinicalHoldUntil = yearsFromNow(lastEntry, CLINICAL_RETENTION_YEARS);
   }
 
@@ -113,6 +140,42 @@ export async function assessErasure(patientId: number): Promise<ErasureAssessmen
           : `Health records must be kept for at least ${CLINICAL_RETENTION_YEARS} years from the last entry ` +
             `(National Health Act §17 and HPCSA guidance). These are retained until ` +
             `${clinicalHoldUntil!.toISOString().slice(0, 10)}.`,
+  });
+
+  // --- Imaging and detection: same hold, previously unreached --------------
+  //
+  // DPIA R-23. None of these rows holds a direct identifier — the UIDs are
+  // salted HMAC remaps, the stored objects are de-identified, and a candidate
+  // is a coordinate and a score. But every one of them is linked to a
+  // patient_id and a candidate coordinate is derived from one person's
+  // anatomy, so they are personal information and an erasure request has to
+  // reach them. Until this was added, it did not.
+  const [candidateCount] = await (db as any)
+    .select({ count: sql<number>`count(*)::int` })
+    .from(detectionCandidates)
+    .where(eq(detectionCandidates.patientId, patientId));
+
+  const [runCount] = await (db as any)
+    .select({ count: sql<number>`count(*)::int` })
+    .from(detectionRuns)
+    .where(eq(detectionRuns.patientId, patientId));
+
+  const imagingRows = series.length + (runCount?.count ?? 0) + (candidateCount?.count ?? 0);
+
+  categories.push({
+    category: IMAGING_CATEGORY,
+    disposition: imagingRows === 0 ? 'not_applicable' : holdExpired ? 'erased' : 'retained',
+    count: imagingRows,
+    reason:
+      imagingRows === 0
+        ? 'No imaging series or detection candidates are held for this account.'
+        : holdExpired
+          ? 'Erased with the clinical record whose retention period has passed, including ' +
+            'the stored de-identified image objects.'
+          : `CT imaging forms part of the health record and is retained on the same basis ` +
+            `as the scans, until ${clinicalHoldUntil!.toISOString().slice(0, 10)}. This ` +
+            `covers ${series.length} imaging series, ${runCount?.count ?? 0} detection runs ` +
+            `and ${candidateCount?.count ?? 0} candidate locations.`,
   });
 
   // --- Clinical correspondence: same hold ----------------------------------
@@ -263,6 +326,59 @@ export async function executeErasure(patientId: number): Promise<ErasureAssessme
       .where(eq(adverseEvents.patientId, patientId));
 
     await (db as any).delete(medicalScans).where(eq(medicalScans.patientId, patientId));
+  }
+
+  if (erasable.has(IMAGING_CATEGORY)) {
+    // Children before parents, because every one of these is a real foreign
+    // key: candidates reference runs and series, runs reference series,
+    // instances reference series, series reference studies.
+    //
+    // The stored objects go first. A row deleted before its object leaves the
+    // pixel data on disk with nothing left pointing at it, which is the worst
+    // of both outcomes — unerased and unfindable.
+    const instances = await (db as any)
+      .select({ id: imagingInstances.id, objectPath: imagingInstances.objectPath })
+      .from(imagingInstances)
+      .innerJoin(imagingSeries, eq(imagingInstances.seriesId, imagingSeries.id))
+      .where(eq(imagingSeries.patientId, patientId));
+
+    const removal = await removeStoredObjects(
+      instances.map((instance: any) => instance.objectPath as string | null)
+    );
+
+    await (db as any)
+      .delete(detectionCandidates)
+      .where(eq(detectionCandidates.patientId, patientId));
+    await (db as any).delete(detectionRuns).where(eq(detectionRuns.patientId, patientId));
+    await (db as any)
+      .delete(imagingInstances)
+      .where(
+        sql`${imagingInstances.seriesId} IN (SELECT id FROM imaging_series WHERE patient_id = ${patientId})`
+      );
+    await (db as any).delete(imagingSeries).where(eq(imagingSeries.patientId, patientId));
+    await (db as any).delete(imagingStudies).where(eq(imagingStudies.patientId, patientId));
+
+    // An object that could not be deleted is reported, not swallowed. The
+    // delete permission on the bucket is a different IAM grant from the write
+    // permission the upload path uses, so a deployment can be able to store
+    // and unable to remove — and the data subject has to be told that their
+    // images are still there rather than shown a completed erasure.
+    if (removal.failed.length) {
+      const outcome = assessment.categories.find((c) => c.category === IMAGING_CATEGORY);
+      if (outcome) {
+        outcome.disposition = 'retained';
+        outcome.reason =
+          `The database records were deleted, but ${removal.failed.length} of ` +
+          `${instances.length} stored image objects could not be removed. The imaging ` +
+          `data has NOT been fully erased. This requires an administrator to resolve ` +
+          `before the request can be reported as complete.`;
+      }
+      console.error(
+        'Erasure could not remove %d stored imaging object(s) for patient %d',
+        removal.failed.length,
+        patientId
+      );
+    }
   }
 
   if (erasable.has('Messages with clinicians')) {
