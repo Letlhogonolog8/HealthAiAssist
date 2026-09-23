@@ -302,3 +302,74 @@ def test_diameter_and_span_are_separate_columns():
     assert "max_in_plane_diameter_mm" in diameters.FIELDNAMES
     assert not any("radius" in f for f in diameters.FIELDNAMES)
     assert not any("volume" in f for f in diameters.FIELDNAMES)
+
+
+# ── the spacing index ──────────────────────────────────────────────────────
+#
+# The first version looked up each series by re-globbing the whole collection
+# and reading objects until it matched, which is O(series x objects). Measured
+# against the real 37,970-object collection, one lookup for a series near the
+# end of the tree took 474 seconds; 217 series would have been roughly
+# fourteen hours. Correct and unusable, and invisible to a synthetic fixture.
+
+def test_the_spacing_index_reads_one_object_per_directory(tmp_path, monkeypatch):
+    """Every series indexed from a single pass, reading one object per series
+    directory rather than rescanning the collection for each series."""
+    import pydicom
+
+    root = tmp_path / "dicom"
+    for series in ("a", "b", "c"):
+        (root / series).mkdir(parents=True)
+        for n in range(5):
+            (root / series / f"{n}.dcm").write_bytes(b"synthetic")
+
+    reads = []
+
+    class FakeDataset:
+        def __init__(self, uid):
+            self.SeriesInstanceUID = uid
+            self.PixelSpacing = [0.7, 0.8]
+
+    def fake_dcmread(path, **kwargs):
+        reads.append(path)
+        return FakeDataset("uid-" + os.path.basename(os.path.dirname(path)))
+
+    monkeypatch.setattr(pydicom, "dcmread", fake_dcmread)
+    index = diameters.build_pixel_spacing_index(str(root))
+
+    assert set(index) == {"uid-a", "uid-b", "uid-c"}, "every series indexed"
+    assert index["uid-a"] == (0.7, 0.8), "row spacing then column spacing"
+    assert len(reads) == 3, (
+        f"one read per series directory, not per file or per lookup; got {len(reads)}"
+    )
+
+
+def test_a_directory_whose_objects_are_unreadable_is_skipped(tmp_path, monkeypatch):
+    import pydicom
+
+    root = tmp_path / "dicom"
+    (root / "broken").mkdir(parents=True)
+    (root / "broken" / "0.dcm").write_bytes(b"synthetic")
+
+    def raising_dcmread(path, **kwargs):
+        raise ValueError("not a DICOM object")
+
+    monkeypatch.setattr(pydicom, "dcmread", raising_dcmread)
+    assert diameters.build_pixel_spacing_index(str(root)) == {}
+
+
+def test_an_absent_dicom_root_yields_an_empty_index_not_an_error():
+    assert diameters.build_pixel_spacing_index(None) == {}
+    assert diameters.build_pixel_spacing_index("/no/such/path") == {}
+
+
+def test_a_series_missing_from_the_index_gets_blank_millimetres():
+    """Blank, never an assumed spacing: LIDC in-plane spacing runs 0.5-0.9 mm
+    and guessing would put a 30% error into the localisation tolerance."""
+    reading = {"contours": [{"z": -100.0, "points": square(10)}]}
+    row_mm, col_mm = {}.get("missing-uid", (None, None))
+    result = diameters.measure_reading(reading, row_mm, col_mm)
+
+    assert result["max_in_plane_diameter_px"] > 0
+    assert result["max_in_plane_diameter_mm"] is None
+    assert result["equivalent_area_diameter_mm"] is None

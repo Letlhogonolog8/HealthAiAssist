@@ -624,6 +624,89 @@ describe('with the resident inference service', { timeout: TIMEOUT }, () => {
     assert.match(res.json.note, /no clinical finding/i);
   });
 
+  test('the geometry a coordinate system needs is persisted', { skip: FULL_PATH }, async () => {
+    // The columns exist and the conversion is unit-tested, but nothing until
+    // now asserted that a real ingest actually fills them. A frame built from
+    // NULLs is not a frame, and the failure would only surface much later, as
+    // a candidate coordinate that points nowhere.
+    assert.ok(ingestedSeriesId);
+    const pool = db();
+    try {
+      const { rows } = await pool.query(
+        `SELECT image_orientation_patient, pixel_spacing_row_mm, pixel_spacing_col_mm,
+                slice_polarity, slice_polarity_normalised, slice_normal
+           FROM imaging_series WHERE id = $1`,
+        [ingestedSeriesId]
+      );
+      const row = rows[0];
+
+      const iop = JSON.parse(row.image_orientation_patient);
+      assert.equal(iop.length, 6, 'both direction cosines');
+      assert.ok(iop.every((v: unknown) => Number.isFinite(Number(v))));
+
+      // Both spacings, separately. A single scalar could not place a pixel on
+      // an anisotropic acquisition, which is what this replaced.
+      assert.ok(Number(row.pixel_spacing_row_mm) > 0);
+      assert.ok(Number(row.pixel_spacing_col_mm) > 0);
+
+      // LIDC is axial, so the normal points at the head and nothing is
+      // reversed. Asserted rather than assumed: if this ever changes, the
+      // volume built from it changes with it.
+      assert.equal(row.slice_polarity, 'feet_to_head');
+      assert.equal(row.slice_polarity_normalised, false);
+      const normal = JSON.parse(row.slice_normal);
+      assert.equal(normal.length, 3);
+      assert.ok(normal[2] > 0, 'the normal was oriented towards the head');
+
+      // Every slice must carry its own origin, or the frame has holes.
+      const instances = await pool.query(
+        `SELECT position_index, position_mm, ipp_x, ipp_y, ipp_z
+           FROM imaging_instances WHERE series_id = $1 ORDER BY position_index`,
+        [ingestedSeriesId]
+      );
+      assert.equal(instances.rows.length, series!.instanceCount);
+      const incomplete = instances.rows.filter(
+        (r: any) => r.ipp_x === null || r.ipp_y === null || r.ipp_z === null
+      );
+      assert.deepEqual(incomplete, [], 'every instance carries a full ImagePositionPatient');
+
+      // And the origin agrees with the projection that ordered the slices:
+      // for an axial series the normal is +z, so ipp_z is the projection.
+      for (const instance of instances.rows) {
+        assert.ok(
+          Math.abs(Number(instance.ipp_z) - Number(instance.position_mm)) < 1e-3,
+          `slice ${instance.position_index}: origin and projection disagree`
+        );
+      }
+    } finally {
+      await pool.end();
+    }
+  });
+
+  test('the read endpoint exposes the geometry to a clinician', { skip: FULL_PATH }, async () => {
+    assert.ok(ingestedSeriesId);
+    const res = await radSession.get(`/api/dicom/series/${ingestedSeriesId}`);
+    const geometry = res.json.geometry;
+
+    assert.equal(geometry.imageOrientationPatient.length, 6);
+    assert.ok(geometry.pixelSpacingRowMm > 0);
+    assert.ok(geometry.pixelSpacingColMm > 0);
+    assert.equal(geometry.slicePolarity, 'feet_to_head');
+    assert.equal(geometry.sliceNormal.length, 3);
+    assert.ok(res.json.instances.every((i: any) => i.ippZ !== null));
+  });
+
+  test('geometry stays behind the care gate like everything else', { skip: FULL_PATH }, async () => {
+    // Slice origins are derived from a patient's anatomy. They are personal
+    // information and must not have become reachable by adding them.
+    assert.ok(ingestedSeriesId);
+    const res = await patient.session.get(`/api/dicom/series/${ingestedSeriesId}`);
+    assert.ok([403, 404].includes(res.status), `${res.status}: ${res.text.slice(0, 200)}`);
+
+    const anonymous = await new Session().get(`/api/dicom/series/${ingestedSeriesId}`);
+    assert.equal(anonymous.status, 401);
+  });
+
   test('a patient cannot read an ingested series', { skip: FULL_PATH }, async () => {
     assert.ok(ingestedSeriesId);
     const res = await patient.session.get(`/api/dicom/series/${ingestedSeriesId}`);

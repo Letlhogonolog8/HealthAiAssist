@@ -285,35 +285,61 @@ def aggregate(measurements, key):
     return round(statistics.median(values), 3)
 
 
-def pixel_spacing_for_series(dicom_root, series_uid):
-    """(row_mm, col_mm) for a series, read from one of its objects.
+def build_pixel_spacing_index(dicom_root):
+    """series_uid -> (row_mm, col_mm), from a single pass over the tree.
 
-    Returns (None, None) when the series is not on disk, so the caller emits
-    pixel measurements and leaves millimetres blank rather than assuming a
-    spacing.
+    One pass, not one per series. The first version of this looked up each
+    series by re-globbing the whole collection and reading objects until it
+    found a match, which is O(series x objects): measured against the real
+    collection, one lookup for a series near the end of the tree took 474
+    seconds, so 217 series would have taken something like fourteen hours.
+    Correct and unusable.
+
+    Only the two tags needed are decoded, which is what makes one pass over
+    ~38,000 objects cheap, and a directory is abandoned as soon as it has
+    yielded a spacing — TCIA stores one series per directory, and reading a
+    second object from the same one tells us nothing new.
+
+    A series missing from the returned index gets blank millimetre columns.
+    That is the honest outcome: the alternative is assuming a spacing, and
+    LIDC in-plane spacing runs from roughly 0.5 to 0.9 mm, so an assumption
+    would put a 30% error into the one number the localisation tolerance
+    depends on.
     """
+    index = {}
     if not dicom_root or not os.path.isdir(dicom_root):
-        return None, None
+        return index
     try:
         import pydicom
     except ImportError:  # pragma: no cover - pydicom is a project dependency
-        return None, None
+        return index
 
-    for path in glob.iglob(os.path.join(dicom_root, "**", "*.dcm"), recursive=True):
-        try:
-            ds = pydicom.dcmread(path, stop_before_pixels=True, force=True)
-        except Exception:  # noqa: BLE001
-            continue
-        if str(getattr(ds, "SeriesInstanceUID", "")) != series_uid:
-            continue
-        spacing = getattr(ds, "PixelSpacing", None)
-        if spacing is None or len(spacing) != 2:
-            return None, None
-        try:
-            return float(spacing[0]), float(spacing[1])
-        except (TypeError, ValueError):
-            return None, None
-    return None, None
+    tags = ["SeriesInstanceUID", "PixelSpacing"]
+    for directory, _subdirs, files in os.walk(dicom_root):
+        for name in files:
+            if not name.lower().endswith(".dcm"):
+                continue
+            try:
+                ds = pydicom.dcmread(
+                    os.path.join(directory, name),
+                    stop_before_pixels=True,
+                    force=True,
+                    specific_tags=tags,
+                )
+            except Exception:  # noqa: BLE001
+                continue
+            uid = str(getattr(ds, "SeriesInstanceUID", "") or "")
+            if not uid or uid in index:
+                continue
+            spacing = getattr(ds, "PixelSpacing", None)
+            if spacing is None or len(spacing) != 2:
+                continue
+            try:
+                index[uid] = (float(spacing[0]), float(spacing[1]))
+            except (TypeError, ValueError):
+                continue
+            break  # one series per directory; nothing more to learn here
+    return index
 
 
 def load_label_index(path):
@@ -346,10 +372,10 @@ FIELDNAMES = [
 ]
 
 
-def build_rows(chosen, digest, match_mm, dicom_root, cluster_fn):
+def build_rows(chosen, digest, match_mm, dicom_root, cluster_fn, spacing_index=None):
     rows = []
     stats = collections.Counter()
-    spacing_cache = {}
+    spacing_index = spacing_index if spacing_index is not None else build_pixel_spacing_index(dicom_root)
 
     for series_uid, (path, _canonical) in sorted(chosen.items()):
         _uid, readings = parse_contour_readings(path)
@@ -359,9 +385,9 @@ def build_rows(chosen, digest, match_mm, dicom_root, cluster_fn):
         meta = digest.get(series_uid) if digest else None
         patient = meta["patient"] if meta else ""
 
-        if series_uid not in spacing_cache:
-            spacing_cache[series_uid] = pixel_spacing_for_series(dicom_root, series_uid)
-        row_mm, col_mm = spacing_cache[series_uid]
+        row_mm, col_mm = spacing_index.get(series_uid, (None, None))
+        if row_mm is None:
+            stats["series_without_pixel_spacing"] += 1
 
         for position, group in enumerate(cluster_fn(readings, match_mm)):
             measurements = [m for m in (measure_reading(r, row_mm, col_mm) for r in group) if m]
@@ -446,17 +472,40 @@ def main():
         print(f"digest unavailable ({exc}); patient column will be blank", file=sys.stderr)
         digest = {}
 
-    rows, stats = build_rows(chosen, digest, args.match_mm, args.dicom_root, pipeline.cluster)
+    spacing_index = build_pixel_spacing_index(args.dicom_root)
+    if args.dicom_root:
+        print(f"pixel spacing indexed for {len(spacing_index)} series", file=sys.stderr)
+
+    rows, stats = build_rows(chosen, digest, args.match_mm, args.dicom_root,
+                             pipeline.cluster, spacing_index)
 
     labels = load_label_index(args.labels)
     if labels:
         produced = {(r["series_uid"], r["nodule_index"]) for r in rows}
+        measured_series = {r["series_uid"] for r in rows}
         missing = [key for key in labels if key not in produced]
-        print(f"identity cross-check: {len(labels)} labelled nodules, "
-              f"{len(missing)} without a matching measurement row", file=sys.stderr)
-        if missing:
-            print("  (a labelled nodule with no row means the clustering diverged; "
-                  "check --match-mm)", file=sys.stderr)
+
+        # Two very different causes, and reporting them together invites the
+        # wrong conclusion. The label table is built from the whole TCIA
+        # annotation download; this runs over whatever XML is on disk, which
+        # is usually a subset. A label whose series has no XML here is simply
+        # not covered. A label whose series IS here and still has no row means
+        # the clustering diverged, which is the only case worth investigating.
+        absent_series = [k for k in missing if k[0] not in measured_series]
+        diverged = [k for k in missing if k[0] in measured_series]
+
+        print(f"identity cross-check: {len(labels)} labelled nodules across "
+              f"{len({k[0] for k in labels})} series", file=sys.stderr)
+        print(f"  {len(produced)} measured here, across {len(measured_series)} series",
+              file=sys.stderr)
+        print(f"  {len(absent_series)} labelled nodules in series with no XML in this "
+              "folder (not covered, not an error)", file=sys.stderr)
+        print(f"  {len(diverged)} labelled nodules in series that ARE here but produced "
+              "no row", file=sys.stderr)
+        if diverged:
+            print("    ^ this is the one to investigate: the clustering diverged. "
+                  "Check --match-mm matches the value lidc_build_labels.py used.",
+                  file=sys.stderr)
 
     rows.sort(key=lambda r: (r["series_uid"], r["nodule_index"]))
     with open(args.out_csv, "w", newline="", encoding="utf-8") as handle:
