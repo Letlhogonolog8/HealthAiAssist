@@ -167,7 +167,18 @@ DICOM → series.assemble / order_slices → quality_gate.evaluate_ct_series
   value that differs from the service's `PreprocessConfig` / `DetectionConfig`,
   and a test asserts a training context is the service's own patch.
 
-### The lung mask was excluding the nodules — fixed (lung-threshold-v3)
+### The lung mask was excluding the nodules — v3 FAILS its own validation
+
+> **Superseded in part by `docs/P2_LUNG_MASK_VALIDATION.md` (24 September
+> 2026).** The per-nodule audit found that v3 fills 55–99% of the body
+> cross-section in 10 of the 20 series below, through a ring of non-lung
+> aerated-band material; the statement further down that the mediastinum "is
+> not filled" is false for those series. 3 of v3's 72 retained centres depend
+> on that fill (69/74 otherwise), and 14 of the 74 nodules are test-split, so
+> this selection evidence also breaches test protection. v3 is **FAIL** as a
+> training-region constraint. The text below is kept as the record of what
+> was believed when `2f369e5` was committed.
+
 
 Building the loader surfaced a defect in the committed search constraint.
 The mask keeps the aerated band (−950 to −300 HU); a solid nodule is soft

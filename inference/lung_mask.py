@@ -219,12 +219,26 @@ def _fill_holes(mask: np.ndarray) -> np.ndarray:
     constrains the search.
 
     A hole here is background that cannot reach the slice edge through
-    4-connected background. The mediastinum reaches it through the chest wall
-    and is not filled; a nodule, a vessel or an airway wall surrounded by
-    aerated lung cannot and is. Same 20 series: 72 of 74 nodule centres inside
-    (v2: 73), mask 40% larger than v1 and 22% smaller than v2. The two centres
-    it misses sit where the lung outline is open toward the mediastinum, which
-    is the price of not searching the mediastinum.
+    4-connected background. A nodule, a vessel or an airway wall surrounded by
+    aerated lung cannot and is filled. Same 20 series: 72 of 74 nodule centres
+    inside (v2: 73), mask 40% larger than v1 and 22% smaller than v2. The two
+    centres it misses are in-plane continuous with non-lung tissue that
+    reaches the slice edge; whether chest wall or mediastinum is not
+    established.
+
+    ── KNOWN DEFECT — this fill is not safe to use as it stands ────────────
+
+    The mediastinum is kept out only while it reaches the slice edge. In 10
+    of those 20 series it does not: aerated-band material that is not lung,
+    much of it outside the body, passes the component rule below and closes a
+    ring around the patient, and this fill then fills 55-99% of the body
+    cross-section — heart, mediastinum, chest wall. That is 83% of what the
+    fill adds, and 3 of the 72 retained centres depend on it. The
+    plausibility ceiling does not see it because it is applied before the
+    fill. Measured, with the corrected figures and the decision this needs,
+    in docs/P2_LUNG_MASK_VALIDATION.md. The earlier statement here that the
+    mediastinum "is not filled" was checked only on an open ring and was
+    wrong.
 
     `scipy.ndimage.binary_fill_holes`, per slice, 4-connected background
     (its default). scipy is already in the serving environment as a hard

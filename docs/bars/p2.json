@@ -178,7 +178,7 @@
     "architecture": "lung-nodule-candidate-2p5d-cnn arch-v1, 1,173,473 parameters, untrained",
     "configurationStatus": "INITIAL_ENGINEERING_DEFAULT — no value selected by measurement",
     "modelSelection": "validation loss only; no detection metric computed",
-    "lungMaskVersion": "lung-threshold-v3 (v1 excluded 19 of 74 labelled nodule centres from the search on 20 real series; v2 fixed that but filled the mediastinum; see docs/P2_TRAINING_READINESS.md)",
+    "lungMaskVersion": "lung-threshold-v3 — FAIL as a training-region constraint: fills 55-99% of the body cross-section in 10 of 20 audited series; see docs/P2_LUNG_MASK_VALIDATION.md",
     "note": "Infrastructure only. Nothing here is a result, a validation or an approval."
   },
 
