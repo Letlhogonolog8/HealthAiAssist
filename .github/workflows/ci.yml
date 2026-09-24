@@ -170,3 +170,13 @@ jobs:
         run: |
           python -m pip install --quiet numpy pillow pydicom pytest
           python -m pytest inference/tests -q
+
+      # The detector training harness (training/). CPU torch is enough to
+      # exercise it on synthetic data; it is deliberately not enough to train,
+      # and the harness refuses LIDC training on any non-CUDA device. Tests
+      # that need the gitignored LIDC label table skip with a reason here.
+      - name: Detector training harness tests
+        run: |
+          python -m pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --quiet pyyaml scipy
+          python -m pytest training/tests -q
