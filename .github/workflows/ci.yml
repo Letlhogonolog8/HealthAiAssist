@@ -168,7 +168,7 @@ jobs:
 
       - name: Python inference tests
         run: |
-          python -m pip install --quiet numpy pillow pydicom pytest
+          python -m pip install --quiet numpy pillow pydicom scipy pytest
           python -m pytest inference/tests -q
 
       # The detector training harness (training/). CPU torch is enough to

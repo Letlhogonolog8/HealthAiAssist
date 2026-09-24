@@ -9,3 +9,9 @@ python-multipart>=0.0.9
 # DICOM ingestion. Radiology hardware already emits this; accepting it is what
 # lets the triage queue sit behind existing equipment.
 pydicom>=2.4
+
+# The lung-region constraint fills in-plane holes with scipy.ndimage
+# (inference/lung_mask.py). scipy was already installed here as a hard
+# dependency of scikit-learn in the root requirements.txt; it is declared
+# because this service now imports it directly.
+scipy>=1.10

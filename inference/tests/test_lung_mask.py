@@ -278,7 +278,7 @@ def test_the_floor_sits_below_any_real_air():
     assert OUT_OF_FIELD_HU > -2048.0
 
 
-# ── v2: a solid nodule inside the lung is inside the search ────────────────
+# ── v3: a solid nodule inside the lung is inside the search ────────────────
 
 def _phantom_with_nodule(radius_px, slices=6, size=64):
     """The two-disc phantom with a solid sphere-section inside the left disc."""
@@ -293,7 +293,7 @@ def _phantom_with_nodule(radius_px, slices=6, size=64):
 
 @pytest.mark.parametrize("radius_px", [2, 5, 8])
 def test_a_solid_nodule_inside_the_lung_is_inside_the_mask(radius_px):
-    """The v1 defect. A nodule is soft tissue, so the density threshold leaves
+    """The v1 defect, fixed in v2 and kept in v3. A nodule is soft tissue, so the density threshold leaves
     a hole exactly where it is; the three-voxel dilation closed only holes up
     to about three voxels, and a larger nodule's centre fell outside the mask
     — where detect_candidates never scores a window."""
@@ -323,4 +323,37 @@ def test_enclosure_filling_is_reported():
 
 
 def test_the_version_records_the_change():
-    assert MASK_VERSION == "lung-threshold-v2"
+    assert MASK_VERSION == "lung-threshold-v3"
+
+
+def _ring_phantom(gap, slices=4, size=64):
+    """Aerated lung as a ring around soft tissue, optionally with a gap.
+
+    The shape of the v2 failure on real CT: the heart with lung in front,
+    behind and on both sides in one slice, yet connected to the chest wall.
+    """
+    array = np.full((slices, size, size), -1000.0, dtype=np.float32)
+    yy, xx = np.mgrid[0:size, 0:size]
+    body = (yy > 3) & (yy < size - 3) & (xx > 3) & (xx < size - 3)
+    radius = np.sqrt((yy - size // 2) ** 2 + (xx - size // 2) ** 2)
+    ring = (radius >= 10) & (radius <= 20)
+    if gap:
+        angle = np.degrees(np.arctan2(-(yy - size // 2), xx - size // 2))
+        ring &= ~((angle > 35) & (angle < 55))          # a diagonal gap, 20 degrees wide
+    for k in range(slices):
+        array[k][body] = 40.0
+        array[k][ring] = -800.0
+    return FakeVolume(array)
+
+
+def test_tissue_inside_an_open_ring_of_lung_is_not_filled():
+    """v2 filled this: lung left, right, above and below the centre. It is not
+    a hole — it reaches the chest wall through the gap — and on real CT the
+    same shape is the mediastinum."""
+    result = build_lung_mask(_ring_phantom(gap=True), dilation_voxels=0)
+    assert not result.contains(32, 32, 1)
+
+
+def test_tissue_inside_a_closed_ring_of_lung_is_filled():
+    result = build_lung_mask(_ring_phantom(gap=False), dilation_voxels=0)
+    assert result.contains(32, 32, 1)

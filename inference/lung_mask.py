@@ -47,10 +47,11 @@ import numpy as np
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from volume import CtVolume
 
-# v2 (2026-09-24): voxels enclosed by lung on all four in-plane sides are
-# included. v1 excluded every solid nodule wider than about twice the dilation,
-# because a nodule is a hole in the aerated band. See _fill_enclosed.
-MASK_VERSION = "lung-threshold-v2"
+# v3 (2026-09-24): in-plane holes in the lung region are filled, so a solid
+# nodule inside the lung is inside the search. v1 excluded every solid nodule
+# wider than about twice the dilation; v2 fixed that with a rule that also
+# filled the mediastinum on real CT. See _fill_holes for both measurements.
+MASK_VERSION = "lung-threshold-v3"
 
 # Aerated lung parenchyma sits around -700 to -900 HU; air outside the patient
 # is near -1000 and soft tissue is above -300. The band is wide because it has
@@ -191,8 +192,9 @@ def _label_components(binary: np.ndarray) -> tuple[np.ndarray, int]:
     return labels, len(remap)
 
 
-def _fill_enclosed(mask: np.ndarray) -> np.ndarray:
-    """Add every voxel that has mask on all four in-plane sides of it.
+def _fill_holes(mask: np.ndarray) -> np.ndarray:
+    """Fill every in-plane hole in the lung region: background not connected
+    to the edge of its slice.
 
     ── Why this exists ─────────────────────────────────────────────────────
 
@@ -201,31 +203,42 @@ def _fill_enclosed(mask: np.ndarray) -> np.ndarray:
     closes holes only up to its own radius — three voxels, about 2 mm — so
     under v1 every solid nodule wider than about 4 mm had its centre outside
     the mask, and `detect_candidates` never scored a window centred on it.
-    Measured on a synthetic phantom with a 10 mm nodule inside aerated lung:
-    centre excluded. On a sample of real LIDC series, labelled nodule centres
-    fell outside v1 as well (docs/P2_TRAINING_READINESS.md has the counts).
-    That is the failure this module's own docstring names as the worse one: a
-    constraint that removes true findings.
+    Measured on the first 20 locally available LIDC series (sorted source UID,
+    74 labelled nodules): v1 held 55 of the 74 centres. That is the failure
+    this module's own docstring names as the worse one — a constraint that
+    removes true findings.
 
-    ── What it is, exactly ──────────────────────────────────────────────────
+    ── Why a topological fill, and not the v2 rule ────────────────────────
 
-    Four-direction enclosure, not a topological hole fill. A voxel is added
-    when, along its row, mask lies both to its left and to its right, and
-    along its column, mask lies both above and below it. Every true hole
-    satisfies that; so do voxels in a deep concavity of the lung outline, which
-    this therefore also admits. That error is on the side the module already
-    chooses — including rather than excluding — and it is bounded: the space
-    between two separate lungs is not enclosed from above and below, so the
-    mediastinum is not filled (tests pin both behaviours).
+    v2 (one commit, never used by a detection run) filled any voxel with lung
+    on all four in-plane sides. On real chest CT the heart often has lung in
+    front, behind and on both sides within one slice, so v2 filled it: on the
+    same 20 series the mask grew 79% over v1, and the voxels v2 added beyond a
+    true hole fill averaged -40 HU with 93% of them soft tissue. That is
+    mediastinum, and a search constraint that includes it no longer
+    constrains the search.
 
-    Vectorised cumulative ORs rather than component labelling of the
-    background, which would double the pure-Python labelling cost per slice.
+    A hole here is background that cannot reach the slice edge through
+    4-connected background. The mediastinum reaches it through the chest wall
+    and is not filled; a nodule, a vessel or an airway wall surrounded by
+    aerated lung cannot and is. Same 20 series: 72 of 74 nodule centres inside
+    (v2: 73), mask 40% larger than v1 and 22% smaller than v2. The two centres
+    it misses sit where the lung outline is open toward the mediastinum, which
+    is the price of not searching the mediastinum.
+
+    `scipy.ndimage.binary_fill_holes`, per slice, 4-connected background
+    (its default). scipy is already in the serving environment as a hard
+    dependency of scikit-learn in requirements.txt; it is now declared
+    explicitly in inference/requirements.txt. Fill holes per slice, not in 3-D:
+    a 3-D fill would let a cavity open in one slice leak through adjacent
+    slices, and in-plane matches how the dilation is done.
     """
-    left = np.logical_or.accumulate(mask, axis=2)
-    right = np.logical_or.accumulate(mask[:, :, ::-1], axis=2)[:, :, ::-1]
-    above = np.logical_or.accumulate(mask, axis=1)
-    below = np.logical_or.accumulate(mask[:, ::-1, :], axis=1)[:, ::-1, :]
-    return mask | (left & right & above & below)
+    from scipy import ndimage
+
+    filled = np.empty_like(mask)
+    for k in range(mask.shape[0]):
+        filled[k] = ndimage.binary_fill_holes(mask[k])
+    return filled
 
 
 def _dilate(mask: np.ndarray, voxels: int) -> np.ndarray:
@@ -333,7 +346,7 @@ def build_lung_mask(
             {"lungFraction": round(lung_fraction, 5)},
         )
 
-    filled = _fill_enclosed(keep)
+    filled = _fill_holes(keep)
     enclosed = int((filled & ~keep).sum())
     grown = _dilate(filled, dilation_voxels)
 
@@ -353,7 +366,7 @@ def build_lung_mask(
         )
     if enclosed:
         warnings.append(
-            f"{enclosed} voxel(s) enclosed by lung on all four in-plane sides were included — "
+            f"{enclosed} voxel(s) in holes enclosed by lung were included — "
             "nodules, vessels and airway walls, which the density threshold alone would cut "
             "out of the search."
         )
