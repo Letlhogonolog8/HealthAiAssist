@@ -47,7 +47,10 @@ import numpy as np
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from volume import CtVolume
 
-MASK_VERSION = "lung-threshold-v1"
+# v2 (2026-09-24): voxels enclosed by lung on all four in-plane sides are
+# included. v1 excluded every solid nodule wider than about twice the dilation,
+# because a nodule is a hole in the aerated band. See _fill_enclosed.
+MASK_VERSION = "lung-threshold-v2"
 
 # Aerated lung parenchyma sits around -700 to -900 HU; air outside the patient
 # is near -1000 and soft tissue is above -300. The band is wide because it has
@@ -188,6 +191,43 @@ def _label_components(binary: np.ndarray) -> tuple[np.ndarray, int]:
     return labels, len(remap)
 
 
+def _fill_enclosed(mask: np.ndarray) -> np.ndarray:
+    """Add every voxel that has mask on all four in-plane sides of it.
+
+    ── Why this exists ─────────────────────────────────────────────────────
+
+    A solid nodule inside the lung is soft tissue, well above LUNG_HU_MAX, so
+    the threshold leaves a hole exactly where it sits. The in-plane dilation
+    closes holes only up to its own radius — three voxels, about 2 mm — so
+    under v1 every solid nodule wider than about 4 mm had its centre outside
+    the mask, and `detect_candidates` never scored a window centred on it.
+    Measured on a synthetic phantom with a 10 mm nodule inside aerated lung:
+    centre excluded. On a sample of real LIDC series, labelled nodule centres
+    fell outside v1 as well (docs/P2_TRAINING_READINESS.md has the counts).
+    That is the failure this module's own docstring names as the worse one: a
+    constraint that removes true findings.
+
+    ── What it is, exactly ──────────────────────────────────────────────────
+
+    Four-direction enclosure, not a topological hole fill. A voxel is added
+    when, along its row, mask lies both to its left and to its right, and
+    along its column, mask lies both above and below it. Every true hole
+    satisfies that; so do voxels in a deep concavity of the lung outline, which
+    this therefore also admits. That error is on the side the module already
+    chooses — including rather than excluding — and it is bounded: the space
+    between two separate lungs is not enclosed from above and below, so the
+    mediastinum is not filled (tests pin both behaviours).
+
+    Vectorised cumulative ORs rather than component labelling of the
+    background, which would double the pure-Python labelling cost per slice.
+    """
+    left = np.logical_or.accumulate(mask, axis=2)
+    right = np.logical_or.accumulate(mask[:, :, ::-1], axis=2)[:, :, ::-1]
+    above = np.logical_or.accumulate(mask, axis=1)
+    below = np.logical_or.accumulate(mask[:, ::-1, :], axis=1)[:, ::-1, :]
+    return mask | (left & right & above & below)
+
+
 def _dilate(mask: np.ndarray, voxels: int) -> np.ndarray:
     """Grow the mask in-plane by shifting and OR-ing.
 
@@ -293,7 +333,9 @@ def build_lung_mask(
             {"lungFraction": round(lung_fraction, 5)},
         )
 
-    grown = _dilate(keep, dilation_voxels)
+    filled = _fill_enclosed(keep)
+    enclosed = int((filled & ~keep).sum())
+    grown = _dilate(filled, dilation_voxels)
 
     # Growing the mask must not grow it out of the reconstruction circle. The
     # chest wall the dilation is there to include is dense — well above this
@@ -308,6 +350,12 @@ def build_lung_mask(
             f"The mask was grown by {dilation_voxels} voxels in plane so that a nodule "
             "against the pleura is not excluded by the threshold. It therefore includes "
             "some chest wall and is not an organ boundary."
+        )
+    if enclosed:
+        warnings.append(
+            f"{enclosed} voxel(s) enclosed by lung on all four in-plane sides were included — "
+            "nodules, vessels and airway walls, which the density threshold alone would cut "
+            "out of the search."
         )
     if reclaimed:
         warnings.append(

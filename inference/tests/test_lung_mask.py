@@ -276,3 +276,51 @@ def test_the_floor_sits_below_any_real_air():
     above that would start removing real anatomy."""
     assert OUT_OF_FIELD_HU < -1024.0
     assert OUT_OF_FIELD_HU > -2048.0
+
+
+# ── v2: a solid nodule inside the lung is inside the search ────────────────
+
+def _phantom_with_nodule(radius_px, slices=6, size=64):
+    """The two-disc phantom with a solid sphere-section inside the left disc."""
+    volume = phantom(slices=slices, size=size)
+    yy, xx = np.mgrid[0:size, 0:size]
+    centre = (size // 2, size // 2 - 14)
+    nodule = (yy - centre[0]) ** 2 + (xx - centre[1]) ** 2 <= radius_px ** 2
+    for k in range(slices):
+        volume.array[k][nodule] = 40.0
+    return volume, centre
+
+
+@pytest.mark.parametrize("radius_px", [2, 5, 8])
+def test_a_solid_nodule_inside_the_lung_is_inside_the_mask(radius_px):
+    """The v1 defect. A nodule is soft tissue, so the density threshold leaves
+    a hole exactly where it is; the three-voxel dilation closed only holes up
+    to about three voxels, and a larger nodule's centre fell outside the mask
+    — where detect_candidates never scores a window."""
+    volume, (row, col) = _phantom_with_nodule(radius_px)
+    result = build_lung_mask(volume, dilation_voxels=0)
+    assert result.contains(col, row, 2), "nodule of radius %d px cut out of the search" % radius_px
+
+
+def test_the_space_between_two_separate_lungs_is_not_filled():
+    """Enclosure needs mask above AND below; the mediastinum has neither."""
+    volume = phantom()
+    result = build_lung_mask(volume, dilation_voxels=0)
+    size = volume.array.shape[1]
+    assert not result.contains(size // 2, size // 2, 2)
+
+
+def test_the_air_around_the_patient_stays_out_after_filling():
+    result = build_lung_mask(phantom(), dilation_voxels=0)
+    assert not result.contains(1, 1, 2)
+    assert not result.contains(32, 1, 2)
+
+
+def test_enclosure_filling_is_reported():
+    volume, _ = _phantom_with_nodule(5)
+    result = build_lung_mask(volume)
+    assert any("enclosed by lung" in warning for warning in result.warnings)
+
+
+def test_the_version_records_the_change():
+    assert MASK_VERSION == "lung-threshold-v2"
