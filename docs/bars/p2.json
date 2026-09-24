@@ -75,7 +75,7 @@
   },
 
   "preprocessing": {
-    "version": "NOT YET DEFINED",
+    "version": "detect-hu-v1 — INITIAL ENGINEERING DEFAULT, not empirically selected (inference/detection_preprocess.py; training/configs/lung_nodule_detector.yaml)",
     "note": "Detector preprocessing is HU-based and is NOT the 8-bit lung-windowed render the characteriser uses (CT_LUNG_WINDOW -600/1500 in inference/dicom_ingest.py). Reusing that render for a detector would repeat the class of defect that withdrew the legacy lung model.",
     "resampleSpacingMm": "REQUIRES EMPIRICAL SELECTION",
     "patchSizePx": "REQUIRES EMPIRICAL SELECTION",
@@ -166,6 +166,20 @@
     "hasEverBeenRunOnADetectorOutput": false,
     "refusesWithoutAnApprovedRule": "rule_from_bar raises MethodologyUndecided while localisationTolerance.status is not APPROVED, so the pre-registration cannot be bypassed by an evaluator supplying its own tolerance.",
     "note": "Engineering readiness. NOT model performance, NOT validation, NOT evidence that any figure can be produced."
+  },
+
+  "trainingHarness": {
+    "status": "IMPLEMENTED — READY FOR GPU EXECUTION — NOT EXECUTED",
+    "record": "docs/P2_TRAINING_READINESS.md",
+    "entryPoint": "scripts/train_lung_detector.py",
+    "dryRunOnThisMachine": "exit 3: harness ready, environment not available",
+    "checkpoint": "ABSENT",
+    "checkpointStatusWhenProduced": "TRAINED_UNVALIDATED",
+    "architecture": "lung-nodule-candidate-2p5d-cnn arch-v1, 1,173,473 parameters, untrained",
+    "configurationStatus": "INITIAL_ENGINEERING_DEFAULT — no value selected by measurement",
+    "modelSelection": "validation loss only; no detection metric computed",
+    "lungMaskVersion": "lung-threshold-v3 (v1 excluded 19 of 74 labelled nodule centres from the search on 20 real series; v2 fixed that but filled the mediastinum; see docs/P2_TRAINING_READINESS.md)",
+    "note": "Infrastructure only. Nothing here is a result, a validation or an approval."
   },
 
   "trainingFeasibility": {

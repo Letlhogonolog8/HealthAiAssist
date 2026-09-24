@@ -1,14 +1,29 @@
 # Model card — lung nodule candidate detector
 
-**Status: NOT IMPLEMENTED. There is no model.**
+**Status: NO TRAINED MODEL. The architecture and the training harness exist;
+no checkpoint has been produced.**
 
 This card exists ahead of the model it describes, so that the claims a
 detector would be allowed to make are fixed before there is a result to
 rationalise. It is the same reason `docs/bars/p2.json` exists.
 
+| | Status (24 September 2026) |
+|---|---|
+| Architecture | **implemented** — `training/model.py`, `lung-nodule-candidate-2p5d-cnn` `arch-v1`, 1,173,473 parameters, untrained |
+| Training harness | **implemented** — `training/`, `scripts/train_lung_detector.py`; `docs/P2_TRAINING_READINESS.md` |
+| Checkpoint | **absent** |
+| Training result | **absent** — training refused on this machine (no CUDA) |
+| Clinical validation | **absent** |
+| External validation | **absent** |
+| Calibration result | **absent** |
+| OOD result | **absent** |
+| Performance result | **absent** |
+| Localisation methodology | **pending** |
+| Performance bar | **not approved** |
+
 | | |
 |---|---|
-| Model | none |
+| Model | none trained |
 | Artifact | none |
 | SHA-256 fingerprint | — |
 | Registry entry | none — absent from `MODEL_REGISTRY` |
@@ -46,6 +61,14 @@ The engineering pipeline around the empty slot, tested end to end:
 | Candidate proposal, merging | `inference/detection_service.py` |
 | Run and candidate persistence | `server/detection.ts`, `migrations/detection-runs.sql` |
 | API and clinician review | `server/routes.ts` |
+| Training: dataset, sampling, augmentation | `training/series_loader.py`, `training/sampling.py`, `training/augment.py` |
+| Training: architecture, loop, checkpoints | `training/model.py`, `training/trainer.py`, `training/checkpoint.py` |
+| Training: gates | `scripts/check-training-environment.py`, `scripts/verify-training-manifest.py`, `scripts/train_lung_detector.py --dry-run` |
+
+An architecture is not a detector. Until a checkpoint is trained, evaluated
+under an approved localisation methodology and registered through
+`docs/ML_CHANGE_PROCESS.md`, nothing in this table is evidence about
+detection.
 
 ## Intended use, if a model is ever registered
 
@@ -137,7 +160,8 @@ detector exists; it is not a result.
    `≥0.85 sensitivity at ≤4 FP/scan` as `approved: false`. It appears in the
    roadmap as an example, not a derivation, and is not an established clinical
    threshold.
-3. **No training infrastructure.** No GPU: torch 2.1.0+cpu,
+3. **No training hardware.** The harness exists and its dry run passes every
+   gate except the environment. No GPU: torch 2.1.0+cpu,
    `torch.cuda.is_available()` False, 0 CUDA devices, Intel Iris Xe
    integrated, 7.8 GB RAM. Measured on a 69,953-parameter toy 3D backbone at
    96³: 2.3 patches per second. A real 3D detector is two to three orders of
