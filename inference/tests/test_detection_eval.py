@@ -280,6 +280,50 @@ def test_distance_is_measured_in_three_dimensions():
     assert outside["missed"] == ["n"]
 
 
+def test_zero_candidates_misses_every_nodule_and_costs_nothing():
+    result = ev.match_scan([reference("a"), reference("b", x=20.0)], [], fixed_rule(5.0))
+    assert result["found"] == {}
+    assert sorted(result["missed"]) == ["a", "b"]
+    assert result["falsePositives"] == []
+    assert result["duplicates"] == []
+
+
+def test_a_scan_with_no_nodules_makes_every_candidate_a_false_positive():
+    result = ev.match_scan([], [candidate("c1"), candidate("c2", x=9.0)], fixed_rule(5.0))
+    assert result["found"] == {}
+    assert result["missed"] == []
+    assert sorted(result["falsePositives"]) == ["c1", "c2"]
+
+
+def test_two_candidates_at_the_same_point_are_one_hit_and_one_duplicate():
+    """Equal distances resolve on the ids, so the outcome is the same on every
+    machine and in every listing order."""
+    pair = [candidate("c2", x=1.0), candidate("c1", x=1.0)]
+    for listing in (pair, list(reversed(pair))):
+        result = ev.match_scan([reference("n1")], listing, fixed_rule(5.0))
+        assert result["found"]["n1"][0] == "c1"
+        assert result["duplicates"] == ["c2"]
+        assert result["falsePositives"] == ["c2"]
+
+
+def test_greedy_nearest_first_is_not_a_maximum_matching():
+    """Pins current behaviour; it is not an endorsement of it.
+
+    `a` is 1 mm from n1 and 2 mm from n2; `b` is 1.5 mm from n1 only. Greedy
+    gives n1 to `a`, leaves `b` a duplicate and misses n2. A maximum matching
+    would find both nodules. Which of the two the evaluation should use is a
+    localisation-methodology decision (docs/P2_LOCALIZATION_DECISION_BRIEF.md);
+    changing it must fail this test and be recorded, not happen in passing.
+    """
+    references = [reference("n1", x=0.0), reference("n2", x=3.0)]
+    candidates = [candidate("a", x=1.0), candidate("b", x=-1.5)]
+    result = ev.match_scan(references, candidates, fixed_rule(2.0))
+    assert list(result["found"]) == ["n1"]
+    assert result["found"]["n1"][0] == "a"
+    assert result["missed"] == ["n2"]
+    assert result["duplicates"] == ["b"]
+
+
 # ── refusal is not a negative ──────────────────────────────────────────────
 
 @pytest.mark.parametrize("outcome", [
