@@ -84,6 +84,17 @@ python -m pytest inference/tests
 
 ---
 
+## Detector training (added 2026-09-24)
+
+The candidate-detector training harness lives in `training/` and its stack is
+pinned in `training/requirements-training.txt`, installed into this same
+environment. See `docs/P2_TRAINING_READINESS.md`. On the machine this was
+written on, `py -3.10` resolves to a Microsoft Store alias that Windows refuses
+to launch ("The file cannot be accessed by the system"), so this environment
+has not been instantiated here; the harness's own tests run under the 3.8
+interpreter because the code is kept 3.8-compatible, and real training is
+refused on that interpreter by `scripts/check-training-environment.py`.
+
 ## Dependencies
 
 `requirements.txt` is deliberately almost empty. The detector is not chosen,

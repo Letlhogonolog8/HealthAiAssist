@@ -1,0 +1,136 @@
+# Lung nodule candidate detector — training configuration.
+#
+# NOTHING IN THIS FILE IS A SCIENTIFICALLY SELECTED VALUE.
+#
+# Every tunable value is an INITIAL_ENGINEERING_DEFAULT: a starting point that
+# makes the harness run and is plausible for the data, not an optimum found by
+# measurement. Values that must match the serving path are marked
+# MATCHES_SERVICE and are checked against inference/ at load time, so training
+# and serving cannot quietly diverge.
+#
+# Changing any value changes the training-configuration fingerprint recorded
+# in every checkpoint and experiment manifest.
+
+config_version: lung-nodule-detector-config-v1
+status: INITIAL_ENGINEERING_DEFAULT
+
+# ── governance state, recorded rather than decided ─────────────────────────
+# These are read-only facts for the manifest. The harness refuses to run if
+# any of them claims an approval the repository does not contain.
+governance:
+  localization_methodology_status: PENDING      # docs/P2_LOCALIZATION_METHODOLOGY.md
+  performance_bar_status: DRAFT_NOT_APPROVED    # docs/bars/p2.json
+  dataset_decision: docs/P2_DATASET_DECISION.md
+  luna16: NOT_INTEGRATED
+
+# ── data ───────────────────────────────────────────────────────────────────
+data:
+  # Pinned. A different split cannot be substituted without editing this line.
+  split_manifest: docs/splits/lidc-split-v1.json
+  expected_split_fingerprint: f55f6cd5188ae3ee
+  label_table: dataset/lidc-labels.csv
+  label_version: lidc-labels-median-rating-v1
+  annotation_exclusions: dataset/lidc-annotation-exclusions.csv
+  dicom_root: dataset/manifest-1600709154662
+  # Training reads train; model selection reads validation. Nothing else.
+  fit_split: train
+  select_split: validation
+
+# ── preprocessing: HU to model input ───────────────────────────────────────
+# MATCHES_SERVICE: inference/detection_preprocess.PreprocessConfig. Checked.
+preprocessing:
+  version: detect-hu-v1
+  hu_min: -1000.0
+  hu_max: 400.0
+  normalise: true
+  # Native acquisition spacing is kept. Resampling is not supported by harness
+  # v1: it would require transforming every label coordinate onto the new grid,
+  # and no detector has been chosen whose training spacing could justify one.
+  resample_slice_spacing_mm: null
+  channels: 3
+
+# ── patch geometry ─────────────────────────────────────────────────────────
+# MATCHES_SERVICE: inference/detection_service.DetectionConfig. Checked.
+patch:
+  patch_px: 64
+  channels: 3
+
+# ── sampling ───────────────────────────────────────────────────────────────
+sampling:
+  version: detect-sampling-v1
+  seed: 20260924
+  # One positive per labelled nodule; augmentation supplies the variation.
+  positives_per_target: 1
+  # INITIAL_ENGINEERING_DEFAULT
+  negatives_per_series: 200
+  # How far a negative's centre must be from EVERY marked location — rated,
+  # indeterminate and sub-3 mm nodules and non-nodules alike. A sampling
+  # exclusion, NOT an evaluation localisation tolerance. The existing off-nodule
+  # rule was 48 px in plane (scripts/lidc_whole_slices.py), about 33.6 mm at
+  # 0.7 mm spacing; expressed in 3D millimetres here because spacing varies.
+  # INITIAL_ENGINEERING_DEFAULT
+  negative_exclusion_radius_mm: 32.0
+  # Negatives are drawn only inside the lung-region constraint.
+  negatives_within_lung_mask: true
+  max_negative_attempts_per_series: 20000
+
+# ── class balancing ────────────────────────────────────────────────────────
+balancing:
+  # none | pos_weight | weighted_sampler. INITIAL_ENGINEERING_DEFAULT
+  method: pos_weight
+
+# ── augmentation: every transform moves the target consistently ───────────
+augmentation:
+  version: detect-augment-v1
+  enabled: true
+  seed: 20260925
+  # In-plane shift of the crop, pixels. Must not exceed the positive jitter,
+  # or a "positive" could be cropped with its nodule off-centre.
+  max_shift_px: 4
+  # In-plane rotation about the slice normal, degrees. Small: anatomy is not
+  # rotation-invariant at large angles.
+  max_rotation_deg: 10.0
+  # Intensity perturbations, in Hounsfield units.
+  hu_offset_max: 20.0
+  contrast_scale_max: 0.05
+  noise_sigma_hu: 10.0
+  # Forbidden by the harness, and stated here so the refusal is visible:
+  # flips mirror anatomy; scaling changes physical size.
+  flip: false
+  scale: false
+
+# ── the positive label ─────────────────────────────────────────────────────
+target:
+  # A positive patch is centred within this many pixels of a labelled
+  # nodule centre. Bounds max_shift_px. INITIAL_ENGINEERING_DEFAULT.
+  positive_centre_jitter_px: 4
+  # What the target means. Not malignancy, not diagnosis, not risk.
+  meaning: a radiologist marked a nodule at this location (LIDC-IDRI reader annotation)
+
+# ── model ──────────────────────────────────────────────────────────────────
+model:
+  architecture: lung-nodule-candidate-2p5d-cnn
+  version: arch-v1
+  widths: [32, 64, 128, 256]
+  dropout: 0.2
+
+# ── optimisation ───────────────────────────────────────────────────────────
+optimisation:
+  seed: 20260926
+  optimizer: adamw
+  learning_rate: 0.0003
+  weight_decay: 0.0001
+  scheduler: cosine
+  batch_size: 128
+  epochs: 40
+  early_stopping_patience: 8
+  # Model selection is by validation LOSS. Patch-level numbers are not
+  # detection metrics and are not reported as such.
+  selection_metric: validation_loss
+  deterministic: true
+  num_workers: 0
+
+# ── outputs ────────────────────────────────────────────────────────────────
+output:
+  artifact_root: artifacts/training
+  checkpoint_policy: best_and_last

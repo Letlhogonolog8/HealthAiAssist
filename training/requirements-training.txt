@@ -1,0 +1,35 @@
+# Lung nodule candidate detector — training environment.
+#
+# Installed into the Python >= 3.10 environment described in
+# inference/py310/README.md. NEVER into the 3.8 interpreter that serves
+# patients, and never imported by anything in inference/.
+#
+#   python3.10 -m venv inference/py310/.venv
+#   source inference/py310/.venv/bin/activate           # Windows: inference\py310\.venv\Scripts\activate
+#
+#   # GPU (the only configuration in which real training is permitted).
+#   # Pick the CUDA build matching the host driver; cu121 shown.
+#   python -m pip install torch==2.3.1 --index-url https://download.pytorch.org/whl/cu121
+#   python -m pip install -r training/requirements-training.txt
+#
+#   python scripts/check-training-environment.py        # must print TRAINING READY
+#   python scripts/train_lung_detector.py --dry-run     # must print DRY RUN SUCCESS
+#
+# CPU vs GPU: the CPU wheel (--index-url .../whl/cpu) is enough to run the
+# harness's tests and the --synthetic loop. It is NOT enough to train: the
+# harness refuses LIDC training on any non-CUDA device, and
+# scripts/check-training-environment.py reports TRAINING NOT AVAILABLE.
+#
+# torch is installed by the command above rather than pinned here, because the
+# correct wheel depends on the host's CUDA driver. The version the run actually
+# used is recorded in every experiment manifest's environment fingerprint.
+#
+# Nothing here ships pretrained weights. Adding a package that does — MONAI
+# bundles, torchvision weights, nnDetection models — is a licence and
+# provenance decision under docs/ML_CHANGE_PROCESS.md, not a dependency bump.
+
+numpy>=1.24,<2
+pydicom==2.4.4
+scipy>=1.10,<1.14
+pyyaml>=6.0,<7
+pytest>=7.4

@@ -99,3 +99,15 @@ dataset/lidc-subset.tcia
 
 # pytest
 .pytest_cache/
+
+# Detector training outputs. Checkpoints, experiment manifests and sample
+# caches are produced by scripts/train_lung_detector.py and never committed:
+# a checkpoint is identified by its SHA-256 fingerprint, recorded in the
+# experiment manifest, and backed up with `npm run backup:models`, not by git.
+artifacts/
+training/__pycache__/
+training/**/__pycache__/
+*.pt
+*.pth
+*.ckpt
+*.onnx
