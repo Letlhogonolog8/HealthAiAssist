@@ -486,7 +486,7 @@ Data and technology used:
 
 ### Governance and decision-making structure (max 250 words)
 
-Novaryx Technologie is the lead applicant and owns the technology. [Director name(s)] hold final decision-making authority.
+Novaryx Technologie is the lead applicant and owns the technology. Its director, Letlhogonolo Matlaela, holds final decision-making authority, working with co-founders Mokami Johannes (AI/ML and research) and Justice Langene (backend, cloud and compliance).
 
 Governance already built into development:
 - Model change control: every model change is pre-registered — dataset, patient-level splits, metrics and acceptance criteria are committed before evaluation — so results cannot be tuned after the fact. A model changelog records what changed and what got worse.
