@@ -24,6 +24,29 @@ was computed or estimated.
 
 ---
 
+## Training authorisation rule
+
+Engineering readiness — the harness, its gates, its tests, a dry run that
+passes everything but the environment — is **not** authorisation to train.
+Authorisation requires every term:
+
+```
+Engineering readiness
++ Methodology approval        (lung mask v4, CT geometry, detector input, sampling)
++ Dataset approval            (dataset ratification, same-reader clusters)
++ Evaluation approval         (localisation methodology, performance criterion)
++ Test-exposure disposition
++ GPU availability
+= Training authorisation
+```
+
+Each approval is recorded, with the owner and date, in
+`docs/P2_TRAINING_GATE_DECISION_REGISTER.md`. An unrecorded term means NO.
+No named decision owner is recorded in the repository yet; one must be
+assigned before any approval can be given.
+
+---
+
 ## Gate table
 
 | Gate | Status | Evidence | Blocking? |
