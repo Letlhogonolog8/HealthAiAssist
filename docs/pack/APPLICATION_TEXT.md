@@ -5,10 +5,11 @@ answer can be pasted into the corresponding form field.
 
 **Category A (TRL 4) · Track 2 — AI-Enabled Care and Triage**
 
-> **Before submitting:** two facts in this document are not yet true and are
-> marked `[CONFIRM]`. Do not submit with either unresolved — the entity status
-> is an eligibility gate, and a named clinical advisor is the difference between
-> a strong answer and a weak one on §7's team criterion.
+> **Before submitting (updated 25 September 2026):** the applicant entity is
+> **Novaryx Technologie**, a CIPC-registered company. Its registration number,
+> exact registered name and tax number are marked `[CONFIRM]` and must be
+> entered from the CIPC and SARS documents. No clinical advisor is appointed;
+> the text says so rather than implying otherwise.
 
 ---
 
@@ -153,8 +154,11 @@ Typology Angle across 511 of 660 test images. The lung model's withdrawal is
 itself evidence of testing: the failure was found by the platform's own
 validation script, not by a reviewer.
 
-**Software.** 251 automated tests across 65 suites, run in CI on every push
-against an ephemeral PostgreSQL instance. The authorisation matrix exists because
+**Software.** 324 TypeScript tests and 541 Python tests (inference service and
+training harness), configured to run in CI on every push against an ephemeral
+PostgreSQL instance. Stated as measured: the most recent full TypeScript run
+on a 7.8 GB development machine had one infrastructure failure under memory
+pressure, which passed when re-run. The authorisation matrix exists because
 several `/api/doctor/*` routes were once found serving patient names and clinical
 notes to anonymous callers — a regression nobody noticed because nothing ran the
 checks.
@@ -230,7 +234,7 @@ is measured rather than asserted:
 | **Input outside training distribution** → refused, not classified | PCA reconstruction error in feature space | Wrong-modality 100%, in-distribution 0.8% |
 | **Degenerate image** → refused | Pixel statistics: variance, level, Laplacian | Blank frames caught, which the feature detector scores as in-distribution |
 | **A model found answering questions it was never measured on** → withdrawn | The OOD validation script's pre-set bar, applied to real CT | Lung: 84 of 87 LIDC-IDRI slices passed the screen; model switched off the same day |
-| **Clinical DICOM to a model with no CT measurement** → refused explicitly, with the reason | Deterministic gate on the DICOM preamble, ahead of any model | Every DICOM object refused; a PNG export was not, which is why the row above exists |
+| **Clinical DICOM to a model with no CT measurement** → refused explicitly, with the reason | Deterministic gate on the DICOM preamble, ahead of any model; the whole-image lung route is withdrawn | A whole-slice DICOM is refused and queued with the withdrawal reason (`tests/withdrawn-modality.test.ts`); only the nodule characteriser reads CT, and only a nodule a clinician has marked |
 | **Polygenic score that does not transfer** → no percentile shown at all | Ancestry transferability, Martin et al. 2019 | African-ancestry percentiles withheld entirely |
 | **Partially translated language** → not offered | Safety-critical key gate plus human sign-off | Spanish withheld: 29 navigation keys, no clinical text |
 
@@ -312,9 +316,10 @@ nothing pretends to be.
 **Cost.** The DICOM path is the striking figure: **zero capital cost per site**,
 because the scanner is already installed and already emitting the protocol. It
 is not being read promptly, which is a workflow problem rather than an equipment
-one. The ingest, de-identification and windowing for that path are built; the
-model behind it is not yet bound, so today a DICOM upload is refused and queued
-rather than scored. Dermoscopic capture is R14,500–R28,500 per site indicative,
+one. The ingest, de-identification, quality gate and windowing for that path
+are built. Today the only model behind it is the nodule characteriser, which
+scores a nodule a clinician has marked; there is no automated nodule finder,
+so a whole CT series is stored and queued rather than scored. Dermoscopic capture is R14,500–R28,500 per site indicative,
 pending quotation.
 
 **System-level.** Confirmed outcomes recorded against predictions give a
@@ -338,8 +343,8 @@ one.
 Category A is assessed on technical feasibility, validation progress and future
 development plans.
 
-**Feasibility — demonstrated.** Working prototype: 171 tests green in CI, warm
-inference ~500 ms behind a bounded queue, offline capture and sync, DICOM ingest
+**Feasibility — demonstrated.** Working prototype: 324 TypeScript and 541 Python
+automated tests, warm inference ~500 ms behind a bounded queue, offline capture and sync, DICOM ingest
 with de-identification, second factor, POPIA-compliant cross-border consent.
 
 **Validation progress — partial and stated.** Held-out evaluation with
@@ -350,7 +355,7 @@ by that screening on 20 September 2026. No clinical validation, no patients.
 
 | Quarter | Work |
 |---|---|
-| Q4 2026 | DICOM series ingest with a CT quality gate and salted UID remap (P1b) — **done, 22 September 2026**; pretrained nodule detector adopted and re-validated per nodule against a pre-registered bar (P2); structured clinician review with a disagreement metric (P6). Retrospective validation on one SA facility's confirmed outcomes through the existing surveillance endpoint. Reader study, 3–5 clinicians, with and without the tool. |
+| Q4 2026 | DICOM series ingest with a CT quality gate and salted UID remap (P1b) — **done, 22 September 2026**. Nodule detector (P2): patient-disjoint LIDC-IDRI split, training harness and evaluation machinery built and tested; **no detector trained** — training waits on recorded methodology decisions (dataset, localisation rule, performance bar) and GPU compute, per `docs/P2_TRAINING_GATE_DECISION_REGISTER.md`; structured clinician review with a disagreement metric (P6). Retrospective validation on one SA facility's confirmed outcomes through the existing surveillance endpoint. Reader study, 3–5 clinicians, with and without the tool. |
 | Q1 2027 | SAHPRA pre-submission engagement; IMDRF SaMD risk classification; ISO 14971 risk file; IEC 62304 lifecycle records. FHIR R4 conformance. Independent penetration test. |
 | Q2 2027 | Prospective clinical investigation under an approved protocol. Fitzpatrick V–VI dataset acquisition with a dermatology partner. |
 | Q3 2027 | Multi-site pilot; ISO 13485 QMS. |
@@ -365,14 +370,13 @@ device, to be confirmed at pre-submission.
 
 ## Team
 
-`[CONFIRM]` — complete before submission.
-
 | Role | Status |
 |---|---|
+| Applicant entity | **Novaryx Technologie**, CIPC-registered SMME — registration number `[CONFIRM]`, tax number `[CONFIRM]` |
+| Ownership of the technology | Developed by the technical lead; owned by or licensed to Novaryx Technologie `[CONFIRM — record the assignment or licence]` |
 | Technical lead | Named |
 | Clinical advisor (radiologist or dermatologist) | **Outstanding.** See `docs/CLINICAL_ADVISOR_BRIEF.md`. |
 | Regulatory adviser | Outstanding |
-| Entity | **[CONFIRM]** CIPC-registered SMME or institutional affiliation |
 
 Guidelines §4.1 rewards multidisciplinary teams and §7 scores clinical utility.
 Both weaknesses are real and neither is disguised here.

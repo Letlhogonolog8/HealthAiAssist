@@ -11,7 +11,7 @@ as at the last verification run.
 
 | # | Item | State |
 |---|---|---|
-| **B1** | **South African entity or institutional affiliation** | ✗ **UNRESOLVED** |
+| **B1** | **South African entity or institutional affiliation** | ◐ **Novaryx Technologie, CIPC-registered** (stated by the applicant 25 Sep 2026) — CIPC documents and SARS tax compliance status still to upload |
 | **B2** | **Named clinical advisor** | ✗ **UNRESOLVED** |
 
 **B1 is an eligibility gate.** Entry is restricted to SA-registered SMMEs,
