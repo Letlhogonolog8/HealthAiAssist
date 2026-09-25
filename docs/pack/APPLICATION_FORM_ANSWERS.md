@@ -455,18 +455,18 @@ Funding: prize funding and grants directed first at clinical validation.
 
 ### Team members' details, expertise and roles (max 250 words)
 
-[Full name] — Founder, Novaryx Technologie; technical lead. [Qualifications and experience.] Designed and built the platform end to end: the AI models and their evaluation, the inference service, DICOM ingestion and de-identification, the clinical workflow, security and POPIA controls, and the documentation — model cards, DPIA, failure-mode analysis and model change control.
+Letlhogonolo Matlaela — Founder, Novaryx Technologie; technical lead. AI and ML engineering and full-stack development. Designed and built HealthAI Assistant end to end: the AI models and their evaluation, the inference service, DICOM ingestion and de-identification, the clinical review workflow, security and POPIA controls, and the documentation (model cards, DPIA, failure-mode analysis, model change control). Responsible for product direction and technical delivery.
 
-Demonstrated ability to execute: a working prototype with two AI components serving under stated terms, 865 automated tests, measured performance with published reproduction commands, and a validation process strong enough to withdraw one of our own models when real CT exposed a flaw.
+Mokami Johannes — Co-Founder; AI/ML and research lead. AI and ML engineering with Python and JavaScript: building and experimenting with AI models, neural networks, algorithms and data, including AutoML approaches. Responsible for model development and validation methodology — dataset design, evaluation and the reader-study and pilot research design.
+
+Justice Langene — Co-Founder; backend, cloud and compliance. Software developer and engineer: web and mobile development, AI/ML integration, cloud infrastructure and UI/UX design, with experience shipping production applications. Responsible for backend architecture (Node.js and Python), APIs, cloud deployment and scaling, and POPIA and policy compliance.
+
+Track record together: the three founders previously built AEGIS-AI, an AI platform combining machine-learning risk models, web dashboards and USSD flows.
 
 Roles being filled, stated openly:
-- Clinical advisor (radiologist or dermatologist): outstanding. The brief and outreach are prepared. The role: advise on the clinical use case, lead the reader study and pilot design, and review clinical claims.
-- Regulatory adviser: outstanding. The role: SAHPRA classification and pre-submission, quality-management system.
+- Clinical advisor (radiologist or dermatologist): outstanding; brief and outreach prepared. Will advise on clinical use, lead the reader study and review clinical claims.
+- Regulatory adviser: outstanding; SAHPRA classification and quality management.
 - Information Officer under POPIA: to be registered.
-
-Plan: with challenge support, appoint the clinical and regulatory advisers first, then engage a pilot facility's radiology or dermatology department.
-
-[Add any other team members, with name, expertise and role.]
 
 ### Partners and collaborators (max 250 words)
 
