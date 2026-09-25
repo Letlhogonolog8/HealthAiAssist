@@ -47,11 +47,14 @@ import numpy as np
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from volume import CtVolume
 
-# v3 (2026-09-24): in-plane holes in the lung region are filled, so a solid
-# nodule inside the lung is inside the search. v1 excluded every solid nodule
-# wider than about twice the dilation; v2 fixed that with a rule that also
-# filled the mediastinum on real CT. See _fill_holes for both measurements.
-MASK_VERSION = "lung-threshold-v3"
+# v4 (2026-09-25): the aerated band is looked for only inside the patient's
+# body. v3 filled in-plane holes so that solid nodules are searched, but in 10
+# of 20 audited series bedding or padding in the aerated band closed a ring
+# around the patient and the fill took the whole body with it. v1 excluded
+# every solid nodule wider than about twice the dilation; v2 filled the
+# mediastinum by a different route. See _body_region and _fill_holes, and
+# docs/P2_LUNG_MASK_VALIDATION.md.
+MASK_VERSION = "lung-threshold-v4"
 
 # Aerated lung parenchyma sits around -700 to -900 HU; air outside the patient
 # is near -1000 and soft tissue is above -300. The band is wide because it has
@@ -82,6 +85,14 @@ DILATION_VOXELS = 3
 # around -800, air in the trachea and outside the body around -1000 to -1024 —
 # so removing everything under it cost zero lung-band voxels on that series.
 OUT_OF_FIELD_HU = -1100.0
+
+# The patient's body, per slice: everything denser than this, with its holes
+# filled, largest connected region. Soft tissue and bone are far above it,
+# aerated lung is below it but enclosed by the chest wall, and bedding, padding
+# and the air around the patient are outside it. Not tuned: it is the midpoint
+# of the lung band's upper half, chosen so that neither lung (~-800) nor fat
+# (~-100) sits near it.
+BODY_HU = -500.0
 
 # Below this fraction of the volume the result is not plausibly two lungs, and
 # saying so is better than handing a detector a mask that excludes the organ.
@@ -192,6 +203,41 @@ def _label_components(binary: np.ndarray) -> tuple[np.ndarray, int]:
     return labels, len(remap)
 
 
+def _body_region(array: np.ndarray) -> np.ndarray:
+    """The patient's body, per slice: the largest filled region above BODY_HU.
+
+    ── Why this exists ─────────────────────────────────────────────────────
+
+    The component rule below keeps any aerated-band region that touches fewer
+    than two frame edges, on the reasoning that the air around the patient
+    does and lung does not. Material around the patient that sits in the
+    -950..-300 HU band — padding, bedding, a gap between patient and cushion —
+    also does not, and v1 through v3 kept it. Under v3 that became a
+    failure rather than a nuisance: on 10 of 20 audited LIDC series it closed a
+    ring around the body, and the hole fill then filled 55-99% of the body
+    cross-section. Measured in docs/P2_LUNG_MASK_VALIDATION.md §8.
+
+    Restricting the band to the body removes the ring before it can enclose
+    anything, whatever shape it takes. Lung is always inside: it is enclosed
+    by the chest wall, so filling the dense region's holes includes it.
+
+    Largest region only, so the scanner table and separate arms do not count
+    as body. A slice with nothing denser than BODY_HU has no body.
+    """
+    from scipy import ndimage
+
+    body = np.zeros(array.shape, dtype=bool)
+    for k in range(array.shape[0]):
+        filled = ndimage.binary_fill_holes(array[k] > BODY_HU)
+        labels, count = ndimage.label(filled)
+        if count == 0:
+            continue
+        sizes = np.bincount(labels.ravel())
+        sizes[0] = 0
+        body[k] = labels == int(np.argmax(sizes))
+    return body
+
+
 def _fill_holes(mask: np.ndarray) -> np.ndarray:
     """Fill every in-plane hole in the lung region: background not connected
     to the edge of its slice.
@@ -226,19 +272,16 @@ def _fill_holes(mask: np.ndarray) -> np.ndarray:
     reaches the slice edge; whether chest wall or mediastinum is not
     established.
 
-    ── KNOWN DEFECT — this fill is not safe to use as it stands ────────────
+    ── The v3 defect, and why this fill is safe only after _body_region ────
 
-    The mediastinum is kept out only while it reaches the slice edge. In 10
-    of those 20 series it does not: aerated-band material that is not lung,
-    much of it outside the body, passes the component rule below and closes a
-    ring around the patient, and this fill then fills 55-99% of the body
-    cross-section — heart, mediastinum, chest wall. That is 83% of what the
-    fill adds, and 3 of the 72 retained centres depend on it. The
-    plausibility ceiling does not see it because it is applied before the
-    fill. Measured, with the corrected figures and the decision this needs,
-    in docs/P2_LUNG_MASK_VALIDATION.md. The earlier statement here that the
-    mediastinum "is not filled" was checked only on an open ring and was
-    wrong.
+    Under v3 the mediastinum was kept out only while it reached the slice
+    edge. In 10 of those 20 series it did not: aerated-band material outside
+    the body passed the component rule and closed a ring around the patient,
+    and this fill then filled 55-99% of the body cross-section. v4 removes the
+    band outside the body before components are found (_body_region), so the
+    ring no longer exists when the fill runs. On 30 train and validation
+    series: body-scale fill 83.5 M voxels under v3, 0.05 M under v4, with the
+    same nodule centres inside. docs/P2_LUNG_MASK_VALIDATION.md section 12.
 
     `scipy.ndimage.binary_fill_holes`, per slice, 4-connected background
     (its default). scipy is already in the serving environment as a hard
@@ -311,7 +354,13 @@ def build_lung_mask(
         )
 
     warnings: list[str] = []
-    aerated = (array >= hu_min) & (array <= hu_max)
+    in_band = (array >= hu_min) & (array <= hu_max)
+    # Only the band inside the patient. Outside it the band is bedding and
+    # padding, and under v3 that closed rings around the body (see
+    # _body_region).
+    body = _body_region(array)
+    aerated = in_band & body
+    outside_body = int((in_band & ~body).sum())
 
     # Per slice, keep only components large enough to be a lung and drop those
     # touching the border, which is the air around the patient and the table.
@@ -377,6 +426,11 @@ def build_lung_mask(
             f"The mask was grown by {dilation_voxels} voxels in plane so that a nodule "
             "against the pleura is not excluded by the threshold. It therefore includes "
             "some chest wall and is not an organ boundary."
+        )
+    if outside_body:
+        warnings.append(
+            f"{outside_body} voxel(s) in the lung density band outside the patient's body "
+            "(padding, bedding) were excluded before the lung regions were found."
         )
     if enclosed:
         warnings.append(

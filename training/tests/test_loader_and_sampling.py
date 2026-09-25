@@ -100,7 +100,7 @@ def test_the_labelled_nodule_is_inside_the_search_constraint(phantom):
     detector trained on it would be trained on a location it never serves."""
     target = phantom.targets[0]
     assert phantom.lung_mask.contains(target.i, target.j, target.k)
-    assert phantom.lung_mask.version == "lung-threshold-v3"
+    assert phantom.lung_mask.version == "lung-threshold-v4"
 
 
 # ── sampling ───────────────────────────────────────────────────────────────

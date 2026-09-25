@@ -37,11 +37,14 @@ class FakeVolume:
         self.shape = array.shape
 
 
-def phantom(slices=6, size=64, lung_hu=-800.0, body_hu=40.0, air_hu=-1000.0, radius=12):
+def phantom(slices=6, size=64, lung_hu=-800.0, body_hu=40.0, air_hu=-1000.0, radius=10):
     """A dense block with two aerated discs in it, surrounded by air.
 
     The surrounding air reaches the frame edge, as it does in a real
-    acquisition, so the border rule has something to exclude.
+    acquisition, so the border rule has something to exclude. The discs sit
+    inside the block with a chest wall around them; until v4 their radius was
+    12, which put them through the block's edge and in contact with the air
+    outside — a chest with no lateral wall.
     """
     array = np.full((slices, size, size), air_hu, dtype=np.float32)
     yy, xx = np.mgrid[0:size, 0:size]
@@ -161,8 +164,11 @@ def test_an_aerated_region_swallowing_the_patient_is_unavailable():
     size = 64
     array = np.full((5, size, size), -1000.0, dtype=np.float32)
     yy, xx = np.mgrid[0:size, 0:size]
-    interior = (yy > 2) & (yy < size - 2) & (xx > 2) & (xx < size - 2)
+    # A one-voxel chest wall, so that under v4 the interior is inside a body.
+    wall = (yy > 1) & (yy < size - 2) & (xx > 1) & (xx < size - 2)
+    interior = (yy > 2) & (yy < size - 3) & (xx > 2) & (xx < size - 3)
     for k in range(5):
+        array[k][wall] = 40.0
         array[k][interior] = -700.0
 
     with pytest.raises(LungMaskUnavailable) as raised:
@@ -323,7 +329,7 @@ def test_enclosure_filling_is_reported():
 
 
 def test_the_version_records_the_change():
-    assert MASK_VERSION == "lung-threshold-v3"
+    assert MASK_VERSION == "lung-threshold-v4"
 
 
 def _ring_phantom(gap, slices=4, size=64):
@@ -357,3 +363,73 @@ def test_tissue_inside_an_open_ring_of_lung_is_not_filled():
 def test_tissue_inside_a_closed_ring_of_lung_is_filled():
     result = build_lung_mask(_ring_phantom(gap=False), dilation_voxels=0)
     assert result.contains(32, 32, 1)
+
+
+def _wrapped_phantom(gap_to_body):
+    """The two-lung phantom with a ring of aerated-band material around the
+    outside of the body — the v3 failure on real CT (docs/P2_LUNG_MASK_VALIDATION.md
+    §8), where padding or bedding in the -950..-300 HU band closed a ring
+    around the patient that touched no frame edge."""
+    volume = phantom()
+    size = volume.array.shape[1]
+    yy, xx = np.mgrid[0:size, 0:size]
+    outer = (yy >= 6 - gap_to_body - 2) & (yy <= size - 7 + gap_to_body + 2) \
+        & (xx >= 6 - gap_to_body - 2) & (xx <= size - 7 + gap_to_body + 2)
+    inner = (yy >= 6 - gap_to_body) & (yy <= size - 7 + gap_to_body) \
+        & (xx >= 6 - gap_to_body) & (xx <= size - 7 + gap_to_body)
+    for k in range(volume.array.shape[0]):
+        volume.array[k][outer & ~inner] = -800.0
+    return volume
+
+
+@pytest.mark.parametrize("gap_to_body", [0, 1])
+def test_a_ring_of_non_lung_material_around_the_body_does_not_fill_the_body(gap_to_body):
+    """v3 failed this: the ring passed the frame-edge rule, and the hole fill
+    then filled everything inside it — heart, mediastinum, chest wall."""
+    volume = _wrapped_phantom(gap_to_body)
+    size = volume.array.shape[1]
+    result = build_lung_mask(volume, dilation_voxels=0)
+    assert not result.contains(size // 2, size // 2, 2), "the mediastinum was filled"
+    assert not result.contains(size // 2, 10, 2), "the chest wall above the lungs was filled"
+
+
+@pytest.mark.parametrize("gap_to_body", [0, 1])
+def test_the_ring_itself_is_not_searched(gap_to_body):
+    """It is outside the patient. v1 already kept it; it was never lung."""
+    volume = _wrapped_phantom(gap_to_body)
+    result = build_lung_mask(volume, dilation_voxels=0)
+    assert not result.contains(5 - gap_to_body, 32, 2)
+
+
+def test_the_lungs_survive_when_the_body_is_wrapped():
+    volume = _wrapped_phantom(0)
+    size = volume.array.shape[1]
+    result = build_lung_mask(volume, dilation_voxels=0)
+    assert result.contains(size // 2 - 14, size // 2, 2)
+    assert result.contains(size // 2 + 14, size // 2, 2)
+
+
+def test_a_nodule_inside_the_lung_is_still_filled_when_the_body_is_wrapped():
+    volume = _wrapped_phantom(0)
+    size = volume.array.shape[1]
+    yy, xx = np.mgrid[0:size, 0:size]
+    nodule = (yy - size // 2) ** 2 + (xx - (size // 2 - 14)) ** 2 <= 25
+    for k in range(volume.array.shape[0]):
+        volume.array[k][nodule] = 40.0
+    result = build_lung_mask(volume, dilation_voxels=0)
+    assert result.contains(size // 2 - 14, size // 2, 2)
+
+
+def test_lung_open_to_the_air_outside_the_body_is_not_searched():
+    """Pins a v4 limitation rather than endorsing it.
+
+    The body is the filled region above BODY_HU. Lung whose chest wall is
+    missing in a slice — a gap, or the reconstruction circle cutting the chest
+    — is not enclosed by it, so it is treated as outside the patient and
+    dropped. docs/P2_LUNG_MASK_VALIDATION.md measures how often this happens
+    on real CT; changing the behaviour must fail this test.
+    """
+    volume = phantom(radius=12)   # discs reach the air beyond the block's edge
+    size = volume.array.shape[1]
+    with pytest.raises(LungMaskUnavailable):
+        build_lung_mask(volume, dilation_voxels=0)
