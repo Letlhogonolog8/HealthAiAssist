@@ -178,7 +178,7 @@
     "architecture": "lung-nodule-candidate-2p5d-cnn arch-v1, 1,173,473 parameters, untrained",
     "configurationStatus": "INITIAL_ENGINEERING_DEFAULT — no value selected by measurement",
     "modelSelection": "validation loss only; no detection metric computed",
-    "lungMaskVersion": "lung-threshold-v3 — FAIL as a training-region constraint: fills 55-99% of the body cross-section in 10 of 20 audited series; see docs/P2_LUNG_MASK_VALIDATION.md",
+    "lungMaskVersion": "lung-threshold-v4 — NOT APPROVED. v3 filled the body in 10 of 20 series; v4 restricts the lung band to the body and removes that on 30 train/validation series. See docs/P2_LUNG_MASK_VALIDATION.md section 12",
     "note": "Infrastructure only. Nothing here is a result, a validation or an approval."
   },
 

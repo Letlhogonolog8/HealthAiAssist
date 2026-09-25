@@ -3,7 +3,13 @@
 24 September 2026. HEAD at time of measurement: `c7e8880` (mask code from
 `2f369e5`, not modified by the measurement).
 
-> **Verdict: FAIL as a training-region constraint.** v3 does not keep the
+> **Update 25 September 2026 — v4.** §12 below: the defect found here is
+> fixed in `lung-threshold-v4` and re-measured on train and validation series
+> only. v4 removes the engineering FAIL; approving it as the training
+> constraint remains a **PENDING DECISION**. Sections 1–11 are the v3 audit
+> as recorded.
+>
+> **Verdict (v3): FAIL as a training-region constraint.** v3 does not keep the
 > mediastinum out. In 10 of 20 audited series its hole fill fills most of the
 > body cross-section, because non-lung material in the aerated HU band closes
 > a ring around the patient. The claim in `2f369e5` and in
@@ -323,7 +329,86 @@ executed.
 
 ---
 
-## Appendix — per-nodule table
+## 12. v4 — the fix, measured on train and validation only
+
+**Change** (`inference/lung_mask.py`, `MASK_VERSION = "lung-threshold-v4"`).
+Before components are found, the aerated band is restricted to the patient's
+body, per slice: the largest region above −500 HU with its holes filled
+(`_body_region`, `BODY_HU`). Lung is enclosed by the chest wall and so lies
+inside it; bedding and padding lie outside it and can no longer form a ring.
+Everything else — threshold, component rule, hole fill, dilation, padding
+removal — is unchanged.
+
+**Tests first.** A body wrapped in a ring of −800 HU material, touching the
+skin or 1 voxel off it: under v3 the mediastinum and chest wall were filled
+and the ring itself searched (4 tests fail on v3); under v4 neither. Guards:
+both lungs survive the wrap, and a nodule inside a wrapped lung is still
+filled. The phantom's lung discs were reduced from radius 12 to 10 because at
+12 they broke through the 1-voxel body margin into outside air — a chest with
+no lateral wall — and the ceiling test gained a chest wall so that it still
+reaches the ceiling rather than the floor. Neither changes what is asserted.
+
+**New limitation, pinned by a test.** Lung that touches air outside the body
+in a slice — a missing chest wall, or the reconstruction circle cutting the
+chest — is treated as outside the patient and dropped
+(`test_lung_open_to_the_air_outside_the_body_is_not_searched`). Not observed
+in the 30 series below (no centre lost; the voxels dropped are at the skin),
+but those are 30 series.
+
+**Evidence.** The first 30 locally available series whose patients are in
+**train (25) or validation (5)**, sorted by source UID; the script refuses any
+other split. 106 nodules, all resolved. The v3 and v4 replicas used for
+measurement were checked voxel-for-voxel against the real builders on the
+first two series.
+
+| | v3 | v4 |
+|---|---|---|
+| Nodule centres inside | 104 / 106 | **104 / 106** (the same two) |
+| Series with fill holes ≥ 5,000 mm² | 15 | 2 |
+| Voxels in such holes | 83.5 M | **0.047 M** (4 slices) |
+| Mask voxels | 352.8 M | 171.1 M (48.5%) |
+| Share of the mask inside the body outline | 74.1% | **99.9%** (lowest series 99.5%) |
+| Mean HU of the mask | −589 | −754 |
+| Fill contents | — | 12.7 M voxels, mean −819 HU, 17% above −300 HU |
+
+A quarter of v3's mask — and of v1's, which kept the same components — was
+outside the patient. v4 is about half v3's size mostly for that reason.
+
+**What v4 drops inside the body** (kept by v3, not by v4), by depth below the
+body surface, on the four series with the largest per-slice loss
+(LIDC-IDRI-0052, -0366, -0824, -0006): 63–86% within 2 mm of the skin and
+≥ 98% within 10 mm, mean −400 to −470 HU — skin and subcutaneous partial
+volume, not lung (about −800 HU). At most 3,425 voxels (0.8%, LIDC-IDRI-0052)
+lie 10–20 mm deep, mean −479 HU; they are fragments below the size floor that
+v3 kept only because they were joined to the outer ring. What they are
+anatomically was not established.
+
+**The two centres both versions miss** are LIDC-IDRI-0749 nodules 2 and 4
+(train), at 161 and 1,859 HU — dense or calcified, inside the body outline,
+outside the dilated mask. That is limitation F2 (§6, §9): juxtapleural or
+juxtamediastinal nodules beyond a 3-voxel dilation.
+
+**Residual.** 47,267 voxels of fill in holes ≥ 5,000 mm² remain in 4 slices of
+2 series (LIDC-IDRI-0052, -0822). Not characterised here.
+
+**Status after v4.**
+
+| Failure (§9) | After v4 |
+|---|---|
+| F1 body-scale fill | fixed on this evidence; residual 0.047 M voxels |
+| F3 non-lung components outside the body | fixed (99.9% of the mask inside the body) |
+| F4 ceiling checked before the fill | unchanged; no longer load-bearing for F1 |
+| F2, F5, F6, F7 | unchanged |
+| F8 test-contaminated selection evidence | v4 selection evidence is train + validation only; the v3 diagnosis that motivated it saw 4 test series |
+| new: lung open to outside air is dropped | pinned by a test; not observed here |
+
+**Decision still required — PENDING DECISION:** whether v4 is approved as the
+candidate-search and negative-sampling constraint, with F2 (dilation radius)
+and the open-lung limitation stated. No approval is given here.
+
+---
+
+## Appendix — per-nodule table (v3 audit, 20-series sample)
 
 "How v3 includes it": *aerated lung* — centre in a kept aerated component;
 *hole fill* — in a filled hole of ordinary size; **body-scale hole** — only

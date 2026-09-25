@@ -7,10 +7,16 @@ at HEAD `c7e8880`; this record is committed on top of `47c9375`.
 
 **NO — BLOCKED.**
 
-Blocking gates: **Lung mask (FAIL)**, **Test protection (FAIL)**, **Training
-environment (BLOCKED)**, and six PENDING DECISIONs — dataset definition, CT
+> **Update 25 September 2026.** Lung mask v4 fixes the body-scale fill
+> (`docs/P2_LUNG_MASK_VALIDATION.md` §12), measured on train and validation
+> series only. The lung-mask gate moves from FAIL to PENDING DECISION, and
+> test protection from FAIL to PENDING DECISION. The answer is unchanged:
+> NO — BLOCKED.
+
+Blocking gates: **Training environment (BLOCKED)** and eight PENDING
+DECISIONs — lung mask (v4 approval), test protection, dataset definition, CT
 geometry, detector input, sampling, localisation methodology, performance
-bar. No gate was relaxed to reach this answer, and none should be relaxed to
+bar. (Before v4: lung mask FAIL and test protection FAIL.) No gate was relaxed to reach this answer, and none should be relaxed to
 change it.
 
 No detector was trained. No detector checkpoint exists. No detection metric
@@ -25,17 +31,17 @@ was computed or estimated.
 | Dataset definition | PENDING DECISION | Label pipeline verified and unmodified; LIDC dataset decision awaits ratification; 5 label-table nodules merge two readings from one reader, 3 of them "2-reader" nodules that are one reader; whether indeterminate and < 3 mm nodules are targets is undecided — `docs/P2_DATASET_RATIFICATION_AUDIT.md` §5, §10 | Yes |
 | Patient-disjoint split | PASS | `verify-training-manifest.py` exit 0; fingerprint `f55f6cd5188ae3ee` recomputed and pinned; 0 patient, series or label overlap, recomputed independently — ratification audit §6 | No |
 | Pixel availability | PASS | 229 / 748 series; train 149 series / 518 nodules, validation 27 / 90, calibration 21 / 88, test 32 / 126 — measured and matching the bar. Sufficient to run training; the test sample cannot separate 0.85 from 0.90 sensitivity, which limits claims, not training — ratification audit §7 | No (for training) |
-| Lung mask | **FAIL** | v3 fills 55–99% of the body cross-section in 10 of 20 series (heart, mediastinum, chest wall; 83% of all fill); 72/74 reproduced, 69/74 without the body-scale fill; both misses peripheral — `docs/P2_LUNG_MASK_VALIDATION.md` | Yes |
+| Lung mask | PENDING DECISION | v3 FAILED (body filled in 10 of 20 series). v4 (`lung-threshold-v4`), on 30 train/validation series: body-scale fill 83.5 M → 0.047 M voxels, 99.9% of the mask inside the body, 104/106 centres as under v3; limitations F2 and open-lung dropping stated. Not approved — `docs/P2_LUNG_MASK_VALIDATION.md` §12 | Yes |
 | CT geometry | PENDING DECISION | Native spacing kept, no resampling (`resample_slice_spacing_mm: null`); the bar records resample spacing as REQUIRES EMPIRICAL SELECTION; slice spacing 1.0–3.0 mm across the data | Yes |
 | Detector input | PENDING DECISION | HU clip −1000…400 → [0,1], 3 adjacent slices, 64 × 64 px — explicit and checked against the service (MATCHES_SERVICE), but every value is an UNVALIDATED ENGINEERING DEFAULT; the bar lists patch size and stride as REQUIRES EMPIRICAL SELECTION | Yes |
-| Sampling | PENDING DECISION | Positives: 1 per labelled nodule, ± 4 px jitter; negatives: 200 per series, ≥ 32 mm from every mark of any kind, **inside the lung mask** — so they inherit the mask FAIL; target definition depends on the open dataset decision | Yes |
+| Sampling | PENDING DECISION | Positives: 1 per labelled nodule, ± 4 px jitter; negatives: 200 per series, ≥ 32 mm from every mark of any kind, **inside the lung mask** — so they inherit the pending mask decision; target definition depends on the open dataset decision | Yes |
 | Localization methodology | PENDING DECISION | `docs/P2_LOCALIZATION_METHODOLOGY.md` status PENDING; bar tolerance BLOCKED; options set out without ranking in `docs/P2_LOCALIZATION_DECISION_BRIEF.md`; greedy assignment not ratified | Yes — for freezing the specification. The repository's rule requires it before evaluation, not before training |
 | Performance bar | PENDING DECISION | `docs/bars/p2.json` status DRAFT_NOT_APPROVED; the 0.85 / 4 FP gate is an example from a roadmap, not benchmark- or regulation-derived; not approved, not optimised toward | Yes — for freezing the specification; required before evaluation |
 | Training environment | BLOCKED | `check-training-environment.py` exit 1: Python 3.8.10 (< 3.10), torch 2.1.0+cpu, no CUDA, 0 GPUs (Intel Iris Xe), 8 CPUs (i7-1165G7), 7.78 GB RAM; disk C: 0.5 GB free, D: 479.9 GB free | Yes |
 | Reproducibility | PASS | Same seed, config and synthetic data → identical weight fingerprint and per-epoch losses; different seed → different weights; resume equals an uninterrupted run; sampling and augmentation deterministic (3 targeted tests passed; full training suite 167 passed). CPU only — GPU determinism not verifiable here | No |
 | Security | PASS | Full `npm test` exited 1 on one patient-isolation test that failed closed on an infrastructure error; re-run alone it passed (see Verification). No authentication, authorisation, patient-isolation, audit, de-identification or retention code changed in this phase (the only non-doc change is a comment in `inference/lung_mask.py` and tests in `inference/tests/test_detection_eval.py`). Training manifests exclude UIDs, patient ids and paths, and a test scans for them; console output prints gate status and losses only; caches are hash-named under gitignored `artifacts/`. Care relationship remains shadow mode (`CARE_RELATIONSHIP_ENFORCE` unset in `.env`, the shell and CI; DPIA R-02 open, pre-existing) | No |
 | DPIA | PENDING | R-23: erasure reaches `imaging_studies`, `imaging_series`, `imaging_instances`, `detection_runs`, `detection_candidates` and stored objects, and the clinical hold is the later of scans and series (verified in `server/erasure.ts:98-129, 331-381`). **Residual gap:** when an object delete fails, the rows pointing to it are still deleted and the failed paths are neither persisted nor logged (only a count), so the administrator the message asks for has no record of which objects remain. R-02 open (shadow mode) | No (for training); open for release |
-| Test protection | **FAIL** | Code level passes: one `require_split` gate, fit → train, select → validation, calibrate → calibration, evaluate → test, with refusal tests. **Methodology:** the evidence that chose lung-mask v3 used 4 test-split series (14 of 74 nodules) — ratification audit §8 | Yes |
+| Test protection | PENDING DECISION | Code level passes: one `require_split` gate, fit → train, select → validation, calibrate → calibration, evaluate → test, with refusal tests. The v3 selection evidence used 4 test-split series (14 of 74 nodules); v4's selection evidence is train + validation only, but the v3 diagnosis that motivated v4 saw those test series. No model or threshold was fitted to them. Whether that exposure is acceptable, and how it is recorded, is an owner's decision — ratification audit §8 | Yes |
 
 Status vocabulary: PASS, FAIL, PENDING DECISION, BLOCKED, READY. "PENDING" for
 the DPIA row means a documented residual that is neither closed nor blocking
@@ -124,7 +130,7 @@ Branch:                   fix/remove-fabricated-ai-results
 HEAD:                     see `git log` — this record's commit, on 47c9375
 Working tree:             clean after commit
 
-Lung mask:                FAIL — v3 fills the body in 10/20 series; decision PENDING on a corrected mask
+Lung mask:                v4 fixes the v3 body fill (train/validation evidence); approval PENDING DECISION
 Dataset:                  PENDING DECISION — ratification; same-reader clusters; indeterminate/<3 mm targets
 Localization methodology: PENDING DECISION — no rule chosen; evaluator refuses
 Performance bar:          DRAFT_NOT_APPROVED
@@ -138,9 +144,8 @@ Real detector checkpoint: ABSENT
 
 ## Blocking decisions
 
-1. **Lung mask** — a corrected mask that cannot fill the body, measured on
-   train and validation only, then approved or rejected by a methodology
-   owner.
+1. **Lung mask** — v4 exists and is measured on train and validation only;
+   a methodology owner approves or rejects it.
 2. **Dataset** — ratify the LIDC label pipeline; decide preserve / exclude /
    re-derive for same-reader clusters; decide whether indeterminate and
    < 3 mm nodules are targets.
@@ -152,9 +157,12 @@ Real detector checkpoint: ABSENT
 
 ## Safe next action
 
-Fix the lung mask's body-scale fill: first add a failing test for a closed ring
-formed by non-lung aerated-band material, then correct the component
-selection, and re-measure centre retention and fill composition on **train
-and validation series only**. That removes the one FAIL that is engineering
-work rather than a decision, and replaces the test-contaminated selection
-evidence.
+Done on 25 September 2026: lung mask v4 (tests first, then the fix,
+measured on train and validation only). No engineering FAIL remains. What is
+left is decisions and compute.
+
+The next action is not engineering: put the pending decisions in front of
+their owner — v4 approval, test-exposure handling, dataset ratification and
+same-reader clusters, localisation rule, performance bar, input geometry —
+using `docs/P2_LUNG_MASK_VALIDATION.md`, `docs/P2_DATASET_RATIFICATION_AUDIT.md`
+and `docs/P2_LOCALIZATION_DECISION_BRIEF.md` as the briefing.
