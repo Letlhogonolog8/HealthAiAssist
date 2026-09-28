@@ -314,6 +314,20 @@ export async function stopServer(): Promise<void> {
 }
 
 /** A browser-ish session: keeps whatever cookie the server last set. */
+/**
+ * The reason a fetch failed. Node's fetch throws a bare "fetch failed" and puts
+ * what actually happened - a reset, a refused connection, a socket closed
+ * mid-body - in `cause`. Dropping it made an intermittent ingestion failure
+ * undiagnosable (2026-09-28).
+ */
+function describeFetchError(err: any): string {
+  const message = err?.message ?? String(err);
+  const cause = err?.cause;
+  if (!cause) return message;
+  const parts = [cause.code, cause.message].filter(Boolean).join(' ');
+  return parts ? `${message} (cause: ${parts})` : message;
+}
+
 export class Session {
   private cookie = '';
 
@@ -354,7 +368,7 @@ export class Session {
           `${method} ${path} did not respond within ${REQUEST_TIMEOUT_MS}ms`
         );
       }
-      throw new Error(`${method} ${path} failed: ${err?.message ?? err}`);
+      throw new Error(`${method} ${path} failed: ${describeFetchError(err)}`);
     }
 
     const setCookie = res.headers.getSetCookie?.() ?? [];
@@ -407,7 +421,7 @@ export class Session {
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (err: any) {
-      throw new Error(`POST ${path} (multipart) failed: ${err?.message ?? err}`);
+      throw new Error(`POST ${path} (multipart) failed: ${describeFetchError(err)}`);
     }
 
     for (const c of res.headers.getSetCookie?.() ?? []) {
