@@ -89,6 +89,15 @@ def check_run(train_set: ds.SampleSet, val_set: ds.SampleSet, device: str) -> No
     if train_set.kind != val_set.kind:
         reasons.append("training and validation sets are of different kinds (%s, %s)"
                        % (train_set.kind, val_set.kind))
+    if train_set.kind == ds.KIND_LIDC or val_set.kind == ds.KIND_LIDC:
+        # Checked here as well as in scripts/train_lung_detector.py, so that
+        # calling the trainer from Python is not a way round the decisions.
+        from training import authorisation
+
+        try:
+            authorisation.require_authorisation()
+        except authorisation.NotAuthorised as exc:
+            reasons.append("not authorised: %s" % exc)
     if train_set.kind == ds.KIND_LIDC and not str(device).startswith("cuda"):
         reasons.append(
             "LIDC training requires a CUDA device; got %r. The detector is not trained on CPU "

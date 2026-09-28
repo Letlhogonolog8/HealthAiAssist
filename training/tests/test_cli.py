@@ -69,9 +69,15 @@ def test_the_dry_run_never_trains_and_says_why():
     before = _experiments()
     code, output = run("scripts/train_lung_detector.py", "--dry-run")
     assert "TRAINING NOT EXECUTED" in output
-    if HAS_LABELS and not has_cuda():
-        assert code == 3, output
-        assert "HARNESS READY, ENVIRONMENT NOT AVAILABLE" in output
+    if HAS_LABELS:
+        # Not authorised comes first: the nine methodology decisions are
+        # PENDING, and a GPU would not change that. Before 2026-09-28 this
+        # machine got exit 3 (environment) and the decisions were never checked.
+        assert code == 4, output
+        assert "HARNESS READY, TRAINING NOT AUTHORISED" in output
+        assert "authorisation  FAIL" in output
+        if not has_cuda():
+            assert "environment    FAIL" in output, "the environment is still reported"
     elif not HAS_LABELS:
         assert code == 2, output        # the manifest gate cannot pass without the label table
     assert _experiments() == before, "a dry run created an experiment"

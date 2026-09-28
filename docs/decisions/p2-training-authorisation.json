@@ -1,0 +1,99 @@
+{
+  "record": "p2-training-authorisation",
+  "version": 1,
+  "purpose": "The machine-readable form of docs/P2_TRAINING_GATE_DECISION_REGISTER.md. scripts/train_lung_detector.py refuses a real training run unless every decision below is APPROVED with an owner, a role, a date and the decision itself. Engineering readiness is not authorisation.",
+  "howToRecordADecision": "Only the assigned decision owner records a decision, in the same change as the sign-off block of the register. Set status to APPROVED, REJECTED or DEFERRED; fill owner (a person's name), role, decidedOn (YYYY-MM-DD) and decision (what was decided, specifically enough to implement). Anything else leaves training refused.",
+  "statusVocabulary": ["PENDING", "APPROVED", "REJECTED", "DEFERRED"],
+  "decisions": [
+    {
+      "id": "lung-mask-v4",
+      "title": "Lung mask v4 as the candidate-search and negative-sampling constraint",
+      "register": "docs/P2_TRAINING_GATE_DECISION_REGISTER.md section 1",
+      "status": "PENDING",
+      "owner": null,
+      "role": null,
+      "decidedOn": null,
+      "decision": null
+    },
+    {
+      "id": "test-split-exposure",
+      "title": "Handling of the four inspected test-split series (LIDC-IDRI-0481, -0447, -0951, -0059; 14 nodules)",
+      "register": "docs/P2_TRAINING_GATE_DECISION_REGISTER.md section 2",
+      "status": "PENDING",
+      "owner": null,
+      "role": null,
+      "decidedOn": null,
+      "decision": null
+    },
+    {
+      "id": "dataset-ratification",
+      "title": "The LIDC-derived dataset definition for this experiment",
+      "register": "docs/P2_TRAINING_GATE_DECISION_REGISTER.md section 3",
+      "status": "PENDING",
+      "owner": null,
+      "role": null,
+      "decidedOn": null,
+      "decision": null
+    },
+    {
+      "id": "same-reader-clusters",
+      "title": "Treatment of clusters holding two readings from one reader",
+      "register": "docs/P2_TRAINING_GATE_DECISION_REGISTER.md section 4",
+      "status": "PENDING",
+      "owner": null,
+      "role": null,
+      "decidedOn": null,
+      "decision": null
+    },
+    {
+      "id": "ct-geometry",
+      "title": "CT geometry and resampling policy",
+      "register": "docs/P2_TRAINING_GATE_DECISION_REGISTER.md section 5",
+      "status": "PENDING",
+      "owner": null,
+      "role": null,
+      "decidedOn": null,
+      "decision": null
+    },
+    {
+      "id": "detector-input",
+      "title": "Detector input representation",
+      "register": "docs/P2_TRAINING_GATE_DECISION_REGISTER.md section 6",
+      "status": "PENDING",
+      "owner": null,
+      "role": null,
+      "decidedOn": null,
+      "decision": null
+    },
+    {
+      "id": "sampling",
+      "title": "Sampling methodology",
+      "register": "docs/P2_TRAINING_GATE_DECISION_REGISTER.md section 7",
+      "status": "PENDING",
+      "owner": null,
+      "role": null,
+      "decidedOn": null,
+      "decision": null
+    },
+    {
+      "id": "localisation",
+      "title": "Localisation methodology and tolerance",
+      "register": "docs/P2_TRAINING_GATE_DECISION_REGISTER.md section 8",
+      "status": "PENDING",
+      "owner": null,
+      "role": null,
+      "decidedOn": null,
+      "decision": null
+    },
+    {
+      "id": "performance-criterion",
+      "title": "Performance criterion for the first formal evaluation",
+      "register": "docs/P2_TRAINING_GATE_DECISION_REGISTER.md section 9",
+      "status": "PENDING",
+      "owner": null,
+      "role": null,
+      "decidedOn": null,
+      "decision": null
+    }
+  ]
+}

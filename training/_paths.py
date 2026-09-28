@@ -21,6 +21,7 @@ ANNOTATION_EXCLUSIONS = os.path.join(ROOT, "dataset", "lidc-annotation-exclusion
 DATASET_DECISION = os.path.join(ROOT, "docs", "P2_DATASET_DECISION.md")
 LOCALISATION_METHODOLOGY = os.path.join(ROOT, "docs", "P2_LOCALIZATION_METHODOLOGY.md")
 BAR = os.path.join(ROOT, "docs", "bars", "p2.json")
+TRAINING_AUTHORISATION = os.path.join(ROOT, "docs", "decisions", "p2-training-authorisation.json")
 DEFAULT_CONFIG = os.path.join(ROOT, "training", "configs", "lung_nodule_detector.yaml")
 DICOM_ROOT = os.path.join(ROOT, "dataset", "manifest-1600709154662")
 

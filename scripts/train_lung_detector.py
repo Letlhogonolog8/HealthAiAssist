@@ -19,7 +19,8 @@ Every run, dry or real, checks the same things in the same order and reports
 each as PASS or FAIL:
 
     configuration    loads, validates, matches the service, claims no approval
-    governance       localisation PENDING and bar DRAFT_NOT_APPROVED, as recorded
+    governance       localisation and bar status agree with the repository record
+    authorisation    all nine decisions APPROVED by a named owner (real runs only)
     manifest         patient-disjoint, fingerprint pinned, source identities
     availability     index present and computed against this split
     exclusions       the all-annotation index exists (negatives depend on it)
@@ -31,8 +32,14 @@ each as PASS or FAIL:
 A dry run stops there and never trains:
 
     DRY RUN SUCCESS — TRAINING NOT EXECUTED                       exit 0
+    DRY RUN FAILED — HARNESS READY, TRAINING NOT AUTHORISED       exit 4
     DRY RUN FAILED — HARNESS READY, ENVIRONMENT NOT AVAILABLE     exit 3
     DRY RUN FAILED — HARNESS NOT READY                            exit 2
+
+Authorisation is checked before the environment and reported alongside it: a
+machine with a GPU is not permission to train. The record is
+docs/decisions/p2-training-authorisation.json, read by training/authorisation.py,
+with no override.
 
 A real run trains only if every gate passes, and otherwise prints
 TRAINING REFUSED and exits non-zero. There is no CPU fallback for LIDC data.
@@ -66,11 +73,13 @@ from training import config as training_config  # noqa: E402
 from training import dataset as ds  # noqa: E402
 from training import environment as env  # noqa: E402
 from training import manifest as mf  # noqa: E402
+from training import authorisation  # noqa: E402
 
 EXIT_OK = 0
 EXIT_REFUSED = 1
 EXIT_HARNESS = 2
 EXIT_ENVIRONMENT = 3
+EXIT_NOT_AUTHORISED = 4
 
 
 def _resolve(path: str) -> str:
@@ -114,7 +123,7 @@ def gate_all(config_path: str, synthetic: bool) -> Tuple[Gates, Dict[str, Any]]:
                 recorded["localization_methodology_status"] != "APPROVED":
             raise RuntimeError("localisation methodology status is unreadable: %r"
                                % recorded["localization_methodology_status"])
-        return "localisation %s, bar %s (training does not depend on either)" % (
+        return "localisation %s, bar %s (approval is checked by the authorisation gate)" % (
             recorded["localization_methodology_status"], recorded["performance_bar_status"])
 
     def manifest() -> str:
@@ -200,6 +209,8 @@ def gate_all(config_path: str, synthetic: bool) -> Tuple[Gates, Dict[str, Any]]:
         if gates.run("model", model):
             gates.run("checkpointing", checkpointing)
         gates.run("output", output)
+    if not synthetic:
+        gates.run("authorisation", authorisation.require_authorisation)
     gates.run("environment", environment)
     return gates, state
 
@@ -237,13 +248,18 @@ def main() -> int:
     gates.print()
     print()
 
-    harness_failures = gates.failed(tuple(n for n, _, _ in gates.results if n != "environment"))
+    harness_failures = gates.failed(tuple(n for n, _, _ in gates.results
+                                          if n not in ("environment", "authorisation")))
     environment_failed = bool(gates.failed(("environment",)))
+    not_authorised = bool(gates.failed(("authorisation",)))
 
     if args.dry_run:
         if harness_failures:
             print("DRY RUN FAILED — HARNESS NOT READY (%s). TRAINING NOT EXECUTED." % ", ".join(harness_failures))
             return EXIT_HARNESS
+        if not_authorised:
+            print("DRY RUN FAILED — HARNESS READY, TRAINING NOT AUTHORISED. TRAINING NOT EXECUTED.")
+            return EXIT_NOT_AUTHORISED
         if environment_failed:
             print("DRY RUN FAILED — HARNESS READY, ENVIRONMENT NOT AVAILABLE. TRAINING NOT EXECUTED.")
             return EXIT_ENVIRONMENT
@@ -252,6 +268,10 @@ def main() -> int:
 
     if harness_failures:
         print("TRAINING REFUSED — %s" % ", ".join(harness_failures))
+        return EXIT_REFUSED
+    if not_authorised and not args.synthetic:
+        print("TRAINING REFUSED — not authorised: the methodology decisions in "
+              "docs/P2_TRAINING_GATE_DECISION_REGISTER.md are not all approved.")
         return EXIT_REFUSED
 
     from training import trainer
