@@ -1,135 +1,123 @@
-import { useState, useEffect } from "react";
-import { TrendingUp, Users, Globe, Rocket } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ShieldCheck, Users, Globe, Ban } from "lucide-react";
+
+/**
+ * The "about" section.
+ *
+ * Rewritten on 2026-09-28. The previous version called the platform
+ * production-ready with clinical-grade models, promised "advanced cancer
+ * detection today", quoted 0.785 for a lung model that had been withdrawn on
+ * 2026-09-20, advertised multi-language support that the translation audit
+ * found inert, a dermatologist finder that does not exist, and two buttons with
+ * no action behind them. tests/capability-claims.test.ts now sweeps every
+ * client file for this, not three named ones.
+ *
+ * No performance figure is written here: figures belong to the model cards,
+ * which carry the test set and the interval, and a number copied into a page
+ * goes stale the day a model changes.
+ */
+interface Section {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  color: string;
+  items: string[];
+}
+
+const SECTIONS: Section[] = [
+  {
+    icon: ShieldCheck,
+    title: "Triage, with a clinician in the loop",
+    color: "text-blue-500",
+    items: [
+      "Skin: a dermoscopic image classifier whose output orders a clinician's review queue.",
+      "Lung CT: a clinician marks a nodule and receives the characteriser's assessment, under validation terms.",
+      "Every result is reviewed and signed off by a clinician. The system does not diagnose.",
+      "Measured performance, with its test set and its limitations, is published on the model cards.",
+    ],
+  },
+  {
+    icon: Users,
+    title: "Clinical workflow",
+    color: "text-green-500",
+    items: [
+      "Separate views for patients, doctors, radiologists and administrators.",
+      "A review queue, clinician sign-off and a record of each confirmed outcome.",
+      "Messaging with clinicians and appointment scheduling.",
+    ],
+  },
+  {
+    icon: Globe,
+    title: "Access",
+    color: "text-cyan-500",
+    items: [
+      "Runs in a web browser; no special hardware.",
+      "Images can be captured offline and upload when a connection returns. Nothing is analysed offline.",
+      "English only at present.",
+    ],
+  },
+];
+
+const LIMITS = [
+  "It is not clinically validated and holds no regulatory clearance.",
+  "Breast, colon and prostate have no model and are not analysed.",
+  "Skin performance on darker skin types cannot yet be established from the available data.",
+  "An image outside what a model was measured on is refused and sent to a clinician, not guessed at.",
+];
 
 export default function AboutAISection() {
-  interface Benefit {
-    icon: React.ComponentType<any>;
-    title: string;
-    color: string;
-    items: string[];
-  }
-
-  const [benefits, setBenefits] = useState<Benefit[]>([]);
-
-  useEffect(() => {
-    async function fetchBenefits() {
-      // Replace with real API call or data subscription
-      const fetchedBenefits: Benefit[] = [
-        {
-          icon: TrendingUp,
-          title: "Advanced Multi-Cancer Detection",
-          color: "text-blue-500",
-          items: [
-            // The "96% accuracy" claim here described a model that scored 0.50
-            // balanced accuracy — exactly chance — on its own test set, and was
-            // rebuilt from scratch. The replacement measures 0.864, and the
-            // lung model 0.785. Both figures are balanced accuracy on held-out
-            // data and are reproducible via scripts/evaluate-model.py.
-            "ResNet50V2 Deep Learning: 0.864 balanced accuracy for skin and 0.785 for lung, measured on held-out test sets",
-            "Two Modalities: Skin and lung only. Breast, colon and prostate have no trained model and are not analysed",
-            "Screening Triage: Results prioritise cases for clinician review. The system does not diagnose, and every result requires human sign-off",
-          ],
-        },
-        {
-          icon: Users,
-          title: "Enhanced Clinical Workflow",
-          color: "text-green-500",
-          items: [
-            "Role-Based Dashboards: Specialized interfaces for admins, doctors, radiologists, and patients",
-            "Automated Reporting: AI generates comprehensive reports with confidence scores and malignancy indicators",
-            "Integrated Communication: Built-in chat system and appointment scheduling for seamless care coordination",
-          ],
-        },
-        {
-          icon: Globe,
-          title: "Accessible Healthcare Technology",
-          color: "text-cyan-500",
-          items: [
-            "Web-Based Platform: No special hardware required - accessible from any modern web browser",
-            "Multi-Language Support: Medical translation features for diverse patient populations",
-            "Telemedicine Integration: Remote consultations with AI-powered analysis and dermatologist finder",
-          ],
-        },
-      ];
-      setBenefits(fetchedBenefits);
-    }
-    fetchBenefits();
-  }, []);
-
   return (
     <section id="about" className="bg-slate-900 py-20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center space-y-4 mb-16">
           <h2 className="text-3xl md:text-4xl font-bold text-white">
-            HealthAI Assistant: Advanced Cancer Detection Platform
+            HealthAI Assistant: AI-assisted triage for clinician review
           </h2>
           <p className="text-xl text-slate-400 max-w-4xl mx-auto">
-            Our comprehensive AI-powered platform revolutionizes cancer detection with multi-modal analysis,
-            real-time processing, and integrated healthcare workflows
+            It helps clinicians decide what to read first. It does not decide what a scan shows.
           </p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
           <div className="space-y-8">
-            {benefits.map((benefit) => {
-              const IconComponent = benefit.icon;
+            {SECTIONS.map((section) => {
+              const Icon = section.icon;
               return (
                 <div
-                  key={benefit.title}
+                  key={section.title}
                   className="bg-gradient-to-br from-slate-800 to-slate-700 p-8 rounded-xl border border-slate-600"
                 >
                   <h3 className="text-2xl font-bold text-white mb-6 flex items-center">
-                    <IconComponent
-                      className={`${benefit.color} mr-3 w-8 h-8`}
-                    />
-                    {benefit.title}
+                    <Icon className={`${section.color} mr-3 w-8 h-8`} />
+                    {section.title}
                   </h3>
-                  <div className="space-y-4 text-slate-300">
-                    {benefit.items.map((item, index) => (
-                      <div
-                        key={index}
-                        className="flex items-start space-x-3"
-                      >
-                        <div
-                          className={`w-2 h-2 ${benefit.color.replace(
-                            "text-",
-                            "bg-"
-                          )} rounded-full mt-2 flex-shrink-0`}
-                        ></div>
-                        <p>{item}</p>
-                      </div>
+                  <ul className="space-y-4 text-slate-300">
+                    {section.items.map((item) => (
+                      <li key={item} className="flex items-start space-x-3">
+                        <span
+                          aria-hidden="true"
+                          className={`w-2 h-2 ${section.color.replace("text-", "bg-")} rounded-full mt-2 flex-shrink-0`}
+                        />
+                        <span>{item}</span>
+                      </li>
                     ))}
-                  </div>
+                  </ul>
                 </div>
               );
             })}
           </div>
 
-          <div className="space-y-8">
-            {/* Call to Action */}
-            <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-8 rounded-xl text-white">
-              <h3 className="text-2xl font-bold mb-4 flex items-center">
-                <Rocket className="mr-3 w-8 h-8" />
-                Ready for Implementation
-              </h3>
-              <p className="text-blue-100 mb-6 leading-relaxed">
-                Our platform is production-ready with comprehensive security,
-                performance monitoring, and clinical-grade AI models. Start
-                improving patient outcomes with advanced cancer detection today.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-4">
-                <Button className="bg-white text-blue-800 hover:bg-slate-100">
-                  Access platform
-                </Button>
-                <Button
-                  variant="outline"
-                  className="border-white text-white hover:bg-white hover:text-blue-800"
-                >
-                  View Demo
-                </Button>
-              </div>
-            </div>
+          <div className="bg-slate-800 p-8 rounded-xl border border-amber-500/60">
+            <h3 className="text-2xl font-bold text-white mb-6 flex items-center">
+              <Ban className="text-amber-400 mr-3 w-8 h-8" />
+              What it does not do
+            </h3>
+            <ul className="space-y-4 text-slate-300">
+              {LIMITS.map((item) => (
+                <li key={item} className="flex items-start space-x-3">
+                  <span aria-hidden="true" className="w-2 h-2 bg-amber-400 rounded-full mt-2 flex-shrink-0" />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       </div>

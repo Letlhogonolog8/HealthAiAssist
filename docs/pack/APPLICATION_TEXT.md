@@ -345,7 +345,7 @@ development plans.
 
 **Feasibility — demonstrated.** Working prototype: 324 TypeScript and 541 Python
 automated tests, warm inference ~500 ms behind a bounded queue, offline capture and sync, DICOM ingest
-with de-identification, second factor, POPIA-compliant cross-border consent.
+with de-identification, second factor, and explicit consent for cross-border transfers under POPIA section 72 (no POPIA compliance claim is made; see the DPIA).
 
 **Validation progress — partial and stated.** Held-out evaluation with
 calibration and OOD screening measured in both directions; one model withdrawn

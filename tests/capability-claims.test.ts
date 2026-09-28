@@ -144,3 +144,82 @@ describe('the page carries no claims of its own', { timeout: TIMEOUT }, () => {
     }
   });
 });
+
+/**
+ * Every client source file, not three named ones.
+ *
+ * The sweep above covers the sections that were rewritten to read the server.
+ * On 2026-09-28 the /about page was found still saying the platform was
+ * "production-ready" with "clinical-grade AI models", quoting the withdrawn
+ * lung model's figure, and every analysis result carried a hardcoded "99.2%
+ * Accuracy" — a number no model has ever measured. Neither file was in the
+ * list, so nothing looked.
+ *
+ * Comments are stripped first: several files record in comments the claims
+ * that were removed from them, and that record should stay.
+ */
+describe('no client file makes a claim the system cannot support', { timeout: TIMEOUT }, () => {
+  const root = path.join(process.cwd(), 'client', 'src');
+  const files: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.(tsx?|jsx?)$/.test(entry.name)) files.push(full);
+    }
+  };
+  walk(root);
+
+  const withoutComments = (src: string) =>
+    src
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:"'`])\/\/.*$/gm, '$1');
+
+  const PROHIBITED = [
+    /production[- ]ready/i,
+    /clinical[- ]grade/i,
+    /medical[- ]grade/i,
+    /radiologist[- ]level/i,
+    /clinically[- ]validated/i,
+    /FDA[- ](approved|cleared|compliant)/i,
+    /HIPAA[- ]compliant/i,
+    /SOC ?2 compliant/i,
+    /revolutioni[sz]es/i,
+  ];
+
+  test('there are client files to sweep', () => {
+    assert.ok(files.length > 20, `only ${files.length} files found under client/src`);
+  });
+
+  test('no prohibited claim appears outside a comment', () => {
+    const hits: string[] = [];
+    for (const file of files) {
+      const src = withoutComments(fs.readFileSync(file, 'utf8'));
+      src.split('\n').forEach((line, index) => {
+        // A line that states the claim in order to deny it is documentation.
+        if (/\b(not|no|never|cannot|without)\b/i.test(line)) return;
+        for (const pattern of PROHIBITED) {
+          if (pattern.test(line)) hits.push(`${path.relative(root, file)}:${index + 1}: ${line.trim()}`);
+        }
+      });
+    }
+    assert.deepEqual(hits, [], `claims the system cannot support:\n${hits.join('\n')}`);
+  });
+
+  test('no performance figure is hardcoded next to a metric name', () => {
+    const hits: string[] = [];
+    for (const file of files) {
+      const lines = withoutComments(fs.readFileSync(file, 'utf8')).split('\n');
+      lines.forEach((line, index) => {
+        // A literal percentage in markup, within two lines of a metric's name.
+        if (!/>\s*\d{1,3}(\.\d+)?%\s*</.test(line)) return;
+        const near = lines.slice(Math.max(0, index - 2), index + 3).join(' ');
+        if (/accuracy|sensitivity|specificity|auc|precision|recall/i.test(near)) {
+          hits.push(`${path.relative(root, file)}:${index + 1}: ${line.trim()}`);
+        }
+      });
+    }
+    assert.deepEqual(hits, [], `hardcoded performance figures:\n${hits.join('\n')}`);
+  });
+});

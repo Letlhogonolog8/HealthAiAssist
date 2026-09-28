@@ -270,18 +270,19 @@ export const AnalysisResultsDisplay: React.FC<AnalysisResultsProps> = ({ analysi
               <div className="p-4 bg-gradient-to-r from-cyan-50 to-blue-50 rounded-lg border-2 border-cyan-200">
                 <h5 className="font-bold text-cyan-800 mb-3 flex items-center gap-2">
                   <Brain className="w-5 h-5" />
-                  AI Performance Metrics
+                  Model output
                 </h5>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="text-center p-3 bg-white rounded-lg shadow-sm">
-                    <div className="text-2xl font-bold text-blue-600">{analysisData.confidence}%</div>
-                    <div className="text-sm text-muted-foreground font-medium">Confidence</div>
-                  </div>
-                  <div className="text-center p-3 bg-white rounded-lg shadow-sm">
-                    <div className="text-2xl font-bold text-green-600">99.2%</div>
-                    <div className="text-sm text-muted-foreground font-medium">Accuracy</div>
-                  </div>
+                {/* A hardcoded "99.2% Accuracy" tile sat here beside every result.
+                    No model has ever measured 99.2%. Measured performance belongs
+                    to the model card, with its test set and interval. */}
+                <div className="text-center p-3 bg-white rounded-lg shadow-sm">
+                  <div className="text-2xl font-bold text-blue-600">{analysisData.confidence}%</div>
+                  <div className="text-sm text-muted-foreground font-medium">Model confidence</div>
                 </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Confidence is this model's output for this image, not its accuracy. Measured
+                  performance, with its test set and uncertainty, is on the model card.
+                </p>
               </div>
             </div>
           </div>
