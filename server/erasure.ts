@@ -34,7 +34,7 @@
  * reason it exists. Its `detail` column is already constrained to
  * non-identifying context by design.
  */
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, notInArray, sql } from 'drizzle-orm';
 import { db } from './db';
 import {
   adverseEvents,
@@ -52,7 +52,47 @@ import {
   riskAssessments,
   users,
 } from '@shared/schema';
-import { removeStoredObjects } from './object-store';
+import { removeStoredObjects, type RemovalOutcome } from './object-store';
+
+/**
+ * A category whose stored objects did not all go.
+ *
+ * Objects before rows, and a row goes only once its object has. The rows that
+ * stay are the record of what remains; the category is reported as retained,
+ * with a count, and the locations go to the audit trail for an administrator —
+ * not into the outcome, which the data subject reads.
+ */
+async function recordRetainedObjects(
+  assessment: ErasureAssessment,
+  patientId: number,
+  category: string,
+  failed: RemovalOutcome[],
+  total: number
+): Promise<void> {
+  if (!failed.length) return;
+  const outcome = assessment.categories.find((c) => c.category === category);
+  if (outcome) {
+    outcome.disposition = 'retained';
+    outcome.reason =
+      `${failed.length} of ${total} stored object(s) could not be removed, so they and ` +
+      `the records pointing at them were kept. This data has NOT been fully erased. ` +
+      `This requires an administrator to resolve before the request can be reported ` +
+      `as complete.`;
+  }
+  const { recordAuditEvent } = await import('./security-middleware');
+  await recordAuditEvent({
+    action: 'ERASURE_OBJECTS_RETAINED',
+    detail:
+      `patient ${patientId} ${category}: ` +
+      failed.map((f) => `${f.uri} (${'reason' in f ? f.reason : 'unknown'})`).join('; '),
+  });
+  console.error(
+    'Erasure could not remove %d stored object(s) for patient %d (%s)',
+    failed.length,
+    patientId,
+    category
+  );
+}
 
 /** Minimum retention for a clinical record, from the last entry. */
 export const CLINICAL_RETENTION_YEARS = 6;
@@ -63,6 +103,7 @@ export const CLINICAL_RETENTION_YEARS = 6;
  * reporting it as done.
  */
 export const IMAGING_CATEGORY = 'CT imaging series and detection candidates';
+export const SCANS_CATEGORY = 'Screening scans and findings';
 
 export type ErasureDisposition = 'erased' | 'retained' | 'not_applicable';
 
@@ -129,7 +170,7 @@ export async function assessErasure(patientId: number): Promise<ErasureAssessmen
   const holdExpired = clinicalHoldUntil !== null && clinicalHoldUntil <= new Date();
 
   categories.push({
-    category: 'Screening scans and findings',
+    category: SCANS_CATEGORY,
     disposition: scans.length === 0 ? 'not_applicable' : holdExpired ? 'erased' : 'retained',
     count: scans.length,
     reason:
@@ -302,7 +343,7 @@ export async function executeErasure(patientId: number): Promise<ErasureAssessme
     await (db as any).delete(notifications).where(eq(notifications.recipientId, patientId));
   }
 
-  if (erasable.has('Screening scans and findings')) {
+  if (erasable.has(SCANS_CATEGORY)) {
     // Safety reports outlive the scans they concern.
     //
     // adverse_events holds no foreign key precisely so this is possible: the
@@ -325,7 +366,28 @@ export async function executeErasure(patientId: number): Promise<ErasureAssessme
       })
       .where(eq(adverseEvents.patientId, patientId));
 
-    await (db as any).delete(medicalScans).where(eq(medicalScans.patientId, patientId));
+    // The images first. Until 2026-09-28 the rows were deleted and the images
+    // they pointed at were left in storage (tests/erasure-objects.test.ts).
+    const scans = await (db as any)
+      .select({ id: medicalScans.id, imagePath: medicalScans.imagePath })
+      .from(medicalScans)
+      .where(eq(medicalScans.patientId, patientId));
+    const scanRemoval = await removeStoredObjects(
+      scans.map((scan: any) => scan.imagePath as string | null)
+    );
+    const unremovedScans = new Set(scanRemoval.failed.map((f) => f.uri));
+    const keptScanIds = scans
+      .filter((scan: any) => scan.imagePath && unremovedScans.has(scan.imagePath))
+      .map((scan: any) => scan.id as number);
+
+    await (db as any)
+      .delete(medicalScans)
+      .where(
+        keptScanIds.length
+          ? and(eq(medicalScans.patientId, patientId), notInArray(medicalScans.id, keptScanIds))
+          : eq(medicalScans.patientId, patientId)
+      );
+    await recordRetainedObjects(assessment, patientId, SCANS_CATEGORY, scanRemoval.failed, scans.length);
   }
 
   if (erasable.has(IMAGING_CATEGORY)) {
@@ -345,40 +407,48 @@ export async function executeErasure(patientId: number): Promise<ErasureAssessme
     const removal = await removeStoredObjects(
       instances.map((instance: any) => instance.objectPath as string | null)
     );
+    const unremoved = new Set(removal.failed.map((f) => f.uri));
+    const keptInstanceIds = instances
+      .filter((instance: any) => instance.objectPath && unremoved.has(instance.objectPath))
+      .map((instance: any) => instance.id as number);
 
+    // Derived results go regardless: they hold no pixels, only coordinates in
+    // this person's anatomy, and nothing in storage depends on them.
     await (db as any)
       .delete(detectionCandidates)
       .where(eq(detectionCandidates.patientId, patientId));
     await (db as any).delete(detectionRuns).where(eq(detectionRuns.patientId, patientId));
+
+    // An instance whose object could not be removed keeps its row, and so its
+    // series and study keep theirs: they are the record of what remains.
     await (db as any)
       .delete(imagingInstances)
       .where(
-        sql`${imagingInstances.seriesId} IN (SELECT id FROM imaging_series WHERE patient_id = ${patientId})`
+        keptInstanceIds.length
+          ? and(
+              sql`${imagingInstances.seriesId} IN (SELECT id FROM imaging_series WHERE patient_id = ${patientId})`,
+              notInArray(imagingInstances.id, keptInstanceIds)
+            )
+          : sql`${imagingInstances.seriesId} IN (SELECT id FROM imaging_series WHERE patient_id = ${patientId})`
       );
-    await (db as any).delete(imagingSeries).where(eq(imagingSeries.patientId, patientId));
-    await (db as any).delete(imagingStudies).where(eq(imagingStudies.patientId, patientId));
+    await (db as any)
+      .delete(imagingSeries)
+      .where(
+        and(
+          eq(imagingSeries.patientId, patientId),
+          sql`NOT EXISTS (SELECT 1 FROM imaging_instances i WHERE i.series_id = ${imagingSeries.id})`
+        )
+      );
+    await (db as any)
+      .delete(imagingStudies)
+      .where(
+        and(
+          eq(imagingStudies.patientId, patientId),
+          sql`NOT EXISTS (SELECT 1 FROM imaging_series s WHERE s.study_id = ${imagingStudies.id})`
+        )
+      );
 
-    // An object that could not be deleted is reported, not swallowed. The
-    // delete permission on the bucket is a different IAM grant from the write
-    // permission the upload path uses, so a deployment can be able to store
-    // and unable to remove — and the data subject has to be told that their
-    // images are still there rather than shown a completed erasure.
-    if (removal.failed.length) {
-      const outcome = assessment.categories.find((c) => c.category === IMAGING_CATEGORY);
-      if (outcome) {
-        outcome.disposition = 'retained';
-        outcome.reason =
-          `The database records were deleted, but ${removal.failed.length} of ` +
-          `${instances.length} stored image objects could not be removed. The imaging ` +
-          `data has NOT been fully erased. This requires an administrator to resolve ` +
-          `before the request can be reported as complete.`;
-      }
-      console.error(
-        'Erasure could not remove %d stored imaging object(s) for patient %d',
-        removal.failed.length,
-        patientId
-      );
-    }
+    await recordRetainedObjects(assessment, patientId, IMAGING_CATEGORY, removal.failed, instances.length);
   }
 
   if (erasable.has('Messages with clinicians')) {

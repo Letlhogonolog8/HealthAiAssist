@@ -123,8 +123,12 @@ oversight:
 - **Minors are not distinguished.** The retention period for a minor runs longer
   and the schema records no date of birth reliably enough to compute it. Any
   paediatric deployment needs this before it starts.
-- **Object storage is not swept.** Deleting a scan row does not currently delete
-  the image object behind it.
+- **Object storage is not swept.** Since 2026-09-28 an erasure removes each scan's
+  and each CT instance's stored object before its row, and keeps any row whose
+  object could not be removed (DPIA R-23). Two gaps remain: nothing removes
+  objects when records expire, because there is no expiry job; and images left
+  behind by erasures executed before that date have no row pointing at them, so
+  they need a one-off reconciliation of stored objects against rows.
 - **No subject access export.** POPIA §23 gives a right of access as well as
   erasure. A patient can see their own records through the application; there is
   no machine-readable export.
