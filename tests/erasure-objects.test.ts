@@ -42,6 +42,8 @@ const UNREMOVABLE = 'nosuch://unreachable-store/object';
 
 let clean: Awaited<ReturnType<typeof registerPatient>>;
 let stuck: Awaited<ReturnType<typeof registerPatient>>;
+let recovering: Awaited<ReturnType<typeof registerPatient>>;
+let recoveringBlocker = '';
 let admin: { session: Session; id: number };
 const files: Record<string, string[]> = { clean: [], stuck: [] };
 
@@ -148,6 +150,7 @@ before(async () => {
   await startServer();
   clean = await registerPatient('eraseobjA');
   stuck = await registerPatient('eraseobjB');
+  recovering = await registerPatient('eraseobjC');
   const staff = await registerPatient('eraseobjadm');
   await query('UPDATE users SET role = $1 WHERE id = $2', ['admin', staff.id]);
   admin = { session: await loginAs(staff.username), id: staff.id };
@@ -166,6 +169,14 @@ before(async () => {
   await seedScan(stuck.id, goodScan.uri);
   await seedScan(stuck.id, `${UNREMOVABLE}/scan.jpg`);
   await seedSeries(stuck.id, [goodInstance.uri, `${UNREMOVABLE}/00001.dcm`]);
+
+  // An object that cannot be removed now and can later: a directory where a
+  // file is expected makes unlink fail (EPERM/EISDIR), and removing the
+  // directory stands in for the storage coming back.
+  const blockerName = `erasure-test/${recovering.id}/blocked.jpg`;
+  recoveringBlocker = path.join(process.cwd(), 'uploads', blockerName);
+  await fs.promises.mkdir(path.join(recoveringBlocker, 'inside'), { recursive: true });
+  await seedScan(recovering.id, `file://${blockerName}`);
 }, { timeout: TIMEOUT });
 
 after(async () => {
@@ -197,7 +208,7 @@ after(async () => {
       await query(`DELETE FROM session WHERE (sess -> 'user' ->> 'id')::int = ANY($1)`, [ids]);
       await query('DELETE FROM users WHERE id = ANY($1)', [ids]);
     }
-    for (const patient of [clean, stuck]) {
+    for (const patient of [clean, stuck, recovering]) {
       await fs.promises
         .rm(path.join(process.cwd(), 'uploads', 'erasure-test', String(patient?.id ?? '')), {
           recursive: true,
@@ -271,5 +282,68 @@ describe('erasure removes stored objects, and keeps the record of any it cannot'
     const outcome = typeof request.outcome === 'string' ? JSON.parse(request.outcome) : request.outcome;
     const text = JSON.stringify(outcome);
     assert.equal(text.includes(UNREMOVABLE), false, 'no storage URI in the outcome');
+  });
+});
+
+describe('retrying objects an erasure could not remove', { timeout: TIMEOUT }, () => {
+  let requestId: number;
+
+  test('the first execution keeps the row whose image would not go', async () => {
+    const outcome = await eraseViaAdmin(recovering);
+    assert.equal(disposition(outcome, SCANS).disposition, 'retained');
+    assert.equal((await counts(recovering.id)).scans, 1);
+    const list = await admin.session.get('/api/admin/erasure-requests');
+    requestId = list.json.find((r: any) => r.patientId === recovering.id).id;
+  });
+
+  test('a patient cannot trigger a retry', async () => {
+    const res = await recovering.session.post(`/api/admin/erasure-requests/${requestId}/retry-objects`, {});
+    assert.ok([401, 403].includes(res.status), `status ${res.status}`);
+  });
+
+  test('a request that has not been executed cannot be retried', async () => {
+    const other = await registerPatient('eraseobjD');
+    const filed = await other.session.post('/api/patient/me/erasure-request', {});
+    assert.equal(filed.status, 200);
+    const list = await admin.session.get('/api/admin/erasure-requests');
+    const pending = list.json.find((r: any) => r.patientId === other.id);
+    const res = await admin.session.post(`/api/admin/erasure-requests/${pending.id}/retry-objects`, {});
+    assert.equal(res.status, 409);
+  });
+
+  test('while the object still will not go, the retry keeps the row and says so', async () => {
+    const res = await admin.session.post(`/api/admin/erasure-requests/${requestId}/retry-objects`, {});
+    assert.equal(res.status, 200, res.text.slice(0, 300));
+    assert.equal(res.json.status, 'partially_completed');
+    assert.equal(disposition(res.json, SCANS).disposition, 'retained');
+    assert.equal((await counts(recovering.id)).scans, 1);
+  });
+
+  test('once the object can go, the retry removes it and its row', async () => {
+    await fs.promises.rm(recoveringBlocker, { recursive: true, force: true });
+    const res = await admin.session.post(`/api/admin/erasure-requests/${requestId}/retry-objects`, {});
+    assert.equal(res.status, 200, res.text.slice(0, 300));
+    assert.deepEqual(res.json.retried, [SCANS]);
+    assert.equal(disposition(res.json, SCANS).disposition, 'erased');
+    assert.equal((await counts(recovering.id)).scans, 0);
+    assert.equal(fs.existsSync(recoveringBlocker), false);
+  });
+
+  test('every retry is in the audit trail', async () => {
+    const rows = await query(
+      `SELECT detail FROM audit_events WHERE action = 'ERASURE_RETRY_COMPLETED' AND detail LIKE $1`,
+      [`request ${requestId} %`]
+    );
+    assert.equal(rows.length, 2);
+  });
+
+  test('an unremovable object is still retained after a retry', async () => {
+    const list = await admin.session.get('/api/admin/erasure-requests');
+    const request = list.json.find((r: any) => r.patientId === stuck.id);
+    const res = await admin.session.post(`/api/admin/erasure-requests/${request.id}/retry-objects`, {});
+    assert.equal(res.status, 200, res.text.slice(0, 300));
+    assert.equal(disposition(res.json, SCANS).disposition, 'retained');
+    assert.equal(disposition(res.json, IMAGING).disposition, 'retained');
+    assert.equal((await counts(stuck.id)).instances, 1);
   });
 });

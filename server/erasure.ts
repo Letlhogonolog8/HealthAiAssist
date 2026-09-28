@@ -300,6 +300,128 @@ export async function assessErasure(patientId: number): Promise<ErasureAssessmen
 }
 
 /**
+ * A patient's scan rows and the images they point at: images first, a row only
+ * once its image is gone, and any that could not be removed kept and recorded.
+ * Shared by the first erasure and by a retry, so there is one deletion path.
+ */
+async function eraseScanRows(assessment: ErasureAssessment, patientId: number): Promise<void> {
+  // The images first. Until 2026-09-28 the rows were deleted and the images
+  // they pointed at were left in storage (tests/erasure-objects.test.ts).
+  const scans = await (db as any)
+    .select({ id: medicalScans.id, imagePath: medicalScans.imagePath })
+    .from(medicalScans)
+    .where(eq(medicalScans.patientId, patientId));
+  const scanRemoval = await removeStoredObjects(
+    scans.map((scan: any) => scan.imagePath as string | null)
+  );
+  const unremovedScans = new Set(scanRemoval.failed.map((f) => f.uri));
+  const keptScanIds = scans
+    .filter((scan: any) => scan.imagePath && unremovedScans.has(scan.imagePath))
+    .map((scan: any) => scan.id as number);
+
+  await (db as any)
+    .delete(medicalScans)
+    .where(
+      keptScanIds.length
+        ? and(eq(medicalScans.patientId, patientId), notInArray(medicalScans.id, keptScanIds))
+        : eq(medicalScans.patientId, patientId)
+    );
+  await recordRetainedObjects(assessment, patientId, SCANS_CATEGORY, scanRemoval.failed, scans.length);
+}
+
+/** The same for CT: instances, then empty series and studies; derived results always. */
+async function eraseImagingRows(assessment: ErasureAssessment, patientId: number): Promise<void> {
+  // Children before parents, because every one of these is a real foreign
+  // key: candidates reference runs and series, runs reference series,
+  // instances reference series, series reference studies.
+  //
+  // The stored objects go first. A row deleted before its object leaves the
+  // pixel data on disk with nothing left pointing at it, which is the worst
+  // of both outcomes — unerased and unfindable.
+  const instances = await (db as any)
+    .select({ id: imagingInstances.id, objectPath: imagingInstances.objectPath })
+    .from(imagingInstances)
+    .innerJoin(imagingSeries, eq(imagingInstances.seriesId, imagingSeries.id))
+    .where(eq(imagingSeries.patientId, patientId));
+
+  const removal = await removeStoredObjects(
+    instances.map((instance: any) => instance.objectPath as string | null)
+  );
+  const unremoved = new Set(removal.failed.map((f) => f.uri));
+  const keptInstanceIds = instances
+    .filter((instance: any) => instance.objectPath && unremoved.has(instance.objectPath))
+    .map((instance: any) => instance.id as number);
+
+  // Derived results go regardless: they hold no pixels, only coordinates in
+  // this person's anatomy, and nothing in storage depends on them.
+  await (db as any)
+    .delete(detectionCandidates)
+    .where(eq(detectionCandidates.patientId, patientId));
+  await (db as any).delete(detectionRuns).where(eq(detectionRuns.patientId, patientId));
+
+  // An instance whose object could not be removed keeps its row, and so its
+  // series and study keep theirs: they are the record of what remains.
+  await (db as any)
+    .delete(imagingInstances)
+    .where(
+      keptInstanceIds.length
+        ? and(
+            sql`${imagingInstances.seriesId} IN (SELECT id FROM imaging_series WHERE patient_id = ${patientId})`,
+            notInArray(imagingInstances.id, keptInstanceIds)
+          )
+        : sql`${imagingInstances.seriesId} IN (SELECT id FROM imaging_series WHERE patient_id = ${patientId})`
+    );
+  await (db as any)
+    .delete(imagingSeries)
+    .where(
+      and(
+        eq(imagingSeries.patientId, patientId),
+        sql`NOT EXISTS (SELECT 1 FROM imaging_instances i WHERE i.series_id = ${imagingSeries.id})`
+      )
+    );
+  await (db as any)
+    .delete(imagingStudies)
+    .where(
+      and(
+        eq(imagingStudies.patientId, patientId),
+        sql`NOT EXISTS (SELECT 1 FROM imaging_series s WHERE s.study_id = ${imagingStudies.id})`
+      )
+    );
+
+  await recordRetainedObjects(assessment, patientId, IMAGING_CATEGORY, removal.failed, instances.length);
+}
+
+/**
+ * Retry the stored objects an executed erasure could not remove.
+ *
+ * Re-assesses first, exactly as execution does: a category is retried only if
+ * it is erasable now, so a clinical hold that has come back into force (a new
+ * entry in the record) still protects it. Only the patient's own scan and CT
+ * rows are touched, only the objects those rows point at are deleted, a row
+ * goes only once its object has, and anything that still fails stays recorded
+ * in its row and the audit trail. Nothing else the first execution did is
+ * repeated.
+ */
+export async function retryRetainedObjects(
+  patientId: number
+): Promise<{ assessment: ErasureAssessment; retried: string[] }> {
+  const assessment = await assessErasure(patientId);
+  const erasable = new Set(
+    assessment.categories.filter((c) => c.disposition === 'erased').map((c) => c.category)
+  );
+  const retried: string[] = [];
+  if (erasable.has(SCANS_CATEGORY)) {
+    await eraseScanRows(assessment, patientId);
+    retried.push(SCANS_CATEGORY);
+  }
+  if (erasable.has(IMAGING_CATEGORY)) {
+    await eraseImagingRows(assessment, patientId);
+    retried.push(IMAGING_CATEGORY);
+  }
+  return { assessment, retried };
+}
+
+/**
  * Performs the erasure the assessment permits, and nothing beyond it.
  *
  * Re-assesses rather than trusting a stored assessment: a request approved last
@@ -366,89 +488,11 @@ export async function executeErasure(patientId: number): Promise<ErasureAssessme
       })
       .where(eq(adverseEvents.patientId, patientId));
 
-    // The images first. Until 2026-09-28 the rows were deleted and the images
-    // they pointed at were left in storage (tests/erasure-objects.test.ts).
-    const scans = await (db as any)
-      .select({ id: medicalScans.id, imagePath: medicalScans.imagePath })
-      .from(medicalScans)
-      .where(eq(medicalScans.patientId, patientId));
-    const scanRemoval = await removeStoredObjects(
-      scans.map((scan: any) => scan.imagePath as string | null)
-    );
-    const unremovedScans = new Set(scanRemoval.failed.map((f) => f.uri));
-    const keptScanIds = scans
-      .filter((scan: any) => scan.imagePath && unremovedScans.has(scan.imagePath))
-      .map((scan: any) => scan.id as number);
-
-    await (db as any)
-      .delete(medicalScans)
-      .where(
-        keptScanIds.length
-          ? and(eq(medicalScans.patientId, patientId), notInArray(medicalScans.id, keptScanIds))
-          : eq(medicalScans.patientId, patientId)
-      );
-    await recordRetainedObjects(assessment, patientId, SCANS_CATEGORY, scanRemoval.failed, scans.length);
+    await eraseScanRows(assessment, patientId);
   }
 
   if (erasable.has(IMAGING_CATEGORY)) {
-    // Children before parents, because every one of these is a real foreign
-    // key: candidates reference runs and series, runs reference series,
-    // instances reference series, series reference studies.
-    //
-    // The stored objects go first. A row deleted before its object leaves the
-    // pixel data on disk with nothing left pointing at it, which is the worst
-    // of both outcomes — unerased and unfindable.
-    const instances = await (db as any)
-      .select({ id: imagingInstances.id, objectPath: imagingInstances.objectPath })
-      .from(imagingInstances)
-      .innerJoin(imagingSeries, eq(imagingInstances.seriesId, imagingSeries.id))
-      .where(eq(imagingSeries.patientId, patientId));
-
-    const removal = await removeStoredObjects(
-      instances.map((instance: any) => instance.objectPath as string | null)
-    );
-    const unremoved = new Set(removal.failed.map((f) => f.uri));
-    const keptInstanceIds = instances
-      .filter((instance: any) => instance.objectPath && unremoved.has(instance.objectPath))
-      .map((instance: any) => instance.id as number);
-
-    // Derived results go regardless: they hold no pixels, only coordinates in
-    // this person's anatomy, and nothing in storage depends on them.
-    await (db as any)
-      .delete(detectionCandidates)
-      .where(eq(detectionCandidates.patientId, patientId));
-    await (db as any).delete(detectionRuns).where(eq(detectionRuns.patientId, patientId));
-
-    // An instance whose object could not be removed keeps its row, and so its
-    // series and study keep theirs: they are the record of what remains.
-    await (db as any)
-      .delete(imagingInstances)
-      .where(
-        keptInstanceIds.length
-          ? and(
-              sql`${imagingInstances.seriesId} IN (SELECT id FROM imaging_series WHERE patient_id = ${patientId})`,
-              notInArray(imagingInstances.id, keptInstanceIds)
-            )
-          : sql`${imagingInstances.seriesId} IN (SELECT id FROM imaging_series WHERE patient_id = ${patientId})`
-      );
-    await (db as any)
-      .delete(imagingSeries)
-      .where(
-        and(
-          eq(imagingSeries.patientId, patientId),
-          sql`NOT EXISTS (SELECT 1 FROM imaging_instances i WHERE i.series_id = ${imagingSeries.id})`
-        )
-      );
-    await (db as any)
-      .delete(imagingStudies)
-      .where(
-        and(
-          eq(imagingStudies.patientId, patientId),
-          sql`NOT EXISTS (SELECT 1 FROM imaging_series s WHERE s.study_id = ${imagingStudies.id})`
-        )
-      );
-
-    await recordRetainedObjects(assessment, patientId, IMAGING_CATEGORY, removal.failed, instances.length);
+    await eraseImagingRows(assessment, patientId);
   }
 
   if (erasable.has('Messages with clinicians')) {

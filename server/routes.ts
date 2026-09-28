@@ -1326,6 +1326,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  /**
+   * Retry the stored objects an executed erasure could not remove.
+   *
+   * Only for a request already executed as `partially_completed`; an executed
+   * request still cannot be executed twice. The retry re-assesses (so a
+   * clinical hold still protects), touches only the patient's own scan and CT
+   * rows, and records whatever still fails exactly as the first execution did.
+   * The stored outcome is updated for the retried categories only.
+   */
+  app.post("/api/admin/erasure-requests/:id/retry-objects", auditLog('ERASURE_RETRY'), requireAuth, requireAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const requestId = parseInt(req.params.id, 10);
+      if (!Number.isInteger(requestId)) {
+        return res.status(400).json({ error: 'Invalid request id' });
+      }
+
+      const [request] = await (db as any)
+        .select()
+        .from(erasureRequests)
+        .where(eq(erasureRequests.id, requestId))
+        .limit(1);
+
+      if (!request) return res.status(404).json({ error: 'No such erasure request' });
+      if (request.status !== 'partially_completed') {
+        return res.status(409).json({
+          error: `Only a partially completed request can be retried; this one is ${request.status}.`,
+        });
+      }
+
+      const { retryRetainedObjects } = await import('./erasure');
+      const { assessment, retried } = await retryRetainedObjects(request.patientId);
+
+      const previous = request.outcome ? JSON.parse(request.outcome) : { categories: [] };
+      const categories = (previous.categories ?? []).map((c: any) =>
+        retried.includes(c.category)
+          ? assessment.categories.find((a) => a.category === c.category) ?? c
+          : c
+      );
+      const outcome = { ...previous, categories };
+      const anythingRetained = categories.some((c: any) => c.disposition === 'retained');
+      const status = anythingRetained ? 'partially_completed' : 'completed';
+
+      await (db as any)
+        .update(erasureRequests)
+        .set({ status, outcome: JSON.stringify(outcome) })
+        .where(eq(erasureRequests.id, requestId));
+
+      const { recordAuditEvent } = await import('./security-middleware');
+      await recordAuditEvent({
+        action: 'ERASURE_RETRY_COMPLETED',
+        actorUserId: req.session!.user!.id,
+        actorUsername: req.session!.user!.username,
+        actorRole: req.session!.user!.role,
+        method: 'POST',
+        path: `/api/admin/erasure-requests/${requestId}/retry-objects`,
+        statusCode: 200,
+        detail: `request ${requestId} -> ${status}; retried: ${retried.join(', ') || 'nothing erasable'}; ` +
+          categories.map((c: any) => `${c.category}=${c.disposition}`).join('; '),
+      });
+
+      res.json({ status, retried, outcome });
+    } catch (error) {
+      console.error('Erasure retry error:', error);
+      res.status(500).json({ error: 'Failed to retry erasure' });
+    }
+  });
+
   // ---------------------------------------------------------------------------
   // Emergency access to a patient outside a recorded care relationship
   // ---------------------------------------------------------------------------

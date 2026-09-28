@@ -128,7 +128,7 @@ oversight:
   object could not be removed (DPIA R-23). Two gaps remain: nothing removes
   objects when records expire, because there is no expiry job; and images left
   behind by erasures executed before that date have no row pointing at them, so
-  they need a one-off reconciliation of stored objects against rows.
+  they need a one-off reconciliation of stored objects against rows — tool and procedure in `docs/ERASURE_ORPHAN_AUDIT.md`, not yet run.
 - **No subject access export.** POPIA §23 gives a right of access as well as
   erasure. A patient can see their own records through the application; there is
   no machine-readable export.
