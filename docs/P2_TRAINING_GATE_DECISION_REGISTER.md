@@ -306,6 +306,40 @@ DRY RUN SUCCESS on the new machine before a run.
 
 ---
 
+## What each decision still needs
+
+For each decision: the evidence that does not exist yet, and what a sign-off
+must state to be usable. A sign-off that does not state these cannot be
+implemented without someone else guessing, and a guess is not a decision.
+
+| # | Evidence still missing | A sign-off must state |
+|---|---|---|
+| 1 Lung mask v4 | Measurement on more than 30 series; characterisation of the 47,267-voxel residual; an assessment of how often lung touching air outside the body occurs | Approved or rejected; the accepted limitations (F2 dilation radius, open-lung drop); whether v4 constrains negative sampling, the serving search, or both |
+| 2 Test-split exposure | None: the facts are complete (§2) | Which treatment (retain with disclosure, exploratory, replace, new set); if replaced or re-split, the new split version to commit before evaluation |
+| 3 Dataset ratification | Full-archive XML to measure anomalies across all 1,703 nodules (only 207 series' XML is local) | Approved definition, including whether indeterminate (median 3) and < 3 mm nodules are targets, and the label version |
+| 4 Same-reader clusters | The same full-archive XML | Preserve, exclude, or re-derive; if re-derived, the new label version and that `nodule_index` identities change |
+| 5 CT geometry | Any measurement of the effect of native versus resampled spacing (none exists) | Native or resampled; if resampled, the target spacing and interpolation |
+| 6 Detector input | Any comparison of alternatives (none exists) | Accept the current 2.5D, 3 × 64 × 64, HU −1000…400 → [0,1] as the first experiment's input, or the replacement |
+| 7 Sampling | Any comparison of alternatives (none exists) | Accept or replace positives per nodule, 200 negatives per series, 32 mm exclusion radius and `pos_weight` balancing |
+| 8 Localisation | A local inter-reader localisation study (none exists) | Basis (fixed or which diameter), floor and ceiling, greedy or maximum matching, duplicate policy, reader-agreement and size thresholds, treatment of nodules outside the mask. Recorded both in `docs/P2_LOCALIZATION_METHODOLOGY.md` and as a machine-readable `rule` in `docs/bars/p2.json` |
+| 9 Performance criterion | A justification for any threshold (the current 0.85 at 4 FP/scan is an example from a roadmap) | The criterion, the population and denominator, and that it was fixed before any evaluation |
+
+## How an approval becomes real
+
+The register is read by people; the harness reads
+`docs/decisions/p2-training-authorisation.json`. Training runs only when
+every one of the nine entries there is `APPROVED` with an owner (a person,
+not "OWNER NOT YET ASSIGNED" or "TBD"), a role, a `YYYY-MM-DD` date and the
+decision written out (`training/authorisation.py`; refused in both
+`scripts/train_lung_detector.py` and the trainer itself; tested in
+`training/tests/test_authorisation.py`). There is no override.
+
+An approval is recorded in one change that updates, together: the JSON
+entry, the sign-off block below, and
+`training/tests/test_authorisation.py::test_every_decision_in_the_repository_is_still_pending`,
+which fails on purpose until it is edited. Writing APPROVED in this document
+alone authorises nothing.
+
 ## Training authorisation rule
 
 ```

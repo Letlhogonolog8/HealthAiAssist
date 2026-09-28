@@ -70,6 +70,13 @@
     "leakageAudit": "clean — no patient, series or nodule in more than one split. Re-derived independently by audit_splits and reproducible with: python scripts/lidc_build_splits.py --audit-only",
     "classBalanceIsNotStratified": "Malignant share runs from 30.3% (validation) to 41.1% (calibration). Assignment is hashed on patient identity and does not balance labels; stratifying would destroy the stability property above. Evaluation must account for this rather than assume matched prevalence.",
     "calibrationSplitDisjointFromTest": true,
+    "knownTestSplitExposure": {
+      "series": ["LIDC-IDRI-0481", "LIDC-IDRI-0447", "LIDC-IDRI-0951", "LIDC-IDRI-0059"],
+      "nodules": 14,
+      "what": "Inspected during lung-mask development: v2 to v3 selection and the v3 failure diagnosis. Mask membership, HU, boundary distance and reader-contour overlap were measured. No model and no threshold was fitted to them.",
+      "treatment": "PENDING - decision 2, docs/P2_TRAINING_GATE_DECISION_REGISTER.md",
+      "mustBeDisclosedWithAnyEvaluation": true
+    },
     "oodSplitDisjointFromTrain": true,
     "note": "The manifest fixes WHO is in which set, before anyone can see a result and be tempted to move the line. It is not a measurement, and no detector has been trained on it."
   },
@@ -174,6 +181,7 @@
     "entryPoint": "scripts/train_lung_detector.py",
     "dryRunOnThisMachine": "exit 3: harness ready, environment not available",
     "checkpoint": "ABSENT",
+    "authorisation": "docs/decisions/p2-training-authorisation.json - all nine decisions PENDING; real training refused until each is APPROVED with a named owner (training/authorisation.py)",
     "checkpointStatusWhenProduced": "TRAINED_UNVALIDATED",
     "architecture": "lung-nodule-candidate-2p5d-cnn arch-v1, 1,173,473 parameters, untrained",
     "configurationStatus": "INITIAL_ENGINEERING_DEFAULT — no value selected by measurement",

@@ -184,7 +184,7 @@ R-09, R-10, R-11.
 | Sample cache | TO BE BENCHMARKED | — |
 | Throughput / duration | TO BE BENCHMARKED on a GPU | CPU: ~2.3 patches/s for a toy model |
 | `check-training-environment.py` | must print TRAINING READY | exit 1, TRAINING NOT AVAILABLE |
-| `train_lung_detector.py --dry-run` | must print DRY RUN SUCCESS | exit 3, harness ready, environment not available |
+| `train_lung_detector.py --dry-run` | must print DRY RUN SUCCESS | exit 3 at this audit; exit 4 (not authorised) since `77426fc` |
 
 **GPU TRAINING BLOCKED — NO CUDA DEVICE.** No benchmark was possible.
 

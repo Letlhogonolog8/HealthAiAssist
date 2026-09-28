@@ -127,6 +127,16 @@ written down:
 FP/scan figure may be produced or quoted, and the detector cannot move past
 `PLANNED` on the strength of a number that has no matching rule behind it.
 
+## Known exposure of the test split — must be disclosed with any evaluation
+
+Four test-split series — LIDC-IDRI-0481, -0447, -0951 and -0059, holding 14
+nodules — were inspected during lung-mask development (v2 → v3 selection
+and the v3 failure diagnosis). No model or threshold was fitted to them. How
+they are treated in the formal evaluation is decision 2 of
+`docs/P2_TRAINING_GATE_DECISION_REGISTER.md`, still PENDING. Until it is
+decided, any evaluation protocol must name these series and state the
+treatment applied.
+
 ## Decision
 
 ```

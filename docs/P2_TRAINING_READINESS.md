@@ -38,7 +38,7 @@ python scripts/check-training-environment.py          # exit 0 TRAINING READY / 
 python scripts/verify-training-manifest.py            # exit 0 verified / 1 invalid
 
 # 3. Would training start? (never trains)
-python scripts/train_lung_detector.py --dry-run       # exit 0 / 2 harness not ready / 3 environment
+python scripts/train_lung_detector.py --dry-run       # exit 0 / 2 harness not ready / 3 environment / 4 not authorised
 
 # 4. Train. Refuses unless every gate passes, including CUDA.
 python scripts/train_lung_detector.py --config training/configs/lung_nodule_detector.yaml
@@ -69,6 +69,12 @@ DRY RUN FAILED — HARNESS READY, ENVIRONMENT NOT AVAILABLE. TRAINING NOT EXECUT
 ```
 
 and the real command answers `TRAINING REFUSED — environment: ...` with exit 1.
+
+**Since 2026-09-28** an `authorisation` gate sits before the environment: the
+dry run on this machine now ends `DRY RUN FAILED — HARNESS READY, TRAINING NOT
+AUTHORISED` (exit 4), because the nine decisions in
+`docs/decisions/p2-training-authorisation.json` are PENDING. The output above is
+the record from 24 September.
 
 ---
 
