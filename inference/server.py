@@ -106,6 +106,7 @@ from dicom_ingest import DicomRejected, dicom_to_model_frame, looks_like_dicom  
 from gradcam import CAVEAT as GRADCAM_CAVEAT, heatmap_png  # noqa: E402
 from quality_gate import evaluate_ct_series  # noqa: E402
 from detection_service import detector_status  # noqa: E402
+from artifact_digest import artifact_digest  # noqa: E402
 from series import SeriesRejected, assemble, order_slices, read_instance_metadata  # noqa: E402
 from uid_remap import ROLE_SERIES, ROLE_STUDY, UidRemapper  # noqa: E402
 import lung_nodule_service  # noqa: E402  constructs the characteriser, loading its model
@@ -156,16 +157,10 @@ def _artifact_digest(path: str) -> str:
     The Node side records this against every scan as `model_version`. Reporting
     the same value here means an operator can confirm that the service actually
     serving predictions holds the artifact those rows name, rather than assuming
-    the deployment is coherent.
+    the deployment is coherent. Computed once per file version, not per call:
+    see inference/artifact_digest.py for why, and why it cannot go stale.
     """
-    try:
-        digest = hashlib.sha256()
-        with open(path, "rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(chunk)
-        return digest.hexdigest()[:12]
-    except OSError:
-        return "unknown"
+    return artifact_digest(path)
 
 
 class _Admission:
@@ -761,6 +756,12 @@ def warm_models() -> None:
     boot because one of two models is missing would take out the other one too.
     """
     import numpy as np
+
+    # Fingerprint the artifacts now, once, so that neither the first /healthz
+    # nor any readiness probe pays for reading ~276 MB.
+    for path in (SKIN_MODEL_PATH, lung_service.lung_cancer_detector.model_path,
+                 lung_nodule_service.lung_nodule_characteriser.model_path):
+        _artifact_digest(path)
 
     frame = _warm_frame()
     # Raw RGB 0-255 at the models' input size — the representation both graphs

@@ -418,15 +418,11 @@ export async function detectorStatus(): Promise<{
     };
   }
   try {
-    // Generous, because /healthz is not cheap: it re-hashes three 92 MB model
-    // artifacts on every call to report their fingerprints. Measured warm on
-    // this machine at 4.0-4.4 s, and slower on a cold file cache.
-    //
-    // A five-second budget sat directly on top of that and turned a running
-    // service into "unreachable", which is a different operational state
-    // entirely and would have sent an operator looking for a downed process.
-    // The endpoint's cost is a separate, pre-existing problem; this only has
-    // to not trip over it.
+    // Generous. /healthz used to re-hash three 92 MB model artifacts on every
+    // call (4.0-4.4 s warm), and a five-second budget turned a running service
+    // into "unreachable". The digests are now computed once per file version
+    // (inference/artifact_digest.py), but a slow disk or a service still
+    // starting should read as slow, not as down.
     const response = await fetch(`${base}/healthz`, {
       signal: AbortSignal.timeout(
         Number.parseInt(process.env.INFERENCE_HEALTHZ_TIMEOUT_MS ?? '', 10) || 15_000
