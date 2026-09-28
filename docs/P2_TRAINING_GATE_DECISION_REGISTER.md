@@ -339,7 +339,9 @@ The most recent full `npm test` (methodology-gate phase, before v4) exited
 test that got a 500 instead of a 422 while the inference service was out of
 memory; the file passed alone. The earlier run (readiness phase) exited 1
 with 14 tests cancelled in `tests/adverse-events.test.ts`, which passed
-14/14 alone. **No clean single full-suite run has been recorded for v4.**
+14/14 alone.
+
+**Update 28 September 2026:** the first single clean full run is recorded, with v4 in place — `npm test` exit **0**, 325 passed, 0 failed, 0 cancelled, 3 skipped by design, at `11599a1`, after the `/healthz` digest cache (`dc5c2ef`) and a larger per-file test budget. Inference 382 passed, training 167 passed.
 
 ---
 
