@@ -32,7 +32,7 @@ For each decision, in `p2-training-authorisation.json`:
 | `status` | yes | `APPROVED`, `REJECTED` or `DEFERRED`. Only `APPROVED` counts towards training |
 | `owner` | yes | A person's name. Placeholders such as "OWNER NOT YET ASSIGNED", "TBD", "N/A" or "unknown" are refused |
 | `role` | yes | Non-empty |
-| `decidedOn` | yes | `YYYY-MM-DD` |
+| `decidedOn` | yes | A real calendar date, `YYYY-MM-DD`, not in the future |
 | `decision` | yes | What was decided, specifically enough to implement (at least 10 characters; in practice a sentence or more) |
 | `rationale` | optional | Why |
 | `conditions` | optional | Anything the approval depends on. A condition binds any run that relies on the approval |
@@ -41,10 +41,13 @@ The harness also refuses an approval that disagrees with the evidence it
 depends on:
 
 - `performance-criterion` APPROVED needs `docs/bars/p2.json` to record the
-  gate as approved, with `approvedBy` and `approvedOn`.
+  gate as approved, signed (`approvedBy`) by a named person, not a
+  placeholder, on a real, past `approvedOn` date.
 - `localisation` APPROVED needs `docs/bars/p2.json` to carry the tolerance as
-  `APPROVED` with a machine-readable `rule`, which is the only form the
-  evaluator will run.
+  `APPROVED`, signed the same way, with a machine-readable `rule` that
+  `inference/detection_eval.py` itself accepts: a known `basis`, a
+  `duplicatePolicy`, `fixedRadiusMm` only for a fixed radius, and a sane
+  floor and ceiling. The gate builds the rule exactly as the evaluator does.
 - `lung-mask-v4` APPROVED covers `lung-threshold-v4` only. If the code moves
   to another mask version, the approval stops applying.
 
@@ -75,3 +78,11 @@ Only this record does, and only when it is complete.
   and serves nothing. Registration needs the evaluation, OOD, calibration and
   model-card evidence required by `docs/ML_CHANGE_PROCESS.md`.
 - It is not clinical validation.
+
+## What the gate cannot detect
+
+It checks that an owner is named, not that the name is a real person with
+the authority claimed. It checks that a date is real and past, not that the
+decision was made on it. Those are assured by review of the commit that
+records the decision, which is why every decision is recorded in one reviewed
+change, together with the register's sign-off block.

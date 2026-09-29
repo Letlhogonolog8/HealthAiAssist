@@ -24,7 +24,7 @@ def _approved_record():
     return {
         "decisions": [
             {"id": d, "status": "APPROVED", "owner": "A. Named Person", "role": "Methodology lead",
-             "decidedOn": "2026-10-01", "decision": "Approved as specified in section X of the register."}
+             "decidedOn": "2026-09-01", "decision": "Approved as specified in section X of the register."}
             for d in authorisation.REQUIRED_DECISIONS
         ]
     }
@@ -146,12 +146,14 @@ def test_synthetic_harness_runs_need_no_authorisation(training_config, tmp_path)
 
 # ── approvals must agree with the evidence they depend on ─────────────────
 
-def _bar(gate_approved=False, tolerance="BLOCKED", rule=None):
+def _bar(gate_approved=False, tolerance="BLOCKED", rule=None, by="A. Named Person", on="2026-09-01"):
     return {
         "proposedGate": {"approval": {"approved": gate_approved,
-                                       "approvedBy": "A. Named Person" if gate_approved else None,
-                                       "approvedOn": "2026-10-01" if gate_approved else None}},
-        "metrics": {"localisationTolerance": {"status": tolerance, "rule": rule}},
+                                       "approvedBy": by if gate_approved else None,
+                                       "approvedOn": on if gate_approved else None}},
+        "metrics": {"localisationTolerance": {"status": tolerance, "rule": rule,
+                                              "approvedBy": by if tolerance == "APPROVED" else None,
+                                              "approvedOn": on if tolerance == "APPROVED" else None}},
     }
 
 
@@ -166,13 +168,16 @@ def test_an_approved_localisation_needs_an_approved_machine_readable_rule():
     assert any("localisation" in p for p in problems), "APPROVED with no rule must not pass"
 
 
+VALID_RULE = {"basis": "fixed_radius_mm", "fixedRadiusMm": 5.0, "duplicatePolicy": "false_positive"}
+
+
 def test_approvals_consistent_with_the_bar_and_the_code_pass():
-    bar = _bar(gate_approved=True, tolerance="APPROVED", rule={"basis": "fixed_radius"})
+    bar = _bar(gate_approved=True, tolerance="APPROVED", rule=VALID_RULE)
     assert authorisation.consistency(_approved_record(), bar, authorisation.APPROVED_MASK_VERSION) == []
 
 
 def test_an_approval_of_v4_does_not_cover_a_different_mask():
-    bar = _bar(gate_approved=True, tolerance="APPROVED", rule={"basis": "fixed_radius"})
+    bar = _bar(gate_approved=True, tolerance="APPROVED", rule=VALID_RULE)
     problems = authorisation.consistency(_approved_record(), bar, "lung-threshold-v5")
     assert any("lung-mask-v4" in p for p in problems)
 
@@ -218,3 +223,60 @@ def test_every_run_records_what_it_was_trained_under(training_config, tmp_path):
     assert provenance["performance_bar"]["gateApproved"] is False
     assert provenance["localisation_methodology"]["toleranceStatus"] == "BLOCKED"
     assert len(provenance["authorisation"]["sha256"]) == 64
+
+
+
+# ── defects found in the readiness audit of 2026-09-29 ────────────────────
+
+@pytest.mark.parametrize("rule", [
+    {"basis": "fixed_radius"},                                        # not a basis the evaluator knows
+    {"basis": "fixed_radius_mm", "duplicatePolicy": "false_positive"},  # no radius
+    {"basis": "fixed_radius_mm", "fixedRadiusMm": 5.0},               # no duplicate policy
+    {"basis": "max_in_plane_diameter_mm", "fixedRadiusMm": 5.0, "duplicatePolicy": "ignored"},
+    {"basis": "fixed_radius_mm", "fixedRadiusMm": -1, "duplicatePolicy": "ignored"},
+])
+def test_a_localisation_rule_the_evaluator_would_refuse_does_not_authorise(rule):
+    bar = _bar(gate_approved=True, tolerance="APPROVED", rule=rule)
+    problems = authorisation.consistency(_approved_record(), bar, authorisation.APPROVED_MASK_VERSION)
+    assert any("localisation" in p for p in problems), rule
+
+
+@pytest.mark.parametrize("by,on", [("TBD", "2026-09-01"), ("OWNER NOT YET ASSIGNED", "2026-09-01"),
+                                   ("", "2026-09-01"), ("A. Named Person", "soon"),
+                                   ("A. Named Person", None), ("A. Named Person", "2099-01-01")])
+def test_the_bar_s_own_sign_off_must_be_real(by, on):
+    bar = _bar(gate_approved=True, tolerance="APPROVED", rule=VALID_RULE, by=by, on=on)
+    problems = authorisation.consistency(_approved_record(), bar, authorisation.APPROVED_MASK_VERSION)
+    assert any("performance-criterion" in p for p in problems), (by, on)
+    assert any("localisation" in p for p in problems), (by, on)
+
+
+@pytest.mark.parametrize("date", ["2099-01-01", "2026-13-45", "2026-02-30"])
+def test_a_future_or_impossible_decision_date_refuses(date):
+    verdict = authorisation.assess(_with(_approved_record(), "sampling", decidedOn=date))
+    assert verdict["authorised"] is False, date
+
+
+# ── the environment still refuses when everything else is approved ─────────
+
+def test_case_g_valid_approvals_but_no_cuda_is_refused(training_config, tmp_path, monkeypatch):
+    """Authorisation stubbed in this test only: the repository record is never changed."""
+    monkeypatch.setattr(authorisation, "require_authorisation", lambda: "stubbed for this test")
+    config = small_config(training_config)
+    train_set, val_set = sets(config)
+    train_set.kind = val_set.kind = ds.KIND_LIDC
+    with pytest.raises(trainer.TrainingRefused, match="CUDA"):
+        trainer.check_run(train_set, val_set, "cpu")
+
+
+def test_case_h_valid_approvals_and_cuda_become_eligible_but_nothing_trains(training_config, monkeypatch):
+    """Eligibility only: check_run passes, and no training call is made."""
+    monkeypatch.setattr(authorisation, "require_authorisation", lambda: "stubbed for this test")
+    config = small_config(training_config)
+    train_set, val_set = sets(config)
+    train_set.kind = val_set.kind = ds.KIND_LIDC
+    trainer.check_run(train_set, val_set, "cuda")  # raises if anything is refused
+
+
+def test_the_stub_above_never_reaches_the_repository_record():
+    assert authorisation.assess(authorisation.load())["authorised"] is False

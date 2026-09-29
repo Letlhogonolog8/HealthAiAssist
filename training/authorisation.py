@@ -30,6 +30,7 @@ it.
 """
 from __future__ import annotations
 
+import datetime
 import json
 import re
 from typing import Any, Dict, List
@@ -58,6 +59,20 @@ _PLACEHOLDER_OWNER = re.compile(
     re.IGNORECASE,
 )
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _real_past_date(value: Any) -> bool:
+    """A real calendar date, not in the future. A decision cannot predate itself."""
+    if not isinstance(value, str) or not _DATE.match(value):
+        return False
+    try:
+        return datetime.date.fromisoformat(value) <= datetime.date.today()
+    except ValueError:
+        return False
+
+
+def _real_owner(value: Any) -> bool:
+    return isinstance(value, str) and not _PLACEHOLDER_OWNER.search(value)
 
 
 class NotAuthorised(Exception):
@@ -101,14 +116,15 @@ def assess(record: Dict[str, Any]) -> Dict[str, Any]:
             pending.append(decision_id)
             continue
         owner = entry.get("owner")
-        if not isinstance(owner, str) or _PLACEHOLDER_OWNER.search(owner):
+        if not _real_owner(owner):
             problems.append("decision %r is marked APPROVED with no assigned owner (%r)" % (decision_id, owner))
             pending.append(decision_id)
         if not isinstance(entry.get("role"), str) or not entry["role"].strip():
             problems.append("decision %r is marked APPROVED with no owner role" % decision_id)
             pending.append(decision_id)
-        if not isinstance(entry.get("decidedOn"), str) or not _DATE.match(entry["decidedOn"]):
-            problems.append("decision %r is marked APPROVED with no decision date (YYYY-MM-DD)" % decision_id)
+        if not _real_past_date(entry.get("decidedOn")):
+            problems.append("decision %r is marked APPROVED without a real, past decision date (YYYY-MM-DD): %r"
+                            % (decision_id, entry.get("decidedOn")))
             pending.append(decision_id)
         if not isinstance(entry.get("decision"), str) or len(entry["decision"].strip()) < 10:
             problems.append("decision %r is marked APPROVED but does not say what was decided" % decision_id)
@@ -142,18 +158,49 @@ def consistency(record: Dict[str, Any], bar: Dict[str, Any], mask_version: str) 
 
     if status.get("performance-criterion") == "APPROVED":
         approval = bar.get("proposedGate", {}).get("approval", {})
-        if approval.get("approved") is not True or not approval.get("approvedBy") or not approval.get("approvedOn"):
+        if approval.get("approved") is not True or not _real_owner(approval.get("approvedBy"))                 or not _real_past_date(approval.get("approvedOn")):
             problems.append("performance-criterion is APPROVED here but docs/bars/p2.json does not record an "
-                            "approved, signed performance gate")
+                            "approved performance gate signed by a named person on a real, past date")
     if status.get("localisation") == "APPROVED":
         tolerance = bar.get("metrics", {}).get("localisationTolerance", {})
-        if tolerance.get("status") != "APPROVED" or not isinstance(tolerance.get("rule"), dict):
+        rule = tolerance.get("rule")
+        if tolerance.get("status") != "APPROVED" or not isinstance(rule, dict):
             problems.append("localisation is APPROVED here but docs/bars/p2.json does not carry an APPROVED "
                             "tolerance with a machine-readable rule")
+        else:
+            if not _real_owner(tolerance.get("approvedBy")) or not _real_past_date(tolerance.get("approvedOn")):
+                problems.append("localisation is APPROVED here but the tolerance in docs/bars/p2.json is not "
+                                "signed by a named person on a real, past date")
+            rule_problem = _evaluator_refuses(rule)
+            if rule_problem:
+                problems.append("localisation is APPROVED here but the evaluator would refuse the recorded "
+                                "rule: %s" % rule_problem)
     if status.get("lung-mask-v4") == "APPROVED" and mask_version != APPROVED_MASK_VERSION:
         problems.append("lung-mask-v4 is APPROVED but the code implements %s; a changed mask needs its own "
                         "decision" % mask_version)
     return problems
+
+
+def _evaluator_refuses(rule: Dict[str, Any]) -> str:
+    """Why inference/detection_eval.py would refuse this rule, or "" if it accepts it.
+
+    Built exactly as `rule_from_bar` builds it, so the gate and the evaluator
+    cannot disagree about what a usable rule is.
+    """
+    _paths.ensure_inference_on_path()
+    import detection_eval  # noqa: PLC0415
+
+    try:
+        detection_eval.MatchRule(
+            basis=rule.get("basis"),
+            duplicate_policy=rule.get("duplicatePolicy"),
+            fixed_radius_mm=rule.get("fixedRadiusMm"),
+            floor_mm=rule.get("floorMm"),
+            ceiling_mm=rule.get("ceilingMm"),
+        )
+    except (ValueError, TypeError) as exc:
+        return str(exc)
+    return ""
 
 
 def load() -> Dict[str, Any]:
