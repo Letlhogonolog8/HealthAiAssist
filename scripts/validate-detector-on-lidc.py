@@ -153,6 +153,48 @@ def evaluation_machinery() -> dict:
     }
 
 
+# The decisions a formal evaluation depends on. Training needs all nine;
+# evaluation needs these three at least, decided before any figure exists.
+EVALUATION_DECISIONS = {
+    "test-split-exposure": (
+        "how the four test-split series inspected during lung-mask development "
+        "(LIDC-IDRI-0481, LIDC-IDRI-0447, LIDC-IDRI-0951, LIDC-IDRI-0059; 14 nodules) are treated"
+    ),
+    "localisation": "the localisation rule and tolerance",
+    "performance-criterion": "the performance criterion",
+}
+
+
+def evaluation_decisions(bar: dict) -> list:
+    """Blockers for evaluation decisions not validly approved in the owner's record.
+
+    Reads docs/decisions/p2-training-authorisation.json through the same
+    rules the training harness applies, including agreement with the bar.
+    """
+    sys.path.insert(0, ROOT)
+    from training import authorisation  # noqa: PLC0415
+
+    try:
+        record = authorisation.load()
+    except (OSError, ValueError) as exc:
+        return [{"blocker": "authorisation_record_unreadable", "detail": str(exc)}]
+    sys.path.insert(0, os.path.join(ROOT, "inference"))
+    from lung_mask import MASK_VERSION  # noqa: PLC0415
+
+    mismatches = authorisation.consistency(record, bar, MASK_VERSION)
+    blockers = []
+    for decision_id, what in EVALUATION_DECISIONS.items():
+        reasons = [m for m in mismatches if decision_id in m]
+        if not authorisation.decision_approved(record, decision_id) or reasons:
+            blockers.append({
+                "blocker": "decision_not_approved:%s" % decision_id,
+                "detail": "The owner has not approved %s (docs/decisions/p2-training-authorisation.json, "
+                          "docs/P2_TRAINING_GATE_DECISION_REGISTER.md). %s"
+                          % (what, " ".join(reasons)),
+            })
+    return blockers
+
+
 def bar_approved(bar: dict) -> tuple[bool, str]:
     gate = bar.get("proposedGate", {})
     approval = gate.get("approval", {})
@@ -188,6 +230,7 @@ def main() -> int:
         blockers.append({"blocker": "no_detector", "detail": detector_note})
     if not has_tolerance:
         blockers.append({"blocker": "localisation_tolerance_undefined", "detail": tolerance_note})
+    blockers.extend(evaluation_decisions(bar))
 
     report = {
         "status": "BLOCKED" if blockers else "READY",

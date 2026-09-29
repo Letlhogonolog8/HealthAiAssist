@@ -7,7 +7,14 @@
 > GPU TRAINING BLOCKED — NO CUDA DEVICE. Nothing in this document changes
 > that, and nothing here authorises training (`docs/decisions/README.md`).
 
-The order is fixed: **environment → benchmark → authorisation → training.**
+The order is fixed:
+
+1. **Environment** — `check-training-environment.py` → TRAINING READY.
+2. **Benchmark** — `benchmark_detector_training_env.py` → exit 0, report kept.
+3. **The nine owner decisions** — each APPROVED and signed in
+   `docs/decisions/p2-training-authorisation.json` (`docs/decisions/README.md`).
+4. **Authorisation** — `train_lung_detector.py --dry-run` → exit 0.
+5. **Training** — only then, as a deliberate command.
 A benchmark comes before any real run, so that the hardware choice rests on a
 measurement.
 

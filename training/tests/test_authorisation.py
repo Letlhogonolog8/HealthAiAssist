@@ -280,3 +280,19 @@ def test_case_h_valid_approvals_and_cuda_become_eligible_but_nothing_trains(trai
 
 def test_the_stub_above_never_reaches_the_repository_record():
     assert authorisation.assess(authorisation.load())["authorised"] is False
+
+
+
+def test_the_manifest_carries_every_methodology_choice_the_decisions_cover(training_config, tmp_path):
+    """Input representation, geometry, sampling and the criterion are all
+    recoverable from the manifest, recorded as they were, approved or not."""
+    config = small_config(training_config)
+    record = run(config, tmp_path, epochs=1)["experiment"]
+    trained_with = record["training_config"]
+    assert "resample_slice_spacing_mm" in trained_with["preprocessing"]      # CT geometry
+    assert {"hu_min", "hu_max", "channels"} <= set(trained_with["preprocessing"])  # input
+    assert {"patch_px", "channels"} <= set(trained_with["patch"])
+    assert {"negatives_per_series", "negative_exclusion_radius_mm", "seed"} <= set(trained_with["sampling"])
+    criterion = record["provenance"]["performance_bar"]["criterion"]
+    assert set(criterion) == {"sensitivity", "falsePositivesPerScan", "status"}
+    assert record["provenance"]["performance_bar"]["gateApproved"] is False, "recorded as it is: unapproved"

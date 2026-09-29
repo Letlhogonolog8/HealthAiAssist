@@ -108,6 +108,11 @@ def governance_provenance(config: Dict[str, Any]) -> Dict[str, Any]:
             "sha256": _file_sha256(_paths.BAR),
             "status": bar.get("status"),
             "gateApproved": bar.get("proposedGate", {}).get("approval", {}).get("approved"),
+            "criterion": {
+                "sensitivity": bar.get("proposedGate", {}).get("sensitivity"),
+                "falsePositivesPerScan": bar.get("proposedGate", {}).get("falsePositivesPerScan"),
+                "status": bar.get("proposedGate", {}).get("status"),
+            },
         },
         "localisation_methodology": {
             "record": "docs/P2_LOCALIZATION_METHODOLOGY.md",

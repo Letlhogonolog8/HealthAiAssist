@@ -203,6 +203,11 @@ def _evaluator_refuses(rule: Dict[str, Any]) -> str:
     return ""
 
 
+def decision_approved(record: Dict[str, Any], decision_id: str) -> bool:
+    """Whether one decision is validly APPROVED, by exactly the rules training uses."""
+    return decision_id not in assess(record)["pending"]
+
+
 def load() -> Dict[str, Any]:
     with open(RECORD_PATH, encoding="utf-8") as handle:
         return json.load(handle)

@@ -370,6 +370,24 @@ Training itself does not need decisions 8 and 9 to produce weights, but the
 harness requires all nine. This is deliberate: a model trained before its
 evaluation rule is fixed invites choosing the rule after seeing the model.
 
+## What each decision governs
+
+| # | Decision | Affects |
+|---|---|---|
+| 1 | Lung mask v4 | Both — where negatives are drawn in training, and where the service searches |
+| 2 | Test-split exposure | Evaluation — which test series count, and what is disclosed |
+| 3 | Dataset ratification | Both — targets for training, and the reference set for evaluation |
+| 4 | Same-reader clusters | Both — positives, and the evaluation denominator |
+| 5 | CT geometry | Both — training patches and serving input must match |
+| 6 | Detector input | Both — the same representation in training and serving |
+| 7 | Sampling | Training |
+| 8 | Localisation | Evaluation — every sensitivity and false-positive count |
+| 9 | Performance criterion | Evaluation — pass or fail |
+
+The training harness requires all nine regardless, so that no evaluation rule
+is chosen after a model exists. `scripts/validate-detector-on-lidc.py` refuses
+a formal evaluation while 2, 8 or 9 is not validly approved.
+
 ## How an approval becomes real
 
 The register is read by people; the harness reads
