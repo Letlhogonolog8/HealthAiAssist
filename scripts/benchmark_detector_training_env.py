@@ -52,6 +52,8 @@ import argparse
 import datetime
 import json
 import os
+import platform
+import shutil
 import sys
 import time
 from typing import Any, Dict, List, Optional
@@ -81,6 +83,13 @@ GIB = float(1 << 30)
 
 def _bytes(value: Optional[float]) -> Optional[float]:
     return None if value is None else round(value / GIB, 3)
+
+
+def _disk_free_gb(path: str) -> Optional[float]:
+    try:
+        return round(shutil.disk_usage(path).free / GIB, 1)
+    except OSError:
+        return None
 
 
 def estimates(config: Dict[str, Any], scan_dicom: bool) -> Dict[str, Any]:
@@ -284,6 +293,9 @@ def main() -> int:
             "gpus": (probe.get("torch") or {}).get("gpus"),
             "systemMemoryGB": probe.get("systemMemoryGb"),
             "cpus": probe.get("cpuCount"),
+            "cpuModel": platform.processor() or platform.machine(),
+            "os": platform.platform(),
+            "diskFreeGB": _disk_free_gb(_paths.ROOT),
         },
         "estimates": est,
         "configured": {"batchSize": int(config["optimisation"]["batch_size"]),
@@ -314,8 +326,10 @@ def main() -> int:
     print(report["label"])
     print("=" * 72)
     e = report["environment"]
-    print("python %s · torch %s · CUDA %s · RAM %s GB · CPUs %s"
-          % (e["python"], e["torch"], e["cudaVersion"] if cuda else "none", e["systemMemoryGB"], e["cpus"]))
+    print("python %s · torch %s · CUDA %s · RAM %s GB · CPUs %s · disk free %s GB"
+          % (e["python"], e["torch"], e["cudaVersion"] if cuda else "none", e["systemMemoryGB"], e["cpus"],
+             e["diskFreeGB"]))
+    print("OS %s · CPU %s" % (e["os"], e["cpuModel"]))
     for gpu in e["gpus"] or []:
         print("GPU  %s" % gpu)
     print("samples per epoch  train %d, validation %d (context %s, float16)"

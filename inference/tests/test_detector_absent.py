@@ -82,3 +82,32 @@ def test_no_detector_measurement_is_bound_on_the_node_side():
     with open(os.path.join(ROOT, "server", "model-governance.ts"), encoding="utf-8") as handle:
         governance = handle.read()
     assert not re.search(r"lung[_-]?detector|nodule[_-]detection", governance, re.IGNORECASE)
+
+
+def test_the_detection_path_never_reaches_the_characteriser():
+    """A candidate must not silently acquire a malignancy estimate. The
+    handoff to the characteriser is intentionally unwired while no detector
+    exists; wiring it is a reviewed change, not a side effect."""
+    with open(os.path.join(ROOT, "server", "detection.ts"), encoding="utf-8") as handle:
+        source = handle.read()
+    code = re.sub(r"/\*[\s\S]*?\*/|//[^\n]*", "", source)
+    assert "inference-client" not in code
+    assert not re.search(r"lung_nodule|characteri[sz]e\(|\binfer\(", code)
+
+
+def test_no_serving_code_loads_a_training_checkpoint():
+    """A checkpoint on disk is not a registered model. Nothing on the serving
+    path may pick one up from the training artifact tree."""
+    offenders = []
+    for directory in ("inference", "server"):
+        for base, _dirs, files in os.walk(os.path.join(ROOT, directory)):
+            if "tests" in base.split(os.sep) or "__pycache__" in base or "node_modules" in base:
+                continue
+            for name in files:
+                if not name.endswith((".py", ".ts")):
+                    continue
+                path = os.path.join(base, name)
+                text = open(path, encoding="utf-8", errors="ignore").read()
+                if re.search(r"artifacts[/\\]training|\.pt[\"']|torch\.load\(", text):
+                    offenders.append(os.path.relpath(path, ROOT))
+    assert offenders == [], offenders

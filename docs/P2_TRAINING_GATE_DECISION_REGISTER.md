@@ -32,6 +32,15 @@ below, are **not** methodological or clinical approval.
 
 ---
 
+**Owner assignment record** (blank until made; see `docs/decisions/README.md`):
+
+```text
+Decision owner assigned:
+Role:
+Assigned by (name and role):
+Date:
+```
+
 ## Register
 
 | # | Decision | Current state | Evidence | Decision required | Decision owner | Status |
@@ -324,6 +333,43 @@ implemented without someone else guessing, and a guess is not a decision.
 | 8 Localisation | A local inter-reader localisation study (none exists) | Basis (fixed or which diameter), floor and ceiling, greedy or maximum matching, duplicate policy, reader-agreement and size thresholds, treatment of nodules outside the mask. Recorded both in `docs/P2_LOCALIZATION_METHODOLOGY.md` and as a machine-readable `rule` in `docs/bars/p2.json` |
 | 9 Performance criterion | A justification for any threshold (the current 0.85 at 4 FP/scan is an example from a roadmap) | The criterion, the population and denominator, and that it was fixed before any evaluation |
 
+## Options and their consequences
+
+Options are those already documented in this repository; none is
+recommended. Where no alternative has been worked out, the choice is to
+approve the current proposal, reject it, or approve it with conditions; a
+rejection needs the replacement specified before training.
+
+| # | Option | Consequence |
+|---|---|---|
+| 1 | Approve v4 | Negatives are drawn inside v4; the serving search uses v4. Accepted limitations: dense juxtapleural nodules beyond the 3-voxel dilation (2 of 106 centres missed), lung open to outside air dropped, a 47,267-voxel uncharacterised residual |
+| | Approve with conditions (e.g. a larger dilation, or re-measurement on more series first) | The condition must be implemented and measured on train/validation before the run; a changed mask is a new version and needs its own decision |
+| | Reject | No training until a replacement mask is built and measured |
+| 2 | Retain the test set, exposure disclosed | 126 test nodules; every result carries the disclosure |
+| | Mark the 4 series exploratory | 112 confirmatory test nodules; wider intervals |
+| | Replace the 4 series | New split version and fingerprint, committed before evaluation |
+| | New untouched evaluation set | Strongest separation; needs more data (~60 GB more LIDC, or an external set) and its own pre-registration |
+| 3 | Ratify the current definition | Training uses `lidc-labels-median-rating-v1`; indeterminate and < 3 mm nodules stay in the exclusion zone, not targets |
+| | Ratify with indeterminate and/or < 3 mm as targets | Changes positives and the denominator; the sample sets and dataset fingerprint change |
+| | Reject | No training until a dataset decision exists |
+| 4 | Preserve the clusters | 5 label-table nodules keep overstated `n_readers`; any reader-agreement threshold inherits it |
+| | Exclude them from positives and denominators | 5 fewer nodules; they stay in the negative-sampling exclusion zone |
+| | Re-derive under corrected clustering | New label version; `nodule_index` identities change; needs the full-archive XML (not on this machine) |
+| 5 | Native spacing (current) | Patches cover different physical sizes across scanners (0.55–0.78 mm in plane, 1.0–3.0 mm between slices) |
+| | Resample to a stated spacing | Every label coordinate must be transformed; not implemented in harness v1; engineering work before training |
+| 6 | Approve 2.5D, 3 × 64 × 64, HU −1000…400 → [0,1] | Matches the serving path as built; no alternative has been measured |
+| | Replace | Serving path and harness change together; `MATCHES_SERVICE` checks enforce agreement |
+| 7 | Approve the current sampling | ~30,318 train and 5,490 validation samples per epoch at 200 negatives per series |
+| | Approve with different ratios or radius | Sample counts, cache size and dataset fingerprint change; no comparison exists to prefer either |
+| 8 | Options A–D in `P2_LOCALIZATION_DECISION_BRIEF.md` (fixed radius, nodule radius, radius with floor, slice-aware) plus greedy or maximum matching and duplicate policy | Every sensitivity, false-positive count and FROC point depends on it; D and maximum matching need evaluator changes, made and tested before evaluation |
+| 9 | Adopt the proposed 0.85 at 4 FP/scan | It is an example from a roadmap, not benchmark- or regulation-derived; on 126 nodules it cannot be separated from 0.90 |
+| | Adopt a different, justified criterion | Recorded in the bar before any evaluation |
+| | No pass/fail criterion (descriptive reporting only) | The first evaluation cannot support a go/no-go claim |
+
+Training itself does not need decisions 8 and 9 to produce weights, but the
+harness requires all nine. This is deliberate: a model trained before its
+evaluation rule is fixed invites choosing the rule after seeing the model.
+
 ## How an approval becomes real
 
 The register is read by people; the harness reads
@@ -435,6 +481,17 @@ GPU environment:
 [ ] Available
 [ ] Not available
 [ ] Benchmark required
+
+Rationale and conditions (per decision, optional):
+1.
+2.
+3.
+4.
+5.
+6.
+7.
+8.
+9.
 
 Overall authorization to begin detector training:
 [ ] YES

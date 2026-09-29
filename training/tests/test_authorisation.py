@@ -142,3 +142,79 @@ def test_synthetic_harness_runs_need_no_authorisation(training_config, tmp_path)
     config = small_config(training_config)
     result = run(config, tmp_path, epochs=1)
     assert result["experiment"]["status"] != "REFUSED"
+
+
+# ── approvals must agree with the evidence they depend on ─────────────────
+
+def _bar(gate_approved=False, tolerance="BLOCKED", rule=None):
+    return {
+        "proposedGate": {"approval": {"approved": gate_approved,
+                                       "approvedBy": "A. Named Person" if gate_approved else None,
+                                       "approvedOn": "2026-10-01" if gate_approved else None}},
+        "metrics": {"localisationTolerance": {"status": tolerance, "rule": rule}},
+    }
+
+
+def test_an_approved_criterion_needs_an_approved_bar():
+    problems = authorisation.consistency(_approved_record(), _bar(), authorisation.APPROVED_MASK_VERSION)
+    assert any("performance-criterion" in p for p in problems)
+
+
+def test_an_approved_localisation_needs_an_approved_machine_readable_rule():
+    problems = authorisation.consistency(_approved_record(), _bar(gate_approved=True, tolerance="APPROVED"),
+                                         authorisation.APPROVED_MASK_VERSION)
+    assert any("localisation" in p for p in problems), "APPROVED with no rule must not pass"
+
+
+def test_approvals_consistent_with_the_bar_and_the_code_pass():
+    bar = _bar(gate_approved=True, tolerance="APPROVED", rule={"basis": "fixed_radius"})
+    assert authorisation.consistency(_approved_record(), bar, authorisation.APPROVED_MASK_VERSION) == []
+
+
+def test_an_approval_of_v4_does_not_cover_a_different_mask():
+    bar = _bar(gate_approved=True, tolerance="APPROVED", rule={"basis": "fixed_radius"})
+    problems = authorisation.consistency(_approved_record(), bar, "lung-threshold-v5")
+    assert any("lung-mask-v4" in p for p in problems)
+
+
+def test_the_code_still_implements_the_mask_the_decision_names():
+    import sys
+
+    sys.path.insert(0, _paths_inference())
+    from lung_mask import MASK_VERSION
+
+    assert MASK_VERSION == authorisation.APPROVED_MASK_VERSION
+
+
+def _paths_inference():
+    from training import _paths
+
+    return _paths.INFERENCE_DIR
+
+
+def test_pending_decisions_raise_no_consistency_problem():
+    """Consistency concerns approvals only; the repository record is all PENDING."""
+    import json
+
+    from training import _paths
+
+    bar = json.load(open(_paths.BAR, encoding="utf-8"))
+    assert authorisation.consistency(authorisation.load(), bar, authorisation.APPROVED_MASK_VERSION) == []
+
+
+# ── provenance ─────────────────────────────────────────────────────────────
+
+def test_every_run_records_what_it_was_trained_under(training_config, tmp_path):
+    config = small_config(training_config)
+    result = run(config, tmp_path, epochs=1)
+    provenance = result["experiment"]["provenance"]
+    assert provenance["lung_mask_version"] == authorisation.APPROVED_MASK_VERSION
+    assert set(provenance["geometry_source_sha256"]) == {"geometry.py", "series.py", "volume.py", "lung_mask.py"}
+    assert all(len(v or "") == 64 for v in provenance["geometry_source_sha256"].values())
+    assert set(provenance["seeds"]) == {"sampling", "augmentation", "optimisation"}
+    decisions = provenance["authorisation"]["decisions"]
+    assert [d["id"] for d in decisions] == list(authorisation.REQUIRED_DECISIONS)
+    assert all(d["status"] == "PENDING" for d in decisions), "a synthetic run records the real state"
+    assert provenance["performance_bar"]["gateApproved"] is False
+    assert provenance["localisation_methodology"]["toleranceStatus"] == "BLOCKED"
+    assert len(provenance["authorisation"]["sha256"]) == 64

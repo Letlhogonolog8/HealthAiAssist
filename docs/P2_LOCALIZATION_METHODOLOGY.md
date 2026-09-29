@@ -137,6 +137,16 @@ they are treated in the formal evaluation is decision 2 of
 decided, any evaluation protocol must name these series and state the
 treatment applied.
 
+The stages are kept distinct, and so is the use made of the test split in each:
+
+| Stage | What it is | Test split used? |
+|---|---|---|
+| Exploratory inspection | Looking at images and annotations to understand the data | **Yes, once:** the 4 series above, during lung-mask work |
+| Methodology development | Choosing the mask, preprocessing and sampling | v2 → v3 used them; v4 measured on train and validation only |
+| Model training | Fitting weights | Never; refused in code (`require_split`) |
+| Threshold and model selection | Choosing a checkpoint or operating point | Never; validation only |
+| Final evaluation | One pre-registered run on the test split | Not yet performed |
+
 ## Decision
 
 ```

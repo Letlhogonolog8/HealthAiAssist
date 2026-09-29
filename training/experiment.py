@@ -48,6 +48,76 @@ def git_state() -> Dict[str, Any]:
     return {"commit": commit, "dirty": bool(porcelain) if porcelain is not None else None}
 
 
+def _file_sha256(path: str) -> Optional[str]:
+    import hashlib
+
+    try:
+        with open(path, "rb") as handle:
+            return hashlib.sha256(handle.read()).hexdigest()
+    except OSError:
+        return None
+
+
+def governance_provenance(config: Dict[str, Any]) -> Dict[str, Any]:
+    """What a run was trained under, beyond the data and the configuration.
+
+    Recorded so that a checkpoint can always be traced to the mask, the
+    geometry code, the seeds and the governance state that produced it. The
+    authorisation record is copied in with each decision's status, owner and
+    date: a run's manifest shows who authorised it, not just that it ran.
+    Nothing here is a result.
+    """
+    _paths.ensure_inference_on_path()
+    from lung_mask import MASK_VERSION  # noqa: PLC0415
+
+    from training import authorisation  # noqa: PLC0415
+    from training.sampling import SAMPLING_VERSION  # noqa: PLC0415
+
+    geometry = {
+        name: _file_sha256(os.path.join(_paths.INFERENCE_DIR, name))
+        for name in ("geometry.py", "series.py", "volume.py", "lung_mask.py")
+    }
+    try:
+        record = authorisation.load()
+        decisions = [{key: d.get(key) for key in ("id", "status", "owner", "role", "decidedOn")}
+                     for d in record.get("decisions", [])]
+    except (OSError, ValueError):
+        decisions = None
+    try:
+        with open(_paths.BAR, encoding="utf-8") as handle:
+            bar = json.load(handle)
+    except (OSError, ValueError):
+        bar = {}
+    tolerance = bar.get("metrics", {}).get("localisationTolerance", {})
+    return {
+        "lung_mask_version": MASK_VERSION,
+        "geometry_source_sha256": geometry,
+        "sampling_version": SAMPLING_VERSION,
+        "seeds": {
+            "sampling": config.get("sampling", {}).get("seed"),
+            "augmentation": config.get("augmentation", {}).get("seed"),
+            "optimisation": config.get("optimisation", {}).get("seed"),
+        },
+        "authorisation": {
+            "record": "docs/decisions/p2-training-authorisation.json",
+            "sha256": _file_sha256(authorisation.RECORD_PATH),
+            "decisions": decisions,
+        },
+        "performance_bar": {
+            "record": "docs/bars/p2.json",
+            "sha256": _file_sha256(_paths.BAR),
+            "status": bar.get("status"),
+            "gateApproved": bar.get("proposedGate", {}).get("approval", {}).get("approved"),
+        },
+        "localisation_methodology": {
+            "record": "docs/P2_LOCALIZATION_METHODOLOGY.md",
+            "sha256": _file_sha256(_paths.LOCALISATION_METHODOLOGY),
+            "toleranceStatus": tolerance.get("status"),
+            "rule": tolerance.get("rule"),
+        },
+    }
+
+
 def utc_now() -> str:
     return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
 
@@ -105,6 +175,7 @@ def start(
         "started": started,
         "finished": None,
         "git": git_state(),
+        "provenance": governance_provenance(config),
         "dataset_fingerprint": dataset["fingerprint"],
         "dataset": dataset["parts"],
         "split_fingerprint": split_fingerprint,

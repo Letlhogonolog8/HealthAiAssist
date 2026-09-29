@@ -124,6 +124,38 @@ def assess(record: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+# The mask an approval of "lung-mask-v4" covers. If the implementation moves
+# on, the approval does not follow it: a new version needs a new decision.
+APPROVED_MASK_VERSION = "lung-threshold-v4"
+
+
+def consistency(record: Dict[str, Any], bar: Dict[str, Any], mask_version: str) -> List[str]:
+    """Problems where an approval disagrees with the evidence it depends on.
+
+    An approval recorded here must match what the pre-registration and the
+    code actually say. Otherwise the record could approve a performance
+    criterion the bar still marks DRAFT, a localisation rule the evaluator
+    would refuse, or a mask that is no longer the one in the code.
+    """
+    problems: List[str] = []
+    status = {d.get("id"): d.get("status") for d in record.get("decisions", []) if isinstance(d, dict)}
+
+    if status.get("performance-criterion") == "APPROVED":
+        approval = bar.get("proposedGate", {}).get("approval", {})
+        if approval.get("approved") is not True or not approval.get("approvedBy") or not approval.get("approvedOn"):
+            problems.append("performance-criterion is APPROVED here but docs/bars/p2.json does not record an "
+                            "approved, signed performance gate")
+    if status.get("localisation") == "APPROVED":
+        tolerance = bar.get("metrics", {}).get("localisationTolerance", {})
+        if tolerance.get("status") != "APPROVED" or not isinstance(tolerance.get("rule"), dict):
+            problems.append("localisation is APPROVED here but docs/bars/p2.json does not carry an APPROVED "
+                            "tolerance with a machine-readable rule")
+    if status.get("lung-mask-v4") == "APPROVED" and mask_version != APPROVED_MASK_VERSION:
+        problems.append("lung-mask-v4 is APPROVED but the code implements %s; a changed mask needs its own "
+                        "decision" % mask_version)
+    return problems
+
+
 def load() -> Dict[str, Any]:
     with open(RECORD_PATH, encoding="utf-8") as handle:
         return json.load(handle)
@@ -136,6 +168,14 @@ def require_authorisation() -> str:
     except (OSError, ValueError) as exc:
         raise NotAuthorised(["the authorisation record could not be read (%s)" % exc])
     verdict = assess(record)
+    _paths.ensure_inference_on_path()
+    from lung_mask import MASK_VERSION  # noqa: PLC0415
+
+    with open(_paths.BAR, encoding="utf-8") as handle:
+        bar = json.load(handle)
+    mismatches = consistency(record, bar, MASK_VERSION)
+    if mismatches:
+        verdict = dict(verdict, authorised=False, problems=list(verdict["problems"]) + mismatches)
     if not verdict["authorised"]:
         reasons = list(verdict["problems"])
         not_approved = [d for d in verdict["pending"]

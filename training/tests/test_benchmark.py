@@ -100,3 +100,12 @@ def test_card_sizing_applies_the_stated_headroom():
 def test_no_projection_without_a_measured_configured_batch(config):
     est = bench.estimates(config, scan_dicom=False)
     assert bench.projections(est, [], config) == {"measured": False}
+
+
+def test_the_report_records_the_machine(tmp_path):
+    out = tmp_path / "smoke.json"
+    run(SCRIPT, "--cpu-smoke", "--no-dicom-scan", "--json", str(out))
+    environment = json.loads(out.read_text(encoding="utf-8"))["environment"]
+    for key in ("python", "torch", "cudaAvailable", "cudaVersion", "cudnnVersion", "gpus",
+                "systemMemoryGB", "cpus", "cpuModel", "os", "diskFreeGB"):
+        assert key in environment, key

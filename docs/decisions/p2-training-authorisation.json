@@ -2,7 +2,7 @@
   "record": "p2-training-authorisation",
   "version": 1,
   "purpose": "The machine-readable form of docs/P2_TRAINING_GATE_DECISION_REGISTER.md. scripts/train_lung_detector.py refuses a real training run unless every decision below is APPROVED with an owner, a role, a date and the decision itself. Engineering readiness is not authorisation.",
-  "howToRecordADecision": "Only the assigned decision owner records a decision, in the same change as the sign-off block of the register. Set status to APPROVED, REJECTED or DEFERRED; fill owner (a person's name), role, decidedOn (YYYY-MM-DD) and decision (what was decided, specifically enough to implement). Anything else leaves training refused.",
+  "howToRecordADecision": "Only the assigned decision owner records a decision, in the same change as the sign-off block of the register. Set status to APPROVED, REJECTED or DEFERRED; fill owner (a person's name), role, decidedOn (YYYY-MM-DD) and decision (what was decided, specifically enough to implement). rationale and conditions are optional; a condition attached to an approval binds the run that relies on it. Anything else leaves training refused. See docs/decisions/README.md.",
   "statusVocabulary": ["PENDING", "APPROVED", "REJECTED", "DEFERRED"],
   "decisions": [
     {
@@ -13,7 +13,9 @@
       "owner": null,
       "role": null,
       "decidedOn": null,
-      "decision": null
+      "decision": null,
+      "rationale": null,
+      "conditions": null
     },
     {
       "id": "test-split-exposure",
@@ -23,7 +25,9 @@
       "owner": null,
       "role": null,
       "decidedOn": null,
-      "decision": null
+      "decision": null,
+      "rationale": null,
+      "conditions": null
     },
     {
       "id": "dataset-ratification",
@@ -33,7 +37,9 @@
       "owner": null,
       "role": null,
       "decidedOn": null,
-      "decision": null
+      "decision": null,
+      "rationale": null,
+      "conditions": null
     },
     {
       "id": "same-reader-clusters",
@@ -43,7 +49,9 @@
       "owner": null,
       "role": null,
       "decidedOn": null,
-      "decision": null
+      "decision": null,
+      "rationale": null,
+      "conditions": null
     },
     {
       "id": "ct-geometry",
@@ -53,7 +61,9 @@
       "owner": null,
       "role": null,
       "decidedOn": null,
-      "decision": null
+      "decision": null,
+      "rationale": null,
+      "conditions": null
     },
     {
       "id": "detector-input",
@@ -63,7 +73,9 @@
       "owner": null,
       "role": null,
       "decidedOn": null,
-      "decision": null
+      "decision": null,
+      "rationale": null,
+      "conditions": null
     },
     {
       "id": "sampling",
@@ -73,7 +85,9 @@
       "owner": null,
       "role": null,
       "decidedOn": null,
-      "decision": null
+      "decision": null,
+      "rationale": null,
+      "conditions": null
     },
     {
       "id": "localisation",
@@ -83,7 +97,9 @@
       "owner": null,
       "role": null,
       "decidedOn": null,
-      "decision": null
+      "decision": null,
+      "rationale": null,
+      "conditions": null
     },
     {
       "id": "performance-criterion",
@@ -93,7 +109,9 @@
       "owner": null,
       "role": null,
       "decidedOn": null,
-      "decision": null
+      "decision": null,
+      "rationale": null,
+      "conditions": null
     }
   ]
 }
