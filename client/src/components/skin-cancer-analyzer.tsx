@@ -154,10 +154,11 @@ export default function SkinCancerAnalyzer() {
         return;
       }
 
-      if (file.size > 50 * 1024 * 1024) {
+      // Matches the server's multer limit; a larger file would only be refused there.
+      if (file.size > 10 * 1024 * 1024) {
         toast({
           title: "File Too Large",
-          description: "Please select an image under 50MB.",
+          description: "Please select an image under 10MB.",
           variant: "destructive",
         });
         return;

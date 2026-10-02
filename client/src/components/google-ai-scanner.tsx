@@ -250,7 +250,7 @@ export default function GoogleAIScannerFixed() {
                     Select a medical scan image for AI analysis
                   </p>
                   <p className="text-sm text-gray-400 mt-2">
-                    Supported formats: JPEG, PNG, TIFF, WEBP, AVIF • Max size: 50MB
+                    Supported formats: JPEG, PNG, TIFF, WEBP, AVIF • Max size: 10MB
                   </p>
                 </div>
                 <Button

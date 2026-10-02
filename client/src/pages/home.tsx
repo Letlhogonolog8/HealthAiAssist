@@ -281,8 +281,9 @@ export default function Home({ onLoginSuccess }: HomeProps & { userId?: number }
               A research prototype. It is not a registered medical device, holds no
               regulatory clearance in any jurisdiction, and has not been clinically or
               prospectively validated. It must not be used to make decisions about
-              anyone's care. Model performance across skin tones is unmeasured, and the
-              training data's demographic composition is unrecorded.
+              anyone's care. Performance on darker skin types cannot be established from
+              the available data, and the training data's demographic composition is
+              unrecorded.
             </AlertDescription>
           </Alert>
         </div>

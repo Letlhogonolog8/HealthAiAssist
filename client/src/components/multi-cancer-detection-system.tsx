@@ -65,42 +65,42 @@ const cancerTypes = [
   {
     id: 'breast',
     name: 'Breast Cancer',
-    description: 'Mammography and breast imaging analysis',
+    description: 'Mammography',
     icon: Heart,
     color: 'bg-pink-500',
-    acceptedFiles: 'Mammograms, ultrasound, MRI'
+    acceptedFiles: ''
   },
   {
     id: 'lung',
     name: 'Lung Cancer',
-    description: 'Chest X-ray and CT scan analysis',
+    description: 'Chest imaging',
     icon: Wind,
     color: 'bg-blue-500',
-    acceptedFiles: 'Chest X-rays, CT scans, PET scans'
+    acceptedFiles: ''
   },
   {
     id: 'prostate',
     name: 'Prostate Cancer',
-    description: 'MRI and ultrasound analysis with PI-RADS scoring',
+    description: 'Prostate MRI',
     icon: Target,
     color: 'bg-purple-500',
-    acceptedFiles: 'Prostate MRI, ultrasound, biopsy images'
+    acceptedFiles: ''
   },
   {
     id: 'skin',
     name: 'Skin Cancer',
-    description: 'Dermatoscopy and lesion analysis using ABCDE criteria',
+    description: 'Photograph of a single skin lesion',
     icon: Eye,
     color: 'bg-orange-500',
-    acceptedFiles: 'Dermatoscope images, clinical photos'
+    acceptedFiles: 'Dermatoscope images, clinical photos (JPEG, PNG, TIFF, WEBP, AVIF, up to 10 MB)'
   },
   {
     id: 'cervical',
     name: 'Cervical Cancer',
-    description: 'Pap smear and colposcopy analysis',
+    description: 'Pap smear and colposcopy',
     icon: Activity,
     color: 'bg-green-500',
-    acceptedFiles: 'Pap smear images, colposcopy'
+    acceptedFiles: ''
   }
 ];
 
@@ -256,10 +256,11 @@ export default function MultiCancerDetectionSystem() {
         return;
       }
 
-      if (file.size > 50 * 1024 * 1024) {
+      // Matches the server's multer limit; a larger file would only be refused there.
+      if (file.size > 10 * 1024 * 1024) {
         toast({
           title: "File Too Large",
-          description: "Please select an image under 50MB",
+          description: "Please select an image under 10MB",
           variant: "destructive",
         });
         return;
@@ -436,9 +437,11 @@ export default function MultiCancerDetectionSystem() {
                               </p>
                             )}
 
-                            <p className="text-xs text-muted-foreground mt-1">
-                              <strong>Accepted:</strong> {type.acceptedFiles}
-                            </p>
+                            {available && type.acceptedFiles && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                <strong>Accepted:</strong> {type.acceptedFiles}
+                              </p>
+                            )}
                           </div>
                         </div>
                       </CardContent>
