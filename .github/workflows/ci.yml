@@ -110,6 +110,17 @@ jobs:
       - name: Create application schema
         run: npx drizzle-kit push --force < /dev/null
 
+      # drizzle-kit push creates only what shared/schema.ts declares, so
+      # anything written directly in SQL is invisible to it. The casualty was
+      # idx_detection_runs_one_in_flight — a partial unique index declared only
+      # in migrations/detection-runs.sql, and the database-level guarantee that
+      # one detection run is in flight per series. Without this step
+      # tests/detection-candidates.test.ts asserts an index that exists in every
+      # provisioned database except this one, and the failure reads as a code
+      # defect rather than a missing migration.
+      - name: Apply raw SQL migrations
+        run: npm run db:migrate-all
+
       # express-session's Postgres store is configured with tableName 'session'
       # and without createTableIfMissing, so the table has to exist before the
       # server boots.
@@ -121,7 +132,7 @@ jobs:
       - name: Verify schema
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
-            "SELECT 'users'::regclass, 'medical_scans'::regclass, 'appointments'::regclass, 'audit_events'::regclass, 'chat_messages'::regclass, 'notifications'::regclass, 'adverse_events'::regclass, 'session'::regclass;"
+            "SELECT 'users'::regclass, 'medical_scans'::regclass, 'appointments'::regclass, 'audit_events'::regclass, 'chat_messages'::regclass, 'notifications'::regclass, 'adverse_events'::regclass, 'session'::regclass, 'idx_detection_runs_one_in_flight'::regclass;"
 
       - name: Test
         run: npm test
