@@ -1,0 +1,99 @@
+{
+  "model": "resnet50v2_skin_cancer_model.h5",
+  "method": "temperature scaling (Guo et al., ICML 2017)",
+  "temperature": 1.0,
+  "fittedTemperature": 1.135,
+  "applied": false,
+  "decision": "Temperature scaling measured but NOT applied. The fitted correction did not improve validation ECE by a meaningful margin, so applying it would add complexity for no gain.",
+  "validation": {
+    "expectedCalibrationErrorBefore": 0.0404,
+    "expectedCalibrationErrorAfterFittedT": 0.0383
+  },
+  "fittedOn": "validation split, n=396",
+  "evaluatedOn": "held-out test set, n=660",
+  "before": {
+    "expectedCalibrationError": 0.0238,
+    "brierScore": 0.098,
+    "negativeLogLikelihood": 0.3242,
+    "reliability": [
+      {
+        "range": "0.5-0.6",
+        "n": 57,
+        "statedConfidence": 0.5494,
+        "observedAccuracy": 0.4386,
+        "gap": 0.1108
+      },
+      {
+        "range": "0.6-0.7",
+        "n": 56,
+        "statedConfidence": 0.6475,
+        "observedAccuracy": 0.7143,
+        "gap": -0.0668
+      },
+      {
+        "range": "0.7-0.8",
+        "n": 67,
+        "statedConfidence": 0.7434,
+        "observedAccuracy": 0.7761,
+        "gap": -0.0327
+      },
+      {
+        "range": "0.8-0.9",
+        "n": 120,
+        "statedConfidence": 0.8535,
+        "observedAccuracy": 0.825,
+        "gap": 0.0285
+      },
+      {
+        "range": "0.9-1.0",
+        "n": 360,
+        "statedConfidence": 0.9749,
+        "observedAccuracy": 0.975,
+        "gap": -0.0001
+      }
+    ]
+  },
+  "after": {
+    "expectedCalibrationError": 0.0238,
+    "brierScore": 0.098,
+    "negativeLogLikelihood": 0.3242,
+    "reliability": [
+      {
+        "range": "0.5-0.6",
+        "n": 57,
+        "statedConfidence": 0.5494,
+        "observedAccuracy": 0.4386,
+        "gap": 0.1108
+      },
+      {
+        "range": "0.6-0.7",
+        "n": 56,
+        "statedConfidence": 0.6475,
+        "observedAccuracy": 0.7143,
+        "gap": -0.0668
+      },
+      {
+        "range": "0.7-0.8",
+        "n": 67,
+        "statedConfidence": 0.7434,
+        "observedAccuracy": 0.7761,
+        "gap": -0.0327
+      },
+      {
+        "range": "0.8-0.9",
+        "n": 120,
+        "statedConfidence": 0.8535,
+        "observedAccuracy": 0.825,
+        "gap": 0.0285
+      },
+      {
+        "range": "0.9-1.0",
+        "n": 360,
+        "statedConfidence": 0.9749,
+        "observedAccuracy": 0.975,
+        "gap": -0.0001
+      }
+    ]
+  },
+  "note": "Accuracy is unchanged by temperature scaling \u2014 it is monotonic, so the argmax never moves. What changes is whether the stated probability can be read as a likelihood. An ECE near 0.02 means the stated probability and the observed frequency agree to within about two percentage points."
+}

@@ -1,0 +1,81 @@
+{
+  "classes": [
+    "cancer",
+    "no_cancer"
+  ],
+  "classIndexOrder": {
+    "cancer": 0,
+    "no_cancer": 1
+  },
+  "inputRange": "raw RGB 0-255 (preprocessing fused into the model)",
+  "imageSize": [
+    224,
+    224
+  ],
+  "backbone": "ResNet50V2 ImageNet, frozen",
+  "seed": 4242,
+  "splitCounts": {
+    "train": 2575,
+    "val": 551,
+    "test": 554
+  },
+  "validation": {
+    "sensitivity": 0.6868,
+    "specificity": 0.9704,
+    "balancedAccuracy": 0.8286,
+    "accuracy": 0.8258,
+    "confusion": {
+      "TP": 193,
+      "FN": 88,
+      "TN": 262,
+      "FP": 8
+    }
+  },
+  "test": {
+    "sensitivity": 0.695,
+    "specificity": 0.9816,
+    "balancedAccuracy": 0.8383,
+    "accuracy": 0.8357,
+    "confusion": {
+      "TP": 196,
+      "FN": 86,
+      "TN": 267,
+      "FP": 5
+    }
+  },
+  "note": "Test split held out from training and model selection. Pooled and re-split because the original validate/ directory was used as the validation generator during the previous training run.",
+  "operatingPoint": {
+    "cancerThreshold": 0.3,
+    "targetSensitivity": 0.8,
+    "selectedOn": "validation split",
+    "appliedToCalibratedProbabilities": true,
+    "calibrationTemperature": 1.125,
+    "rationale": "Screening favours catching disease over avoiding false alarms. Argmax implicitly weights a missed cancer and a false alarm equally, which is the wrong trade here.",
+    "testAtArgmax": {
+      "threshold": 0.5,
+      "sensitivity": 0.695,
+      "specificity": 0.9816,
+      "balancedAccuracy": 0.8383,
+      "accuracy": 0.8357,
+      "confusion": {
+        "TP": 196,
+        "FN": 86,
+        "TN": 267,
+        "FP": 5
+      }
+    },
+    "testAtThreshold": {
+      "threshold": 0.3,
+      "sensitivity": 0.8121,
+      "specificity": 0.7574,
+      "balancedAccuracy": 0.7847,
+      "accuracy": 0.7852,
+      "confusion": {
+        "TP": 229,
+        "FN": 53,
+        "TN": 206,
+        "FP": 66
+      }
+    }
+  }
+}

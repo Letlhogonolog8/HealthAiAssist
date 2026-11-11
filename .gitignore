@@ -77,7 +77,23 @@ Thumbs.db
 
 # Training data and model files (too large for git — ~600MB of MRI scans).
 # Stripped from history with git-filter-repo; keep them out of the repo.
-dataset/
+#
+# The exception is the model provenance records: the training, calibration,
+# OOD, verification and fairness JSON beside each artifact. They are a few
+# kilobytes each, they are what every model card and every published figure is
+# built from, and leaving them untracked meant a correction to a model's record
+# survived only on one machine. The reason for this rule is size; these are not
+# large. Weights (*.h5), arrays (*.npz) and the imaging itself stay out.
+dataset/*
+!dataset/data/
+dataset/data/*
+!dataset/data/*.json
+!dataset/lung_cancer_MRI_dataset/
+dataset/lung_cancer_MRI_dataset/*
+!dataset/lung_cancer_MRI_dataset/*.json
+!dataset/lung_nodule_model/
+dataset/lung_nodule_model/*
+!dataset/lung_nodule_model/*.json
 *.h5
 *.pkl
 *.joblib

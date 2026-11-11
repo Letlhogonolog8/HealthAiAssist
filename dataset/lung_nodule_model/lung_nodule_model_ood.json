@@ -1,0 +1,70 @@
+{
+  "model": "resnet50v2_lung_nodule_model.h5",
+  "method": "PCA reconstruction error in ResNet feature space, 64 components",
+  "mode": "measure-only (reference on disk validated, not refitted)",
+  "components": 64,
+  "varianceExplained": 0.6851,
+  "thresholdPercentile": 99.5,
+  "threshold": 23.8692,
+  "fittedOn": "2900 training images",
+  "requirements": {
+    "maxFlagRateWhereExpectAccept": 0.05,
+    "minFlagRateWhereExpectRefuse": 0.9,
+    "setBeforeMeasurement": true
+  },
+  "validation": [
+    {
+      "n": 120,
+      "medianError": 15.388,
+      "flaggedRate": 0.0333,
+      "label": "held-out benign nodule patches",
+      "dir": "dataset/lidc-ct/test/no_cancer",
+      "expect": "accept",
+      "pass": true
+    },
+    {
+      "n": 120,
+      "medianError": 13.143,
+      "flaggedRate": 0.0083,
+      "label": "off-nodule lung parenchyma (right scale)",
+      "dir": "dataset/lidc-ood/off-nodule",
+      "expect": "accept",
+      "pass": true
+    },
+    {
+      "n": 87,
+      "medianError": 27.33,
+      "flaggedRate": 0.908,
+      "label": "whole CT slices (right modality, wrong scale)",
+      "dir": "dataset/lidc-ood/whole-slice",
+      "expect": "refuse",
+      "pass": true
+    },
+    {
+      "n": 120,
+      "medianError": 30.221,
+      "flaggedRate": 0.925,
+      "label": "skin lesions (wrong modality)",
+      "dir": "dataset/dataset/data/test/benign",
+      "expect": "refuse",
+      "pass": true
+    },
+    {
+      "n": 60,
+      "medianError": 24.795,
+      "flaggedRate": 0.9667,
+      "label": "random noise",
+      "expect": "reported only"
+    },
+    {
+      "n": 60,
+      "medianError": 15.494,
+      "flaggedRate": 0.0,
+      "label": "blank grey frames",
+      "expect": "reported only"
+    }
+  ],
+  "meetsRequirements": true,
+  "failures": [],
+  "interpretation": "Each domain carries what it is for. \"accept\" domains are inputs the model is supposed to answer, and flagging them is a false refusal; \"refuse\" domains are inputs it cannot answer, and missing them lets it produce a confident number for a question outside its competence. Both directions are required: a detector measured only on \"refuse\" domains is best served by refusing everything. Blank frames are caught by pixel-level checks, not by this detector."
+}

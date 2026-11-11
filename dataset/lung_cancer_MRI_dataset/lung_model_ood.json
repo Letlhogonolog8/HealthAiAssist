@@ -1,0 +1,63 @@
+{
+  "model": "resnet50v2_lung_cancer_model.h5",
+  "method": "PCA reconstruction error in ResNet feature space, 64 components",
+  "mode": "measure-only (reference on disk validated, not refitted)",
+  "components": 64,
+  "varianceExplained": 0.8228,
+  "thresholdPercentile": 99.5,
+  "threshold": 16.5101,
+  "fittedOn": "2575 training images",
+  "requirements": {
+    "maxFlagRateWhereExpectAccept": 0.05,
+    "minFlagRateWhereExpectRefuse": 0.9,
+    "setBeforeMeasurement": true
+  },
+  "validation": [
+    {
+      "n": 120,
+      "medianError": 10.579,
+      "flaggedRate": 0.0083,
+      "label": "held-out chest images (same modality)",
+      "dir": "dataset/dataset/lung_cancer_MRI_dataset/validate/no_cancer",
+      "expect": "accept",
+      "pass": true
+    },
+    {
+      "n": 120,
+      "medianError": 29.74,
+      "flaggedRate": 1.0,
+      "label": "skin lesions (wrong modality)",
+      "dir": "dataset/dataset/data/test/benign",
+      "expect": "refuse",
+      "pass": true
+    },
+    {
+      "n": 87,
+      "medianError": 12.258,
+      "flaggedRate": 0.0345,
+      "label": "real CT slices, LIDC-IDRI (no measured performance)",
+      "dir": "dataset/lidc-ood/whole-slice",
+      "expect": "refuse",
+      "pass": false
+    },
+    {
+      "n": 60,
+      "medianError": 24.945,
+      "flaggedRate": 1.0,
+      "label": "random noise",
+      "expect": "reported only"
+    },
+    {
+      "n": 60,
+      "medianError": 16.109,
+      "flaggedRate": 0.0,
+      "label": "blank grey frames",
+      "expect": "reported only"
+    }
+  ],
+  "meetsRequirements": false,
+  "failures": [
+    "real CT slices, LIDC-IDRI (no measured performance): flagged 3.5%, required >= 90%"
+  ],
+  "interpretation": "Each domain carries what it is for. \"accept\" domains are inputs the model is supposed to answer, and flagging them is a false refusal; \"refuse\" domains are inputs it cannot answer, and missing them lets it produce a confident number for a question outside its competence. Both directions are required: a detector measured only on \"refuse\" domains is best served by refusing everything. Blank frames are caught by pixel-level checks, not by this detector."
+}

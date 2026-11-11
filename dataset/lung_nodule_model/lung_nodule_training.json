@@ -1,0 +1,506 @@
+{
+  "answers": "Probability that a radiologist would rate THIS marked nodule malignant, given a 64px crop of a chest CT centred on it.",
+  "doesNotAnswer": "Whether a chest CT contains cancer. There is no nodule detector. A whole slice is out of distribution for this model and must be refused, not classified.",
+  "route": "Route 1 \u2014 clinician marks the nodule and requests a characterisation. See scripts/lidc_extract_patches.py.",
+  "dataset": "LIDC-IDRI (TCIA), CC BY 3.0. Labels are the median malignancy rating across up to four radiologists; median exactly 3 excluded. A rating is an impression, not a histological diagnosis.",
+  "citation": "Armato III, S. G., McLennan, G., Bidaut, L., et al. Data From LIDC-IDRI. The Cancer Imaging Archive. https://doi.org/10.7937/K9/TCIA.2015.LO9QL9SX",
+  "classes": [
+    "cancer",
+    "no_cancer"
+  ],
+  "classIndexOrder": {
+    "cancer": 0,
+    "no_cancer": 1
+  },
+  "inputRange": "raw RGB 0-255 (preprocessing fused into the model)",
+  "imageSize": [
+    224,
+    224
+  ],
+  "windowing": "inference/dicom_ingest.py _window with force_window=training_window(ds), i.e. the CT lung window (WC -600 / WW 1500) regardless of the display preset in the tags. 40 of the first 97 LIDC series carry a soft-tissue window that clips the whole lung field to black. Any serving path for this model MUST pass the same override.",
+  "backbone": "ResNet50V2 ImageNet, frozen",
+  "seed": 4242,
+  "split": "By patient, before any patch was written. No patient appears in two splits.",
+  "splitCounts": {
+    "train": {
+      "patches": 2900,
+      "nodules": 580,
+      "malignantNodules": 192,
+      "patients": 160
+    },
+    "val": {
+      "patches": 725,
+      "nodules": 145,
+      "malignantNodules": 41,
+      "patients": 39
+    },
+    "test": {
+      "patches": 485,
+      "nodules": 97,
+      "malignantNodules": 29,
+      "patients": 29
+    }
+  },
+  "operatingPoint": {
+    "threshold": 0.3,
+    "chosenOn": "validation nodules",
+    "rule": "most specific threshold reaching 0.85 sensitivity; ties broken by the midpoint of the tied band",
+    "tiedBand": [
+      0.3
+    ],
+    "reachedTarget": true
+  },
+  "validationSweep": [
+    {
+      "threshold": 0.1,
+      "sensitivity": 0.9268,
+      "sensitivityCI95": [
+        0.8057,
+        0.9748
+      ],
+      "specificity": 0.2212,
+      "specificityCI95": [
+        0.1521,
+        0.31
+      ],
+      "balancedAccuracy": 0.574,
+      "confusion": {
+        "TP": 38,
+        "FN": 3,
+        "TN": 23,
+        "FP": 81
+      },
+      "n": 145
+    },
+    {
+      "threshold": 0.15,
+      "sensitivity": 0.9024,
+      "sensitivityCI95": [
+        0.7745,
+        0.9614
+      ],
+      "specificity": 0.375,
+      "specificityCI95": [
+        0.288,
+        0.4709
+      ],
+      "balancedAccuracy": 0.6387,
+      "confusion": {
+        "TP": 37,
+        "FN": 4,
+        "TN": 39,
+        "FP": 65
+      },
+      "n": 145
+    },
+    {
+      "threshold": 0.2,
+      "sensitivity": 0.9024,
+      "sensitivityCI95": [
+        0.7745,
+        0.9614
+      ],
+      "specificity": 0.4904,
+      "specificityCI95": [
+        0.3964,
+        0.5851
+      ],
+      "balancedAccuracy": 0.6964,
+      "confusion": {
+        "TP": 37,
+        "FN": 4,
+        "TN": 51,
+        "FP": 53
+      },
+      "n": 145
+    },
+    {
+      "threshold": 0.25,
+      "sensitivity": 0.8537,
+      "sensitivityCI95": [
+        0.7156,
+        0.9312
+      ],
+      "specificity": 0.5962,
+      "specificityCI95": [
+        0.5001,
+        0.6854
+      ],
+      "balancedAccuracy": 0.7249,
+      "confusion": {
+        "TP": 35,
+        "FN": 6,
+        "TN": 62,
+        "FP": 42
+      },
+      "n": 145
+    },
+    {
+      "threshold": 0.3,
+      "sensitivity": 0.8537,
+      "sensitivityCI95": [
+        0.7156,
+        0.9312
+      ],
+      "specificity": 0.7308,
+      "specificityCI95": [
+        0.6384,
+        0.8067
+      ],
+      "balancedAccuracy": 0.7923,
+      "confusion": {
+        "TP": 35,
+        "FN": 6,
+        "TN": 76,
+        "FP": 28
+      },
+      "n": 145
+    },
+    {
+      "threshold": 0.35,
+      "sensitivity": 0.8049,
+      "sensitivityCI95": [
+        0.6599,
+        0.8977
+      ],
+      "specificity": 0.7788,
+      "specificityCI95": [
+        0.69,
+        0.8479
+      ],
+      "balancedAccuracy": 0.7918,
+      "confusion": {
+        "TP": 33,
+        "FN": 8,
+        "TN": 81,
+        "FP": 23
+      },
+      "n": 145
+    },
+    {
+      "threshold": 0.4,
+      "sensitivity": 0.7805,
+      "sensitivityCI95": [
+        0.6329,
+        0.88
+      ],
+      "specificity": 0.8269,
+      "specificityCI95": [
+        0.7429,
+        0.8876
+      ],
+      "balancedAccuracy": 0.8037,
+      "confusion": {
+        "TP": 32,
+        "FN": 9,
+        "TN": 86,
+        "FP": 18
+      },
+      "n": 145
+    },
+    {
+      "threshold": 0.45,
+      "sensitivity": 0.7561,
+      "sensitivityCI95": [
+        0.6066,
+        0.8618
+      ],
+      "specificity": 0.875,
+      "specificityCI95": [
+        0.7978,
+        0.9255
+      ],
+      "balancedAccuracy": 0.8155,
+      "confusion": {
+        "TP": 31,
+        "FN": 10,
+        "TN": 91,
+        "FP": 13
+      },
+      "n": 145
+    },
+    {
+      "threshold": 0.5,
+      "sensitivity": 0.7073,
+      "sensitivityCI95": [
+        0.5552,
+        0.8239
+      ],
+      "specificity": 0.8846,
+      "specificityCI95": [
+        0.8091,
+        0.9328
+      ],
+      "balancedAccuracy": 0.796,
+      "confusion": {
+        "TP": 29,
+        "FN": 12,
+        "TN": 92,
+        "FP": 12
+      },
+      "n": 145
+    },
+    {
+      "threshold": 0.55,
+      "sensitivity": 0.6341,
+      "sensitivityCI95": [
+        0.4812,
+        0.7641
+      ],
+      "specificity": 0.9038,
+      "specificityCI95": [
+        0.832,
+        0.9469
+      ],
+      "balancedAccuracy": 0.769,
+      "confusion": {
+        "TP": 26,
+        "FN": 15,
+        "TN": 94,
+        "FP": 10
+      },
+      "n": 145
+    },
+    {
+      "threshold": 0.6,
+      "sensitivity": 0.5854,
+      "sensitivityCI95": [
+        0.4337,
+        0.7224
+      ],
+      "specificity": 0.9327,
+      "specificityCI95": [
+        0.8675,
+        0.967
+      ],
+      "balancedAccuracy": 0.7591,
+      "confusion": {
+        "TP": 24,
+        "FN": 17,
+        "TN": 97,
+        "FP": 7
+      },
+      "n": 145
+    },
+    {
+      "threshold": 0.65,
+      "sensitivity": 0.561,
+      "sensitivityCI95": [
+        0.4104,
+        0.7011
+      ],
+      "specificity": 0.9423,
+      "specificityCI95": [
+        0.8798,
+        0.9733
+      ],
+      "balancedAccuracy": 0.7517,
+      "confusion": {
+        "TP": 23,
+        "FN": 18,
+        "TN": 98,
+        "FP": 6
+      },
+      "n": 145
+    },
+    {
+      "threshold": 0.7,
+      "sensitivity": 0.561,
+      "sensitivityCI95": [
+        0.4104,
+        0.7011
+      ],
+      "specificity": 0.9423,
+      "specificityCI95": [
+        0.8798,
+        0.9733
+      ],
+      "balancedAccuracy": 0.7517,
+      "confusion": {
+        "TP": 23,
+        "FN": 18,
+        "TN": 98,
+        "FP": 6
+      },
+      "n": 145
+    },
+    {
+      "threshold": 0.75,
+      "sensitivity": 0.4146,
+      "sensitivityCI95": [
+        0.2776,
+        0.5663
+      ],
+      "specificity": 0.9712,
+      "specificityCI95": [
+        0.9186,
+        0.9901
+      ],
+      "balancedAccuracy": 0.6929,
+      "confusion": {
+        "TP": 17,
+        "FN": 24,
+        "TN": 101,
+        "FP": 3
+      },
+      "n": 145
+    },
+    {
+      "threshold": 0.8,
+      "sensitivity": 0.3902,
+      "sensitivityCI95": [
+        0.2566,
+        0.5427
+      ],
+      "specificity": 0.9808,
+      "specificityCI95": [
+        0.9326,
+        0.9947
+      ],
+      "balancedAccuracy": 0.6855,
+      "confusion": {
+        "TP": 16,
+        "FN": 25,
+        "TN": 102,
+        "FP": 2
+      },
+      "n": 145
+    },
+    {
+      "threshold": 0.85,
+      "sensitivity": 0.3659,
+      "sensitivityCI95": [
+        0.2359,
+        0.5188
+      ],
+      "specificity": 0.9904,
+      "specificityCI95": [
+        0.9475,
+        0.9983
+      ],
+      "balancedAccuracy": 0.6782,
+      "confusion": {
+        "TP": 15,
+        "FN": 26,
+        "TN": 103,
+        "FP": 1
+      },
+      "n": 145
+    },
+    {
+      "threshold": 0.9,
+      "sensitivity": 0.2683,
+      "sensitivityCI95": [
+        0.1569,
+        0.4193
+      ],
+      "specificity": 0.9904,
+      "specificityCI95": [
+        0.9475,
+        0.9983
+      ],
+      "balancedAccuracy": 0.6293,
+      "confusion": {
+        "TP": 11,
+        "FN": 30,
+        "TN": 103,
+        "FP": 1
+      },
+      "n": 145
+    }
+  ],
+  "validationArgmax": {
+    "threshold": 0.5,
+    "sensitivity": 0.7073,
+    "sensitivityCI95": [
+      0.5552,
+      0.8239
+    ],
+    "specificity": 0.8846,
+    "specificityCI95": [
+      0.8091,
+      0.9328
+    ],
+    "balancedAccuracy": 0.796,
+    "confusion": {
+      "TP": 29,
+      "FN": 12,
+      "TN": 92,
+      "FP": 12
+    },
+    "n": 145
+  },
+  "test": {
+    "perNodule": {
+      "threshold": 0.3,
+      "sensitivity": 0.8621,
+      "sensitivityCI95": [
+        0.6944,
+        0.945
+      ],
+      "specificity": 0.6912,
+      "specificityCI95": [
+        0.5736,
+        0.7883
+      ],
+      "balancedAccuracy": 0.7767,
+      "confusion": {
+        "TP": 25,
+        "FN": 4,
+        "TN": 47,
+        "FP": 21
+      },
+      "n": 97
+    },
+    "perNoduleArgmax": {
+      "threshold": 0.5,
+      "sensitivity": 0.7241,
+      "sensitivityCI95": [
+        0.5428,
+        0.853
+      ],
+      "specificity": 0.8529,
+      "specificityCI95": [
+        0.75,
+        0.9181
+      ],
+      "balancedAccuracy": 0.7885,
+      "confusion": {
+        "TP": 21,
+        "FN": 8,
+        "TN": 58,
+        "FP": 10
+      },
+      "n": 97
+    },
+    "perPatch": {
+      "threshold": 0.3,
+      "sensitivity": 0.8414,
+      "sensitivityCI95": [
+        0.7732,
+        0.8919
+      ],
+      "specificity": 0.6618,
+      "specificityCI95": [
+        0.6099,
+        0.71
+      ],
+      "balancedAccuracy": 0.7516,
+      "confusion": {
+        "TP": 122,
+        "FN": 23,
+        "TN": 225,
+        "FP": 115
+      },
+      "n": 485
+    },
+    "note": "Publish perNodule. perPatch counts five slices of one lesion as five cases and its interval is too tight by construction."
+  },
+  "knownGaps": [
+    "No demographic breakdown is possible: LIDC records sex for 29% of patients, age for 20%, ethnic group for 4%. There is no equivalent of the skin model's skin-tone analysis and this dataset cannot provide one.",
+    "The ceiling is inter-reader agreement, not histology.",
+    "Calibrated: ECE 0.040 on the held-out set. Temperature scaling was fitted (T=1.265) and is deliberately NOT applied; the serving temperature is 1.0.",
+    "OOD reference built (lung_nodule_ood_reference.npz) and validated in both directions: held-out benign patches accepted 96.7%, off-nodule parenchyma 99.2%, whole CT slices refused 90.8%, skin lesions 92.5%. The screen checks scale and modality, not that the marked region is a nodule \u2014 a clinician who marks soft tissue receives a probability about soft tissue.",
+    "Promoted and serving: bound 2026-09-21 as artefact 9faf49cdca48, verification re_measured, under INTERNAL_VALIDATION terms. The predecessor web-PNG lung classifier was withdrawn 2026-09-20."
+  ]
+}

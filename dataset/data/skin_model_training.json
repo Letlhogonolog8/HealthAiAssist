@@ -1,0 +1,25 @@
+{
+  "classes": [
+    "benign",
+    "malignant"
+  ],
+  "classIndexOrder": {
+    "benign": 0,
+    "malignant": 1
+  },
+  "inputRange": "raw RGB 0-255 (preprocessing fused into the model)",
+  "imageSize": [
+    224,
+    224
+  ],
+  "backbone": "ResNet50V2 ImageNet, frozen",
+  "augmentRounds": 2,
+  "seed": 1337,
+  "validation": {
+    "balancedAccuracy": 0.8727,
+    "sensitivity": 0.8889,
+    "specificity": 0.8565,
+    "n": 396
+  },
+  "note": "Test split not used during training or model selection."
+}

@@ -1,0 +1,2642 @@
+{
+ "benign/1.jpg": {
+  "ita": 80.299673,
+  "bin": "very_light"
+ },
+ "benign/10.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1003.jpg": {
+  "ita": 70.939638,
+  "bin": "very_light"
+ },
+ "benign/1006.jpg": {
+  "ita": 78.439609,
+  "bin": "very_light"
+ },
+ "benign/1013.jpg": {
+  "ita": 76.905495,
+  "bin": "very_light"
+ },
+ "benign/1018.jpg": {
+  "ita": 79.966597,
+  "bin": "very_light"
+ },
+ "benign/1019.jpg": {
+  "ita": 63.950843,
+  "bin": "very_light"
+ },
+ "benign/1023.jpg": {
+  "ita": 79.894094,
+  "bin": "very_light"
+ },
+ "benign/1025.jpg": {
+  "ita": 85.458436,
+  "bin": "very_light"
+ },
+ "benign/1029.jpg": {
+  "ita": 71.991843,
+  "bin": "very_light"
+ },
+ "benign/1033.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1034.jpg": {
+  "ita": 53.454562,
+  "bin": "light"
+ },
+ "benign/1042.jpg": {
+  "ita": 49.74765,
+  "bin": "light"
+ },
+ "benign/1044.jpg": {
+  "ita": 68.952097,
+  "bin": "very_light"
+ },
+ "benign/105.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1055.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1061.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1070.jpg": {
+  "ita": 35.13794,
+  "bin": "intermediate"
+ },
+ "benign/1074.jpg": {
+  "ita": 77.276735,
+  "bin": "very_light"
+ },
+ "benign/1077.jpg": {
+  "ita": 73.611575,
+  "bin": "very_light"
+ },
+ "benign/1080.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1087.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1088.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1092.jpg": {
+  "ita": 52.298907,
+  "bin": "light"
+ },
+ "benign/11.jpg": {
+  "ita": 81.726725,
+  "bin": "very_light"
+ },
+ "benign/1110.jpg": {
+  "ita": 63.660776,
+  "bin": "very_light"
+ },
+ "benign/1112.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1115.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1118.jpg": {
+  "ita": 52.08522,
+  "bin": "light"
+ },
+ "benign/1125.jpg": {
+  "ita": 77.422481,
+  "bin": "very_light"
+ },
+ "benign/1126.jpg": {
+  "ita": 81.094203,
+  "bin": "very_light"
+ },
+ "benign/1130.jpg": {
+  "ita": 78.967018,
+  "bin": "very_light"
+ },
+ "benign/1134.jpg": {
+  "ita": 67.603068,
+  "bin": "very_light"
+ },
+ "benign/1135.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1139.jpg": {
+  "ita": 29.26087,
+  "bin": "intermediate"
+ },
+ "benign/1143.jpg": {
+  "ita": 70.108619,
+  "bin": "very_light"
+ },
+ "benign/1146.jpg": {
+  "ita": 52.157212,
+  "bin": "light"
+ },
+ "benign/1151.jpg": {
+  "ita": 78.347656,
+  "bin": "very_light"
+ },
+ "benign/1155.jpg": {
+  "ita": 65.317485,
+  "bin": "very_light"
+ },
+ "benign/1166.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1170.jpg": {
+  "ita": 53.408732,
+  "bin": "light"
+ },
+ "benign/1173.jpg": {
+  "ita": 54.735252,
+  "bin": "light"
+ },
+ "benign/1177.jpg": {
+  "ita": 66.771176,
+  "bin": "very_light"
+ },
+ "benign/1180.jpg": {
+  "ita": 80.804737,
+  "bin": "very_light"
+ },
+ "benign/1183.jpg": {
+  "ita": 82.209847,
+  "bin": "very_light"
+ },
+ "benign/119.jpg": {
+  "ita": 53.745146,
+  "bin": "light"
+ },
+ "benign/1191.jpg": {
+  "ita": -14.274972,
+  "bin": "brown"
+ },
+ "benign/1200.jpg": {
+  "ita": 41.553163,
+  "bin": "light"
+ },
+ "benign/1203.jpg": {
+  "ita": 41.169829,
+  "bin": "light"
+ },
+ "benign/1208.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1214.jpg": {
+  "ita": 68.329657,
+  "bin": "very_light"
+ },
+ "benign/1215.jpg": {
+  "ita": 46.011119,
+  "bin": "light"
+ },
+ "benign/122.jpg": {
+  "ita": 65.911788,
+  "bin": "very_light"
+ },
+ "benign/1226.jpg": {
+  "ita": 43.888898,
+  "bin": "light"
+ },
+ "benign/1231.jpg": {
+  "ita": 69.295116,
+  "bin": "very_light"
+ },
+ "benign/1242.jpg": {
+  "ita": 55.210278,
+  "bin": "very_light"
+ },
+ "benign/1243.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1244.jpg": {
+  "ita": 56.826919,
+  "bin": "very_light"
+ },
+ "benign/1253.jpg": {
+  "ita": 26.472291,
+  "bin": "tan"
+ },
+ "benign/1261.jpg": {
+  "ita": 74.117739,
+  "bin": "very_light"
+ },
+ "benign/1265.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1266.jpg": {
+  "ita": 78.446467,
+  "bin": "very_light"
+ },
+ "benign/1269.jpg": {
+  "ita": 61.188554,
+  "bin": "very_light"
+ },
+ "benign/127.jpg": {
+  "ita": 57.844074,
+  "bin": "very_light"
+ },
+ "benign/1273.jpg": {
+  "ita": 81.094647,
+  "bin": "very_light"
+ },
+ "benign/1276.jpg": {
+  "ita": 64.719788,
+  "bin": "very_light"
+ },
+ "benign/1277.jpg": {
+  "ita": 64.675248,
+  "bin": "very_light"
+ },
+ "benign/1278.jpg": {
+  "ita": 7.273789,
+  "bin": "brown"
+ },
+ "benign/1288.jpg": {
+  "ita": -6.60965,
+  "bin": "brown"
+ },
+ "benign/1290.jpg": {
+  "ita": 83.087489,
+  "bin": "very_light"
+ },
+ "benign/1297.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1299.jpg": {
+  "ita": 40.958279,
+  "bin": "intermediate"
+ },
+ "benign/1310.jpg": {
+  "ita": 59.761013,
+  "bin": "very_light"
+ },
+ "benign/1319.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1321.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1322.jpg": {
+  "ita": 55.504297,
+  "bin": "very_light"
+ },
+ "benign/1334.jpg": {
+  "ita": 78.315378,
+  "bin": "very_light"
+ },
+ "benign/1342.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1343.jpg": {
+  "ita": 56.015623,
+  "bin": "very_light"
+ },
+ "benign/1350.jpg": {
+  "ita": 58.117936,
+  "bin": "very_light"
+ },
+ "benign/1354.jpg": {
+  "ita": 64.027892,
+  "bin": "very_light"
+ },
+ "benign/1357.jpg": {
+  "ita": 66.492451,
+  "bin": "very_light"
+ },
+ "benign/1359.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1362.jpg": {
+  "ita": 68.211665,
+  "bin": "very_light"
+ },
+ "benign/1365.jpg": {
+  "ita": 30.32155,
+  "bin": "intermediate"
+ },
+ "benign/1367.jpg": {
+  "ita": 72.078385,
+  "bin": "very_light"
+ },
+ "benign/1373.jpg": {
+  "ita": 82.061339,
+  "bin": "very_light"
+ },
+ "benign/1376.jpg": {
+  "ita": 45.642431,
+  "bin": "light"
+ },
+ "benign/1377.jpg": {
+  "ita": 44.001141,
+  "bin": "light"
+ },
+ "benign/1378.jpg": {
+  "ita": 76.598413,
+  "bin": "very_light"
+ },
+ "benign/1381.jpg": {
+  "ita": 56.107705,
+  "bin": "very_light"
+ },
+ "benign/1393.jpg": {
+  "ita": 70.436995,
+  "bin": "very_light"
+ },
+ "benign/140.jpg": {
+  "ita": 42.79512,
+  "bin": "light"
+ },
+ "benign/1400.jpg": {
+  "ita": 28.442723,
+  "bin": "intermediate"
+ },
+ "benign/1401.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1409.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1412.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1415.jpg": {
+  "ita": 73.600879,
+  "bin": "very_light"
+ },
+ "benign/144.jpg": {
+  "ita": 24.33793,
+  "bin": "tan"
+ },
+ "benign/1441.jpg": {
+  "ita": 63.261546,
+  "bin": "very_light"
+ },
+ "benign/1443.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1445.jpg": {
+  "ita": 66.145922,
+  "bin": "very_light"
+ },
+ "benign/1448.jpg": {
+  "ita": 86.507333,
+  "bin": "very_light"
+ },
+ "benign/1466.jpg": {
+  "ita": 46.668114,
+  "bin": "light"
+ },
+ "benign/1468.jpg": {
+  "ita": 45.327409,
+  "bin": "light"
+ },
+ "benign/147.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1471.jpg": {
+  "ita": -2.875609,
+  "bin": "brown"
+ },
+ "benign/1473.jpg": {
+  "ita": 51.463667,
+  "bin": "light"
+ },
+ "benign/1479.jpg": {
+  "ita": 77.175777,
+  "bin": "very_light"
+ },
+ "benign/1481.jpg": {
+  "ita": 78.565453,
+  "bin": "very_light"
+ },
+ "benign/1483.jpg": {
+  "ita": 79.563044,
+  "bin": "very_light"
+ },
+ "benign/1485.jpg": {
+  "ita": 84.312064,
+  "bin": "very_light"
+ },
+ "benign/1488.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1492.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1499.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/15.jpg": {
+  "ita": 30.891441,
+  "bin": "intermediate"
+ },
+ "benign/1502.jpg": {
+  "ita": 54.154521,
+  "bin": "light"
+ },
+ "benign/1514.jpg": {
+  "ita": 48.237427,
+  "bin": "light"
+ },
+ "benign/1516.jpg": {
+  "ita": 55.285761,
+  "bin": "very_light"
+ },
+ "benign/1519.jpg": {
+  "ita": 51.158267,
+  "bin": "light"
+ },
+ "benign/1521.jpg": {
+  "ita": 65.104162,
+  "bin": "very_light"
+ },
+ "benign/1530.jpg": {
+  "ita": 84.216224,
+  "bin": "very_light"
+ },
+ "benign/1537.jpg": {
+  "ita": 49.275977,
+  "bin": "light"
+ },
+ "benign/1538.jpg": {
+  "ita": 74.176031,
+  "bin": "very_light"
+ },
+ "benign/154.jpg": {
+  "ita": 33.958866,
+  "bin": "intermediate"
+ },
+ "benign/1545.jpg": {
+  "ita": 83.38067,
+  "bin": "very_light"
+ },
+ "benign/1559.jpg": {
+  "ita": 32.317339,
+  "bin": "intermediate"
+ },
+ "benign/1576.jpg": {
+  "ita": 55.951638,
+  "bin": "very_light"
+ },
+ "benign/1578.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1579.jpg": {
+  "ita": 58.549388,
+  "bin": "very_light"
+ },
+ "benign/1592.jpg": {
+  "ita": 82.24535,
+  "bin": "very_light"
+ },
+ "benign/16.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1602.jpg": {
+  "ita": 81.367373,
+  "bin": "very_light"
+ },
+ "benign/1607.jpg": {
+  "ita": 67.361125,
+  "bin": "very_light"
+ },
+ "benign/161.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1610.jpg": {
+  "ita": 56.856428,
+  "bin": "very_light"
+ },
+ "benign/1611.jpg": {
+  "ita": 66.932053,
+  "bin": "very_light"
+ },
+ "benign/1628.jpg": {
+  "ita": 40.26389,
+  "bin": "intermediate"
+ },
+ "benign/1632.jpg": {
+  "ita": 47.106563,
+  "bin": "light"
+ },
+ "benign/1634.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1637.jpg": {
+  "ita": 53.101711,
+  "bin": "light"
+ },
+ "benign/1642.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1646.jpg": {
+  "ita": 82.964852,
+  "bin": "very_light"
+ },
+ "benign/1648.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1655.jpg": {
+  "ita": 63.628711,
+  "bin": "very_light"
+ },
+ "benign/1657.jpg": {
+  "ita": 69.060643,
+  "bin": "very_light"
+ },
+ "benign/1672.jpg": {
+  "ita": 21.294683,
+  "bin": "tan"
+ },
+ "benign/1682.jpg": {
+  "ita": 68.039678,
+  "bin": "very_light"
+ },
+ "benign/1687.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1696.jpg": {
+  "ita": 49.183811,
+  "bin": "light"
+ },
+ "benign/1701.jpg": {
+  "ita": 70.071894,
+  "bin": "very_light"
+ },
+ "benign/1704.jpg": {
+  "ita": 33.546047,
+  "bin": "intermediate"
+ },
+ "benign/1710.jpg": {
+  "ita": 31.67904,
+  "bin": "intermediate"
+ },
+ "benign/1711.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1714.jpg": {
+  "ita": 46.90733,
+  "bin": "light"
+ },
+ "benign/1719.jpg": {
+  "ita": 79.868514,
+  "bin": "very_light"
+ },
+ "benign/1721.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1731.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/1737.jpg": {
+  "ita": 74.748349,
+  "bin": "very_light"
+ },
+ "benign/1745.jpg": {
+  "ita": 61.947503,
+  "bin": "very_light"
+ },
+ "benign/1747.jpg": {
+  "ita": 64.850754,
+  "bin": "very_light"
+ },
+ "benign/1748.jpg": {
+  "ita": 50.282673,
+  "bin": "light"
+ },
+ "benign/1756.jpg": {
+  "ita": 80.828743,
+  "bin": "very_light"
+ },
+ "benign/1757.jpg": {
+  "ita": 84.867169,
+  "bin": "very_light"
+ },
+ "benign/1758.jpg": {
+  "ita": 72.810212,
+  "bin": "very_light"
+ },
+ "benign/1764.jpg": {
+  "ita": 56.069196,
+  "bin": "very_light"
+ },
+ "benign/1768.jpg": {
+  "ita": 59.458413,
+  "bin": "very_light"
+ },
+ "benign/1773.jpg": {
+  "ita": 25.447967,
+  "bin": "tan"
+ },
+ "benign/1797.jpg": {
+  "ita": 28.848864,
+  "bin": "intermediate"
+ },
+ "benign/1798.jpg": {
+  "ita": 72.092787,
+  "bin": "very_light"
+ },
+ "benign/18.jpg": {
+  "ita": 45.463126,
+  "bin": "light"
+ },
+ "benign/1800.jpg": {
+  "ita": 68.743312,
+  "bin": "very_light"
+ },
+ "benign/185.jpg": {
+  "ita": 56.494379,
+  "bin": "very_light"
+ },
+ "benign/186.jpg": {
+  "ita": 58.174714,
+  "bin": "very_light"
+ },
+ "benign/2.jpg": {
+  "ita": 39.977117,
+  "bin": "intermediate"
+ },
+ "benign/205.jpg": {
+  "ita": 83.653428,
+  "bin": "very_light"
+ },
+ "benign/211.jpg": {
+  "ita": 82.257647,
+  "bin": "very_light"
+ },
+ "benign/215.jpg": {
+  "ita": 46.399615,
+  "bin": "light"
+ },
+ "benign/216.jpg": {
+  "ita": 58.579438,
+  "bin": "very_light"
+ },
+ "benign/224.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/226.jpg": {
+  "ita": 45.679235,
+  "bin": "light"
+ },
+ "benign/237.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/245.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/250.jpg": {
+  "ita": 35.15176,
+  "bin": "intermediate"
+ },
+ "benign/251.jpg": {
+  "ita": 60.458916,
+  "bin": "very_light"
+ },
+ "benign/253.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/256.jpg": {
+  "ita": 65.546225,
+  "bin": "very_light"
+ },
+ "benign/259.jpg": {
+  "ita": 80.081898,
+  "bin": "very_light"
+ },
+ "benign/267.jpg": {
+  "ita": 79.050224,
+  "bin": "very_light"
+ },
+ "benign/268.jpg": {
+  "ita": 78.74026,
+  "bin": "very_light"
+ },
+ "benign/273.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/284.jpg": {
+  "ita": 68.664149,
+  "bin": "very_light"
+ },
+ "benign/287.jpg": {
+  "ita": 61.009135,
+  "bin": "very_light"
+ },
+ "benign/289.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/291.jpg": {
+  "ita": 80.019872,
+  "bin": "very_light"
+ },
+ "benign/300.jpg": {
+  "ita": 58.356044,
+  "bin": "very_light"
+ },
+ "benign/303.jpg": {
+  "ita": 86.042454,
+  "bin": "very_light"
+ },
+ "benign/304.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/31.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/311.jpg": {
+  "ita": 81.508161,
+  "bin": "very_light"
+ },
+ "benign/313.jpg": {
+  "ita": 73.220682,
+  "bin": "very_light"
+ },
+ "benign/317.jpg": {
+  "ita": 75.985932,
+  "bin": "very_light"
+ },
+ "benign/322.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/323.jpg": {
+  "ita": 76.285966,
+  "bin": "very_light"
+ },
+ "benign/330.jpg": {
+  "ita": 22.483038,
+  "bin": "tan"
+ },
+ "benign/332.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/335.jpg": {
+  "ita": 52.311174,
+  "bin": "light"
+ },
+ "benign/344.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/348.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/354.jpg": {
+  "ita": 64.865109,
+  "bin": "very_light"
+ },
+ "benign/356.jpg": {
+  "ita": 78.424671,
+  "bin": "very_light"
+ },
+ "benign/367.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/369.jpg": {
+  "ita": 71.274965,
+  "bin": "very_light"
+ },
+ "benign/37.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/378.jpg": {
+  "ita": 55.79498,
+  "bin": "very_light"
+ },
+ "benign/379.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/385.jpg": {
+  "ita": 64.260553,
+  "bin": "very_light"
+ },
+ "benign/388.jpg": {
+  "ita": 72.818106,
+  "bin": "very_light"
+ },
+ "benign/389.jpg": {
+  "ita": 68.822993,
+  "bin": "very_light"
+ },
+ "benign/394.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/404.jpg": {
+  "ita": 68.514154,
+  "bin": "very_light"
+ },
+ "benign/407.jpg": {
+  "ita": 44.825423,
+  "bin": "light"
+ },
+ "benign/414.jpg": {
+  "ita": 62.120142,
+  "bin": "very_light"
+ },
+ "benign/419.jpg": {
+  "ita": 69.125224,
+  "bin": "very_light"
+ },
+ "benign/427.jpg": {
+  "ita": 72.490737,
+  "bin": "very_light"
+ },
+ "benign/428.jpg": {
+  "ita": 54.802636,
+  "bin": "light"
+ },
+ "benign/433.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/436.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/437.jpg": {
+  "ita": 54.644311,
+  "bin": "light"
+ },
+ "benign/44.jpg": {
+  "ita": 67.98659,
+  "bin": "very_light"
+ },
+ "benign/444.jpg": {
+  "ita": 67.756044,
+  "bin": "very_light"
+ },
+ "benign/449.jpg": {
+  "ita": 66.741509,
+  "bin": "very_light"
+ },
+ "benign/45.jpg": {
+  "ita": 66.359501,
+  "bin": "very_light"
+ },
+ "benign/454.jpg": {
+  "ita": 8.449155,
+  "bin": "brown"
+ },
+ "benign/457.jpg": {
+  "ita": 76.967006,
+  "bin": "very_light"
+ },
+ "benign/462.jpg": {
+  "ita": 52.227932,
+  "bin": "light"
+ },
+ "benign/475.jpg": {
+  "ita": 45.335369,
+  "bin": "light"
+ },
+ "benign/479.jpg": {
+  "ita": 67.643168,
+  "bin": "very_light"
+ },
+ "benign/484.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/495.jpg": {
+  "ita": 66.058587,
+  "bin": "very_light"
+ },
+ "benign/5.jpg": {
+  "ita": 85.215815,
+  "bin": "very_light"
+ },
+ "benign/520.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/527.jpg": {
+  "ita": 61.097654,
+  "bin": "very_light"
+ },
+ "benign/532.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/535.jpg": {
+  "ita": 64.774287,
+  "bin": "very_light"
+ },
+ "benign/536.jpg": {
+  "ita": 35.225793,
+  "bin": "intermediate"
+ },
+ "benign/54.jpg": {
+  "ita": 74.451539,
+  "bin": "very_light"
+ },
+ "benign/545.jpg": {
+  "ita": 69.897885,
+  "bin": "very_light"
+ },
+ "benign/548.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/552.jpg": {
+  "ita": 61.626313,
+  "bin": "very_light"
+ },
+ "benign/558.jpg": {
+  "ita": 70.411337,
+  "bin": "very_light"
+ },
+ "benign/559.jpg": {
+  "ita": 82.270948,
+  "bin": "very_light"
+ },
+ "benign/560.jpg": {
+  "ita": 56.896145,
+  "bin": "very_light"
+ },
+ "benign/561.jpg": {
+  "ita": 79.131826,
+  "bin": "very_light"
+ },
+ "benign/562.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/566.jpg": {
+  "ita": 77.147204,
+  "bin": "very_light"
+ },
+ "benign/57.jpg": {
+  "ita": 70.172642,
+  "bin": "very_light"
+ },
+ "benign/572.jpg": {
+  "ita": 47.092728,
+  "bin": "light"
+ },
+ "benign/573.jpg": {
+  "ita": 65.520756,
+  "bin": "very_light"
+ },
+ "benign/574.jpg": {
+  "ita": 42.108469,
+  "bin": "light"
+ },
+ "benign/575.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/580.jpg": {
+  "ita": 25.701016,
+  "bin": "tan"
+ },
+ "benign/588.jpg": {
+  "ita": 85.215881,
+  "bin": "very_light"
+ },
+ "benign/596.jpg": {
+  "ita": 56.394448,
+  "bin": "very_light"
+ },
+ "benign/603.jpg": {
+  "ita": 28.46855,
+  "bin": "intermediate"
+ },
+ "benign/61.jpg": {
+  "ita": 47.721847,
+  "bin": "light"
+ },
+ "benign/612.jpg": {
+  "ita": 59.866455,
+  "bin": "very_light"
+ },
+ "benign/623.jpg": {
+  "ita": 65.92932,
+  "bin": "very_light"
+ },
+ "benign/624.jpg": {
+  "ita": 34.91924,
+  "bin": "intermediate"
+ },
+ "benign/626.jpg": {
+  "ita": 75.658133,
+  "bin": "very_light"
+ },
+ "benign/63.jpg": {
+  "ita": 69.975361,
+  "bin": "very_light"
+ },
+ "benign/631.jpg": {
+  "ita": 42.549969,
+  "bin": "light"
+ },
+ "benign/634.jpg": {
+  "ita": 79.238669,
+  "bin": "very_light"
+ },
+ "benign/635.jpg": {
+  "ita": 55.90917,
+  "bin": "very_light"
+ },
+ "benign/636.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/642.jpg": {
+  "ita": 63.020304,
+  "bin": "very_light"
+ },
+ "benign/644.jpg": {
+  "ita": 82.034832,
+  "bin": "very_light"
+ },
+ "benign/647.jpg": {
+  "ita": 68.351422,
+  "bin": "very_light"
+ },
+ "benign/658.jpg": {
+  "ita": 37.383356,
+  "bin": "intermediate"
+ },
+ "benign/659.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/660.jpg": {
+  "ita": 65.713208,
+  "bin": "very_light"
+ },
+ "benign/663.jpg": {
+  "ita": 86.247302,
+  "bin": "very_light"
+ },
+ "benign/664.jpg": {
+  "ita": 55.958264,
+  "bin": "very_light"
+ },
+ "benign/668.jpg": {
+  "ita": 84.293695,
+  "bin": "very_light"
+ },
+ "benign/670.jpg": {
+  "ita": 37.502103,
+  "bin": "intermediate"
+ },
+ "benign/676.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/678.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/681.jpg": {
+  "ita": 48.399624,
+  "bin": "light"
+ },
+ "benign/689.jpg": {
+  "ita": 82.145339,
+  "bin": "very_light"
+ },
+ "benign/690.jpg": {
+  "ita": 85.296362,
+  "bin": "very_light"
+ },
+ "benign/700.jpg": {
+  "ita": 74.951505,
+  "bin": "very_light"
+ },
+ "benign/71.jpg": {
+  "ita": 76.158256,
+  "bin": "very_light"
+ },
+ "benign/712.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/717.jpg": {
+  "ita": 56.940238,
+  "bin": "very_light"
+ },
+ "benign/720.jpg": {
+  "ita": 58.359025,
+  "bin": "very_light"
+ },
+ "benign/721.jpg": {
+  "ita": 58.94568,
+  "bin": "very_light"
+ },
+ "benign/724.jpg": {
+  "ita": 75.496444,
+  "bin": "very_light"
+ },
+ "benign/725.jpg": {
+  "ita": 22.507932,
+  "bin": "tan"
+ },
+ "benign/74.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/751.jpg": {
+  "ita": 79.935105,
+  "bin": "very_light"
+ },
+ "benign/758.jpg": {
+  "ita": 47.533217,
+  "bin": "light"
+ },
+ "benign/762.jpg": {
+  "ita": 58.769889,
+  "bin": "very_light"
+ },
+ "benign/763.jpg": {
+  "ita": 76.375642,
+  "bin": "very_light"
+ },
+ "benign/768.jpg": {
+  "ita": 74.97793,
+  "bin": "very_light"
+ },
+ "benign/770.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/773.jpg": {
+  "ita": 60.678572,
+  "bin": "very_light"
+ },
+ "benign/774.jpg": {
+  "ita": 54.405393,
+  "bin": "light"
+ },
+ "benign/778.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/790.jpg": {
+  "ita": 46.326293,
+  "bin": "light"
+ },
+ "benign/8.jpg": {
+  "ita": 84.63251,
+  "bin": "very_light"
+ },
+ "benign/802.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/805.jpg": {
+  "ita": 45.922056,
+  "bin": "light"
+ },
+ "benign/806.jpg": {
+  "ita": 81.5935,
+  "bin": "very_light"
+ },
+ "benign/813.jpg": {
+  "ita": 57.581908,
+  "bin": "very_light"
+ },
+ "benign/819.jpg": {
+  "ita": 41.882726,
+  "bin": "light"
+ },
+ "benign/820.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/823.jpg": {
+  "ita": 74.326056,
+  "bin": "very_light"
+ },
+ "benign/824.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/825.jpg": {
+  "ita": 55.520986,
+  "bin": "very_light"
+ },
+ "benign/826.jpg": {
+  "ita": 49.791082,
+  "bin": "light"
+ },
+ "benign/828.jpg": {
+  "ita": 53.15233,
+  "bin": "light"
+ },
+ "benign/83.jpg": {
+  "ita": 79.257223,
+  "bin": "very_light"
+ },
+ "benign/830.jpg": {
+  "ita": 64.477349,
+  "bin": "very_light"
+ },
+ "benign/84.jpg": {
+  "ita": 45.72644,
+  "bin": "light"
+ },
+ "benign/840.jpg": {
+  "ita": 23.899668,
+  "bin": "tan"
+ },
+ "benign/854.jpg": {
+  "ita": 34.431161,
+  "bin": "intermediate"
+ },
+ "benign/869.jpg": {
+  "ita": 74.008981,
+  "bin": "very_light"
+ },
+ "benign/874.jpg": {
+  "ita": 37.176948,
+  "bin": "intermediate"
+ },
+ "benign/878.jpg": {
+  "ita": 85.334591,
+  "bin": "very_light"
+ },
+ "benign/88.jpg": {
+  "ita": 66.422085,
+  "bin": "very_light"
+ },
+ "benign/880.jpg": {
+  "ita": 80.021969,
+  "bin": "very_light"
+ },
+ "benign/887.jpg": {
+  "ita": 23.701593,
+  "bin": "tan"
+ },
+ "benign/888.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/892.jpg": {
+  "ita": 73.389258,
+  "bin": "very_light"
+ },
+ "benign/893.jpg": {
+  "ita": 67.719704,
+  "bin": "very_light"
+ },
+ "benign/894.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/895.jpg": {
+  "ita": 71.891543,
+  "bin": "very_light"
+ },
+ "benign/9.jpg": {
+  "ita": 73.983699,
+  "bin": "very_light"
+ },
+ "benign/90.jpg": {
+  "ita": 10.865723,
+  "bin": "tan"
+ },
+ "benign/903.jpg": {
+  "ita": 58.776237,
+  "bin": "very_light"
+ },
+ "benign/906.jpg": {
+  "ita": 73.140615,
+  "bin": "very_light"
+ },
+ "benign/909.jpg": {
+  "ita": 57.285928,
+  "bin": "very_light"
+ },
+ "benign/912.jpg": {
+  "ita": 79.453319,
+  "bin": "very_light"
+ },
+ "benign/916.jpg": {
+  "ita": 85.785764,
+  "bin": "very_light"
+ },
+ "benign/919.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/925.jpg": {
+  "ita": 76.026147,
+  "bin": "very_light"
+ },
+ "benign/936.jpg": {
+  "ita": 33.625699,
+  "bin": "intermediate"
+ },
+ "benign/943.jpg": {
+  "ita": 79.587823,
+  "bin": "very_light"
+ },
+ "benign/944.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/946.jpg": {
+  "ita": 33.345594,
+  "bin": "intermediate"
+ },
+ "benign/95.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/958.jpg": {
+  "ita": 87.634345,
+  "bin": "very_light"
+ },
+ "benign/962.jpg": {
+  "ita": 21.343072,
+  "bin": "tan"
+ },
+ "benign/964.jpg": {
+  "ita": 83.127307,
+  "bin": "very_light"
+ },
+ "benign/97.jpg": {
+  "ita": 43.622115,
+  "bin": "light"
+ },
+ "benign/972.jpg": {
+  "ita": 44.194711,
+  "bin": "light"
+ },
+ "benign/98.jpg": {
+  "ita": 7.601154,
+  "bin": "brown"
+ },
+ "benign/982.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "benign/993.jpg": {
+  "ita": 38.737635,
+  "bin": "intermediate"
+ },
+ "benign/998.jpg": {
+  "ita": 54.309143,
+  "bin": "light"
+ },
+ "malignant/1.jpg": {
+  "ita": 47.751368,
+  "bin": "light"
+ },
+ "malignant/1003.jpg": {
+  "ita": 87.138991,
+  "bin": "very_light"
+ },
+ "malignant/1005.jpg": {
+  "ita": 79.462299,
+  "bin": "very_light"
+ },
+ "malignant/1007.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1009.jpg": {
+  "ita": 87.259989,
+  "bin": "very_light"
+ },
+ "malignant/1012.jpg": {
+  "ita": 79.017363,
+  "bin": "very_light"
+ },
+ "malignant/1019.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1022.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1026.jpg": {
+  "ita": 67.729176,
+  "bin": "very_light"
+ },
+ "malignant/1027.jpg": {
+  "ita": 78.128857,
+  "bin": "very_light"
+ },
+ "malignant/1037.jpg": {
+  "ita": 73.501077,
+  "bin": "very_light"
+ },
+ "malignant/1038.jpg": {
+  "ita": 42.144396,
+  "bin": "light"
+ },
+ "malignant/1046.jpg": {
+  "ita": 41.159797,
+  "bin": "light"
+ },
+ "malignant/1049.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1056.jpg": {
+  "ita": 42.384152,
+  "bin": "light"
+ },
+ "malignant/1058.jpg": {
+  "ita": 82.592083,
+  "bin": "very_light"
+ },
+ "malignant/1065.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1074.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1080.jpg": {
+  "ita": 83.609126,
+  "bin": "very_light"
+ },
+ "malignant/1083.jpg": {
+  "ita": 73.194275,
+  "bin": "very_light"
+ },
+ "malignant/1089.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1091.jpg": {
+  "ita": 40.778403,
+  "bin": "intermediate"
+ },
+ "malignant/1094.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/110.jpg": {
+  "ita": 80.526748,
+  "bin": "very_light"
+ },
+ "malignant/1112.jpg": {
+  "ita": 71.656079,
+  "bin": "very_light"
+ },
+ "malignant/1113.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1119.jpg": {
+  "ita": 73.132263,
+  "bin": "very_light"
+ },
+ "malignant/1120.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1128.jpg": {
+  "ita": 77.563332,
+  "bin": "very_light"
+ },
+ "malignant/1135.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1141.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1150.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1151.jpg": {
+  "ita": 44.480151,
+  "bin": "light"
+ },
+ "malignant/1155.jpg": {
+  "ita": 61.402749,
+  "bin": "very_light"
+ },
+ "malignant/1156.jpg": {
+  "ita": 54.37946,
+  "bin": "light"
+ },
+ "malignant/1160.jpg": {
+  "ita": 80.929361,
+  "bin": "very_light"
+ },
+ "malignant/1164.jpg": {
+  "ita": 28.009983,
+  "bin": "intermediate"
+ },
+ "malignant/1166.jpg": {
+  "ita": 76.135395,
+  "bin": "very_light"
+ },
+ "malignant/1170.jpg": {
+  "ita": 63.985252,
+  "bin": "very_light"
+ },
+ "malignant/1173.jpg": {
+  "ita": 74.747724,
+  "bin": "very_light"
+ },
+ "malignant/1176.jpg": {
+  "ita": 65.55981,
+  "bin": "very_light"
+ },
+ "malignant/1185.jpg": {
+  "ita": 67.926403,
+  "bin": "very_light"
+ },
+ "malignant/1186.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1187.jpg": {
+  "ita": 53.051902,
+  "bin": "light"
+ },
+ "malignant/1189.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1194.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1197.jpg": {
+  "ita": 85.849869,
+  "bin": "very_light"
+ },
+ "malignant/1198.jpg": {
+  "ita": 83.643922,
+  "bin": "very_light"
+ },
+ "malignant/1211.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1215.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1216.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1218.jpg": {
+  "ita": 74.196669,
+  "bin": "very_light"
+ },
+ "malignant/1220.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1221.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1227.jpg": {
+  "ita": 48.800765,
+  "bin": "light"
+ },
+ "malignant/1228.jpg": {
+  "ita": 53.182761,
+  "bin": "light"
+ },
+ "malignant/1229.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1234.jpg": {
+  "ita": 75.576933,
+  "bin": "very_light"
+ },
+ "malignant/1238.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1242.jpg": {
+  "ita": 73.971638,
+  "bin": "very_light"
+ },
+ "malignant/1251.jpg": {
+  "ita": 74.353001,
+  "bin": "very_light"
+ },
+ "malignant/1254.jpg": {
+  "ita": 54.123705,
+  "bin": "light"
+ },
+ "malignant/1256.jpg": {
+  "ita": 84.855678,
+  "bin": "very_light"
+ },
+ "malignant/1262.jpg": {
+  "ita": -52.038371,
+  "bin": "dark"
+ },
+ "malignant/1266.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1267.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1268.jpg": {
+  "ita": 83.478315,
+  "bin": "very_light"
+ },
+ "malignant/1280.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1286.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1289.jpg": {
+  "ita": 56.779937,
+  "bin": "very_light"
+ },
+ "malignant/129.jpg": {
+  "ita": 74.838473,
+  "bin": "very_light"
+ },
+ "malignant/1292.jpg": {
+  "ita": 61.301095,
+  "bin": "very_light"
+ },
+ "malignant/1295.jpg": {
+  "ita": 82.895771,
+  "bin": "very_light"
+ },
+ "malignant/1297.jpg": {
+  "ita": 62.210677,
+  "bin": "very_light"
+ },
+ "malignant/13.jpg": {
+  "ita": 67.811428,
+  "bin": "very_light"
+ },
+ "malignant/1300.jpg": {
+  "ita": 85.523463,
+  "bin": "very_light"
+ },
+ "malignant/1310.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1320.jpg": {
+  "ita": 76.359722,
+  "bin": "very_light"
+ },
+ "malignant/1322.jpg": {
+  "ita": 83.520083,
+  "bin": "very_light"
+ },
+ "malignant/1330.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1333.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1336.jpg": {
+  "ita": 76.048201,
+  "bin": "very_light"
+ },
+ "malignant/1339.jpg": {
+  "ita": 51.427947,
+  "bin": "light"
+ },
+ "malignant/1342.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1347.jpg": {
+  "ita": 77.529556,
+  "bin": "very_light"
+ },
+ "malignant/1354.jpg": {
+  "ita": 61.445428,
+  "bin": "very_light"
+ },
+ "malignant/1355.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1358.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1359.jpg": {
+  "ita": 56.895018,
+  "bin": "very_light"
+ },
+ "malignant/1364.jpg": {
+  "ita": 83.349061,
+  "bin": "very_light"
+ },
+ "malignant/1366.jpg": {
+  "ita": 85.62794,
+  "bin": "very_light"
+ },
+ "malignant/1370.jpg": {
+  "ita": 65.680989,
+  "bin": "very_light"
+ },
+ "malignant/1374.jpg": {
+  "ita": 76.340983,
+  "bin": "very_light"
+ },
+ "malignant/1378.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1379.jpg": {
+  "ita": 70.171498,
+  "bin": "very_light"
+ },
+ "malignant/1380.jpg": {
+  "ita": 87.146901,
+  "bin": "very_light"
+ },
+ "malignant/1382.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1383.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/139.jpg": {
+  "ita": 51.335369,
+  "bin": "light"
+ },
+ "malignant/1395.jpg": {
+  "ita": 82.178507,
+  "bin": "very_light"
+ },
+ "malignant/1401.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1402.jpg": {
+  "ita": 84.422216,
+  "bin": "very_light"
+ },
+ "malignant/1417.jpg": {
+  "ita": 76.04683,
+  "bin": "very_light"
+ },
+ "malignant/1422.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1425.jpg": {
+  "ita": 68.580371,
+  "bin": "very_light"
+ },
+ "malignant/1427.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1430.jpg": {
+  "ita": 25.659736,
+  "bin": "tan"
+ },
+ "malignant/1436.jpg": {
+  "ita": 86.740548,
+  "bin": "very_light"
+ },
+ "malignant/1438.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1443.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1447.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1451.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1461.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1464.jpg": {
+  "ita": 87.518751,
+  "bin": "very_light"
+ },
+ "malignant/1484.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1489.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1495.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/1499.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/156.jpg": {
+  "ita": 72.049715,
+  "bin": "very_light"
+ },
+ "malignant/161.jpg": {
+  "ita": 35.297232,
+  "bin": "intermediate"
+ },
+ "malignant/17.jpg": {
+  "ita": 61.494537,
+  "bin": "very_light"
+ },
+ "malignant/173.jpg": {
+  "ita": 46.726476,
+  "bin": "light"
+ },
+ "malignant/179.jpg": {
+  "ita": 77.293774,
+  "bin": "very_light"
+ },
+ "malignant/182.jpg": {
+  "ita": 14.253391,
+  "bin": "tan"
+ },
+ "malignant/184.jpg": {
+  "ita": 79.531189,
+  "bin": "very_light"
+ },
+ "malignant/185.jpg": {
+  "ita": 58.079239,
+  "bin": "very_light"
+ },
+ "malignant/186.jpg": {
+  "ita": 46.857384,
+  "bin": "light"
+ },
+ "malignant/190.jpg": {
+  "ita": 72.115124,
+  "bin": "very_light"
+ },
+ "malignant/193.jpg": {
+  "ita": 70.851749,
+  "bin": "very_light"
+ },
+ "malignant/195.jpg": {
+  "ita": 44.675615,
+  "bin": "light"
+ },
+ "malignant/196.jpg": {
+  "ita": 59.760551,
+  "bin": "very_light"
+ },
+ "malignant/200.jpg": {
+  "ita": 60.15955,
+  "bin": "very_light"
+ },
+ "malignant/208.jpg": {
+  "ita": 68.037778,
+  "bin": "very_light"
+ },
+ "malignant/231.jpg": {
+  "ita": 34.256339,
+  "bin": "intermediate"
+ },
+ "malignant/232.jpg": {
+  "ita": 47.08346,
+  "bin": "light"
+ },
+ "malignant/237.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/238.jpg": {
+  "ita": 39.795186,
+  "bin": "intermediate"
+ },
+ "malignant/24.jpg": {
+  "ita": 75.190387,
+  "bin": "very_light"
+ },
+ "malignant/247.jpg": {
+  "ita": 16.369908,
+  "bin": "tan"
+ },
+ "malignant/256.jpg": {
+  "ita": 26.617345,
+  "bin": "tan"
+ },
+ "malignant/257.jpg": {
+  "ita": 70.595664,
+  "bin": "very_light"
+ },
+ "malignant/258.jpg": {
+  "ita": 46.307669,
+  "bin": "light"
+ },
+ "malignant/260.jpg": {
+  "ita": 76.216695,
+  "bin": "very_light"
+ },
+ "malignant/275.jpg": {
+  "ita": 86.043125,
+  "bin": "very_light"
+ },
+ "malignant/276.jpg": {
+  "ita": 80.328674,
+  "bin": "very_light"
+ },
+ "malignant/3.jpg": {
+  "ita": 68.716861,
+  "bin": "very_light"
+ },
+ "malignant/303.jpg": {
+  "ita": 61.12701,
+  "bin": "very_light"
+ },
+ "malignant/307.jpg": {
+  "ita": 72.797817,
+  "bin": "very_light"
+ },
+ "malignant/310.jpg": {
+  "ita": 35.996914,
+  "bin": "intermediate"
+ },
+ "malignant/317.jpg": {
+  "ita": 48.756482,
+  "bin": "light"
+ },
+ "malignant/318.jpg": {
+  "ita": 39.043525,
+  "bin": "intermediate"
+ },
+ "malignant/322.jpg": {
+  "ita": 39.733417,
+  "bin": "intermediate"
+ },
+ "malignant/33.jpg": {
+  "ita": 45.374519,
+  "bin": "light"
+ },
+ "malignant/338.jpg": {
+  "ita": 64.452706,
+  "bin": "very_light"
+ },
+ "malignant/342.jpg": {
+  "ita": 45.672759,
+  "bin": "light"
+ },
+ "malignant/343.jpg": {
+  "ita": 30.334338,
+  "bin": "intermediate"
+ },
+ "malignant/348.jpg": {
+  "ita": 22.754199,
+  "bin": "tan"
+ },
+ "malignant/355.jpg": {
+  "ita": 65.186373,
+  "bin": "very_light"
+ },
+ "malignant/356.jpg": {
+  "ita": 83.223661,
+  "bin": "very_light"
+ },
+ "malignant/360.jpg": {
+  "ita": 80.616715,
+  "bin": "very_light"
+ },
+ "malignant/364.jpg": {
+  "ita": 12.648382,
+  "bin": "tan"
+ },
+ "malignant/375.jpg": {
+  "ita": 27.960639,
+  "bin": "tan"
+ },
+ "malignant/381.jpg": {
+  "ita": 31.05857,
+  "bin": "intermediate"
+ },
+ "malignant/382.jpg": {
+  "ita": 79.222812,
+  "bin": "very_light"
+ },
+ "malignant/384.jpg": {
+  "ita": 74.478073,
+  "bin": "very_light"
+ },
+ "malignant/389.jpg": {
+  "ita": 16.28612,
+  "bin": "tan"
+ },
+ "malignant/39.jpg": {
+  "ita": 12.240428,
+  "bin": "tan"
+ },
+ "malignant/390.jpg": {
+  "ita": 14.476872,
+  "bin": "tan"
+ },
+ "malignant/394.jpg": {
+  "ita": 19.661824,
+  "bin": "tan"
+ },
+ "malignant/399.jpg": {
+  "ita": 36.428736,
+  "bin": "intermediate"
+ },
+ "malignant/4.jpg": {
+  "ita": 47.020135,
+  "bin": "light"
+ },
+ "malignant/402.jpg": {
+  "ita": 37.937208,
+  "bin": "intermediate"
+ },
+ "malignant/405.jpg": {
+  "ita": 16.405853,
+  "bin": "tan"
+ },
+ "malignant/407.jpg": {
+  "ita": 52.194177,
+  "bin": "light"
+ },
+ "malignant/409.jpg": {
+  "ita": 76.645699,
+  "bin": "very_light"
+ },
+ "malignant/419.jpg": {
+  "ita": 82.582242,
+  "bin": "very_light"
+ },
+ "malignant/421.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/424.jpg": {
+  "ita": 85.427007,
+  "bin": "very_light"
+ },
+ "malignant/426.jpg": {
+  "ita": 62.467443,
+  "bin": "very_light"
+ },
+ "malignant/428.jpg": {
+  "ita": 78.266888,
+  "bin": "very_light"
+ },
+ "malignant/430.jpg": {
+  "ita": 80.05233,
+  "bin": "very_light"
+ },
+ "malignant/436.jpg": {
+  "ita": 37.3594,
+  "bin": "intermediate"
+ },
+ "malignant/437.jpg": {
+  "ita": 76.534785,
+  "bin": "very_light"
+ },
+ "malignant/44.jpg": {
+  "ita": 68.85733,
+  "bin": "very_light"
+ },
+ "malignant/445.jpg": {
+  "ita": 50.193972,
+  "bin": "light"
+ },
+ "malignant/450.jpg": {
+  "ita": -12.463417,
+  "bin": "brown"
+ },
+ "malignant/459.jpg": {
+  "ita": 66.489572,
+  "bin": "very_light"
+ },
+ "malignant/46.jpg": {
+  "ita": 27.308623,
+  "bin": "tan"
+ },
+ "malignant/463.jpg": {
+  "ita": 65.018338,
+  "bin": "very_light"
+ },
+ "malignant/474.jpg": {
+  "ita": 48.887672,
+  "bin": "light"
+ },
+ "malignant/479.jpg": {
+  "ita": -29.96296,
+  "bin": "brown"
+ },
+ "malignant/483.jpg": {
+  "ita": 50.747799,
+  "bin": "light"
+ },
+ "malignant/501.jpg": {
+  "ita": 65.248821,
+  "bin": "very_light"
+ },
+ "malignant/504.jpg": {
+  "ita": 62.366421,
+  "bin": "very_light"
+ },
+ "malignant/507.jpg": {
+  "ita": 75.113894,
+  "bin": "very_light"
+ },
+ "malignant/508.jpg": {
+  "ita": 60.351155,
+  "bin": "very_light"
+ },
+ "malignant/511.jpg": {
+  "ita": 78.511205,
+  "bin": "very_light"
+ },
+ "malignant/519.jpg": {
+  "ita": 20.927126,
+  "bin": "tan"
+ },
+ "malignant/52.jpg": {
+  "ita": 24.316646,
+  "bin": "tan"
+ },
+ "malignant/528.jpg": {
+  "ita": -34.511341,
+  "bin": "dark"
+ },
+ "malignant/536.jpg": {
+  "ita": 19.128936,
+  "bin": "tan"
+ },
+ "malignant/54.jpg": {
+  "ita": 74.264305,
+  "bin": "very_light"
+ },
+ "malignant/546.jpg": {
+  "ita": 79.077595,
+  "bin": "very_light"
+ },
+ "malignant/554.jpg": {
+  "ita": 39.448497,
+  "bin": "intermediate"
+ },
+ "malignant/556.jpg": {
+  "ita": 57.950636,
+  "bin": "very_light"
+ },
+ "malignant/562.jpg": {
+  "ita": 51.723643,
+  "bin": "light"
+ },
+ "malignant/568.jpg": {
+  "ita": 77.658526,
+  "bin": "very_light"
+ },
+ "malignant/57.jpg": {
+  "ita": 26.907775,
+  "bin": "tan"
+ },
+ "malignant/570.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/572.jpg": {
+  "ita": 22.081051,
+  "bin": "tan"
+ },
+ "malignant/573.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/575.jpg": {
+  "ita": 38.182178,
+  "bin": "intermediate"
+ },
+ "malignant/58.jpg": {
+  "ita": -14.029374,
+  "bin": "brown"
+ },
+ "malignant/590.jpg": {
+  "ita": 11.497774,
+  "bin": "tan"
+ },
+ "malignant/592.jpg": {
+  "ita": 56.66879,
+  "bin": "very_light"
+ },
+ "malignant/593.jpg": {
+  "ita": 36.082632,
+  "bin": "intermediate"
+ },
+ "malignant/596.jpg": {
+  "ita": 62.554673,
+  "bin": "very_light"
+ },
+ "malignant/602.jpg": {
+  "ita": 25.517942,
+  "bin": "tan"
+ },
+ "malignant/603.jpg": {
+  "ita": 50.52942,
+  "bin": "light"
+ },
+ "malignant/614.jpg": {
+  "ita": 80.070819,
+  "bin": "very_light"
+ },
+ "malignant/615.jpg": {
+  "ita": 28.428027,
+  "bin": "intermediate"
+ },
+ "malignant/619.jpg": {
+  "ita": 52.946666,
+  "bin": "light"
+ },
+ "malignant/62.jpg": {
+  "ita": 16.586464,
+  "bin": "tan"
+ },
+ "malignant/628.jpg": {
+  "ita": 20.296311,
+  "bin": "tan"
+ },
+ "malignant/638.jpg": {
+  "ita": 61.227957,
+  "bin": "very_light"
+ },
+ "malignant/641.jpg": {
+  "ita": 76.371298,
+  "bin": "very_light"
+ },
+ "malignant/643.jpg": {
+  "ita": 25.253765,
+  "bin": "tan"
+ },
+ "malignant/65.jpg": {
+  "ita": 74.228238,
+  "bin": "very_light"
+ },
+ "malignant/653.jpg": {
+  "ita": 71.312561,
+  "bin": "very_light"
+ },
+ "malignant/658.jpg": {
+  "ita": -29.482498,
+  "bin": "brown"
+ },
+ "malignant/66.jpg": {
+  "ita": 75.757324,
+  "bin": "very_light"
+ },
+ "malignant/660.jpg": {
+  "ita": -56.567392,
+  "bin": "dark"
+ },
+ "malignant/667.jpg": {
+  "ita": 81.432338,
+  "bin": "very_light"
+ },
+ "malignant/670.jpg": {
+  "ita": 76.082872,
+  "bin": "very_light"
+ },
+ "malignant/674.jpg": {
+  "ita": 86.741336,
+  "bin": "very_light"
+ },
+ "malignant/679.jpg": {
+  "ita": 82.873793,
+  "bin": "very_light"
+ },
+ "malignant/68.jpg": {
+  "ita": 66.139767,
+  "bin": "very_light"
+ },
+ "malignant/686.jpg": {
+  "ita": -27.362184,
+  "bin": "brown"
+ },
+ "malignant/694.jpg": {
+  "ita": 68.012542,
+  "bin": "very_light"
+ },
+ "malignant/696.jpg": {
+  "ita": 21.424329,
+  "bin": "tan"
+ },
+ "malignant/706.jpg": {
+  "ita": 84.381695,
+  "bin": "very_light"
+ },
+ "malignant/709.jpg": {
+  "ita": 12.109895,
+  "bin": "tan"
+ },
+ "malignant/713.jpg": {
+  "ita": 71.39632,
+  "bin": "very_light"
+ },
+ "malignant/73.jpg": {
+  "ita": 48.633628,
+  "bin": "light"
+ },
+ "malignant/735.jpg": {
+  "ita": -32.232936,
+  "bin": "dark"
+ },
+ "malignant/739.jpg": {
+  "ita": 15.565912,
+  "bin": "tan"
+ },
+ "malignant/74.jpg": {
+  "ita": 74.692659,
+  "bin": "very_light"
+ },
+ "malignant/744.jpg": {
+  "ita": 15.126367,
+  "bin": "tan"
+ },
+ "malignant/747.jpg": {
+  "ita": 9.004507,
+  "bin": "brown"
+ },
+ "malignant/749.jpg": {
+  "ita": -16.969377,
+  "bin": "brown"
+ },
+ "malignant/757.jpg": {
+  "ita": 34.575681,
+  "bin": "intermediate"
+ },
+ "malignant/759.jpg": {
+  "ita": -25.323457,
+  "bin": "brown"
+ },
+ "malignant/762.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/763.jpg": {
+  "ita": 22.705321,
+  "bin": "tan"
+ },
+ "malignant/771.jpg": {
+  "ita": -4.256747,
+  "bin": "brown"
+ },
+ "malignant/773.jpg": {
+  "ita": 30.7636,
+  "bin": "intermediate"
+ },
+ "malignant/778.jpg": {
+  "ita": 42.804714,
+  "bin": "light"
+ },
+ "malignant/792.jpg": {
+  "ita": -6.940122,
+  "bin": "brown"
+ },
+ "malignant/794.jpg": {
+  "ita": -10.90982,
+  "bin": "brown"
+ },
+ "malignant/797.jpg": {
+  "ita": 61.389075,
+  "bin": "very_light"
+ },
+ "malignant/8.jpg": {
+  "ita": 19.625269,
+  "bin": "tan"
+ },
+ "malignant/804.jpg": {
+  "ita": 57.968276,
+  "bin": "very_light"
+ },
+ "malignant/808.jpg": {
+  "ita": -17.729698,
+  "bin": "brown"
+ },
+ "malignant/81.jpg": {
+  "ita": 70.006324,
+  "bin": "very_light"
+ },
+ "malignant/817.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/822.jpg": {
+  "ita": 61.327064,
+  "bin": "very_light"
+ },
+ "malignant/826.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/832.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/836.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/838.jpg": {
+  "ita": 42.712072,
+  "bin": "light"
+ },
+ "malignant/839.jpg": {
+  "ita": 23.27963,
+  "bin": "tan"
+ },
+ "malignant/85.jpg": {
+  "ita": 80.734277,
+  "bin": "very_light"
+ },
+ "malignant/852.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/859.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/864.jpg": {
+  "ita": 70.472819,
+  "bin": "very_light"
+ },
+ "malignant/866.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/868.jpg": {
+  "ita": 65.957157,
+  "bin": "very_light"
+ },
+ "malignant/87.jpg": {
+  "ita": 35.343662,
+  "bin": "intermediate"
+ },
+ "malignant/871.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/874.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/881.jpg": {
+  "ita": 86.438085,
+  "bin": "very_light"
+ },
+ "malignant/887.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/893.jpg": {
+  "ita": 53.927694,
+  "bin": "light"
+ },
+ "malignant/894.jpg": {
+  "ita": 46.056948,
+  "bin": "light"
+ },
+ "malignant/905.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/91.jpg": {
+  "ita": 20.83871,
+  "bin": "tan"
+ },
+ "malignant/92.jpg": {
+  "ita": 40.771051,
+  "bin": "intermediate"
+ },
+ "malignant/927.jpg": {
+  "ita": 84.282672,
+  "bin": "very_light"
+ },
+ "malignant/93.jpg": {
+  "ita": 71.229671,
+  "bin": "very_light"
+ },
+ "malignant/934.jpg": {
+  "ita": 81.248435,
+  "bin": "very_light"
+ },
+ "malignant/937.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/940.jpg": {
+  "ita": 63.791537,
+  "bin": "very_light"
+ },
+ "malignant/947.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/948.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/949.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/953.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/985.jpg": {
+  "ita": null,
+  "bin": null
+ },
+ "malignant/992.jpg": {
+  "ita": 49.262052,
+  "bin": "light"
+ },
+ "malignant/994.jpg": {
+  "ita": 82.998353,
+  "bin": "very_light"
+ },
+ "malignant/995.jpg": {
+  "ita": 73.314654,
+  "bin": "very_light"
+ }
+}

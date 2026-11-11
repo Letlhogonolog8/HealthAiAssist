@@ -1,0 +1,68 @@
+{
+  "model": "resnet50v2_lung_nodule_model.h5",
+  "artifactFingerprint": "9faf49cdca48",
+  "verifiedAt": "2026-09-22T13:39:28",
+  "split": "test rows of dataset/lidc-ct/patches.csv (patient-level split, decided before extraction)",
+  "operatingPoint": {
+    "threshold": 0.3,
+    "temperature": 1.0,
+    "note": "Softmax, temperature (not applied: 1.0), threshold on P(malignant) \u2014 the order the service applies."
+  },
+  "perNodule": {
+    "threshold": 0.3,
+    "sensitivity": 0.8621,
+    "sensitivityCI95": [
+      0.6944,
+      0.945
+    ],
+    "specificity": 0.6912,
+    "specificityCI95": [
+      0.5736,
+      0.7883
+    ],
+    "balancedAccuracy": 0.7767,
+    "confusion": {
+      "TP": 25,
+      "FN": 4,
+      "TN": 47,
+      "FP": 21
+    },
+    "n": 97
+  },
+  "perPatch": {
+    "threshold": 0.3,
+    "sensitivity": 0.8414,
+    "sensitivityCI95": [
+      0.7732,
+      0.8919
+    ],
+    "specificity": 0.6618,
+    "specificityCI95": [
+      0.6099,
+      0.71
+    ],
+    "balancedAccuracy": 0.7516,
+    "confusion": {
+      "TP": 122,
+      "FN": 23,
+      "TN": 225,
+      "FP": 115
+    },
+    "n": 485
+  },
+  "publishedPerNodule": {
+    "sensitivity": 0.8621,
+    "specificity": 0.6912,
+    "balancedAccuracy": 0.7767,
+    "confusion": {
+      "TP": 25,
+      "FN": 4,
+      "TN": 47,
+      "FP": 21
+    },
+    "n": 97
+  },
+  "matchesPublished": true,
+  "drift": {},
+  "note": "perNodule is the published figure. perPatch is closer to how a single marked slice is served and its interval is optimistic by construction (five slices of one lesion are five correlated cases)."
+}

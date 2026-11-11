@@ -1,0 +1,32 @@
+{
+  "model": "resnet50v2_skin_cancer_model.h5",
+  "method": "PCA reconstruction error in ResNet feature space, 64 components",
+  "components": 64,
+  "varianceExplained": 0.803,
+  "thresholdPercentile": 99.5,
+  "threshold": 22.6298,
+  "fittedOn": "2241 training images",
+  "validation": {
+    "inDistribution": {
+      "n": 120,
+      "medianError": 10.333,
+      "flaggedRate": 0.0083
+    },
+    "wrongModality": {
+      "n": 120,
+      "medianError": 31.971,
+      "flaggedRate": 1.0
+    },
+    "randomNoise": {
+      "n": 60,
+      "medianError": 23.326,
+      "flaggedRate": 0.8833
+    },
+    "blankGrey": {
+      "n": 60,
+      "medianError": 14.641,
+      "flaggedRate": 0.0
+    }
+  },
+  "interpretation": "Flagged rate should be near the expected false-positive rate on held-out images of the same modality, and high on inputs from other domains. A flagged image is refused rather than classified. Blank frames are caught by pixel-level checks, not by this detector."
+}
