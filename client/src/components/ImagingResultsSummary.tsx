@@ -1,6 +1,7 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { triageClass, triageLabel } from '@/lib/triage';
 import { Button } from '@/components/ui/button';
 import { 
   TrendingUp, 
@@ -29,18 +30,11 @@ interface ImagingResultsSummaryProps {
 
 export default function ImagingResultsSummary({ results, onViewAll }: ImagingResultsSummaryProps) {
   const recentResults = results.slice(0, 3);
-  const highRiskCount = results.filter(r => r.riskLevel === 'high').length;
+  // Counts the queue's ordering level, not a clinical stratum. A threshold on
+  // one probability decides it, so the tile is named for what the level does.
+  const priorityReviewCount = results.filter(r => r.riskLevel === 'high').length;
   const abnormalCount = results.filter(r => r.hasCancer).length;
   const avgConfidence = results.length > 0 ? Math.round(results.reduce((sum, r) => sum + r.confidence, 0) / results.length) : 0;
-
-  const getRiskColor = (risk: string) => {
-    switch (risk) {
-      case 'high': return 'bg-red-100 text-red-800 border-red-300';
-      case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
-      case 'low': return 'bg-green-100 text-green-800 border-green-300';
-      default: return 'bg-slate-100 dark:bg-slate-700 text-foreground border-slate-300 dark:border-slate-600';
-    }
-  };
 
   if (results.length === 0) {
     return (
@@ -83,8 +77,8 @@ export default function ImagingResultsSummary({ results, onViewAll }: ImagingRes
             <div className="flex items-center justify-center mb-2">
               <AlertTriangle className="w-6 h-6 text-red-600" />
             </div>
-            <div className="text-2xl font-bold text-red-600">{highRiskCount}</div>
-            <div className="text-sm text-muted-foreground">High Risk</div>
+            <div className="text-2xl font-bold text-red-600">{priorityReviewCount}</div>
+            <div className="text-sm text-muted-foreground">Priority review</div>
           </CardContent>
         </Card>
 
@@ -131,8 +125,8 @@ export default function ImagingResultsSummary({ results, onViewAll }: ImagingRes
                   <div className="text-sm font-bold text-foreground">{result.confidence}%</div>
                   <div className="text-xs text-muted-foreground">Confidence</div>
                 </div>
-                <Badge className={`${getRiskColor(result.riskLevel)} text-xs`}>
-                  {result.riskLevel.toUpperCase()}
+                <Badge className={`${triageClass(result.riskLevel)} text-xs`}>
+                  {triageLabel(result.riskLevel)}
                 </Badge>
               </div>
             </div>

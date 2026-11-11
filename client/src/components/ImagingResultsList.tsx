@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { triageClass, triageLabel } from '@/lib/triage';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
   Search, 
@@ -56,15 +57,6 @@ export default function ImagingResultsList({ results, onViewResult, onDeleteResu
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState<'date' | 'confidence' | 'risk'>('date');
   const itemsPerPage = 6;
-
-  const getRiskColor = (risk: string) => {
-    switch (risk) {
-      case 'high': return 'bg-red-100 text-red-800 border-red-300';
-      case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
-      case 'low': return 'bg-green-100 text-green-800 border-green-300';
-      default: return 'bg-slate-100 dark:bg-slate-700 text-foreground border-slate-300 dark:border-slate-600';
-    }
-  };
 
   const filteredAndSortedResults = useMemo(() => {
     let filtered = results.filter(result => {
@@ -200,8 +192,8 @@ export default function ImagingResultsList({ results, onViewResult, onDeleteResu
                     <h3 className="font-bold text-foreground truncate">{result.patientName}</h3>
                     <p className="text-sm text-muted-foreground">{result.scanType.toUpperCase()}</p>
                   </div>
-                  <Badge className={`${getRiskColor(result.riskLevel ?? '')} text-xs`}>
-                    {result.riskLevel ? result.riskLevel.toUpperCase() : 'NOT ASSESSED'}
+                  <Badge className={`${triageClass(result.riskLevel)} text-xs`}>
+                    {triageLabel(result.riskLevel)}
                   </Badge>
                 </div>
               </CardHeader>

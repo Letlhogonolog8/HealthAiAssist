@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Slider } from '@/components/ui/slider';
 import { Badge } from '@/components/ui/badge';
+import { triageClass, triageLabel } from '@/lib/triage';
 import { 
   ZoomIn, 
   ZoomOut, 
@@ -102,15 +103,6 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
     }
   };
 
-  const getRiskColor = (level: string) => {
-    switch (level) {
-      case 'high': return 'border-red-500 bg-red-50';
-      case 'medium': return 'border-yellow-500 bg-yellow-50';
-      case 'low': return 'border-green-500 bg-green-50';
-      default: return 'border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800';
-    }
-  };
-
   if (!imageFile || !imageUrl) {
     return (
       <Card className="h-96">
@@ -143,7 +135,7 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
               <div className="flex flex-col items-end gap-2">
                 <Badge 
                   variant={analysisResult.hasCancer ? "destructive" : "default"}
-                  className={`${getRiskColor(analysisResult.riskLevel)} border-2 text-sm px-3 py-1`}
+                  className={`${triageClass(analysisResult.riskLevel)} border-2 text-sm px-3 py-1`}
                 >
                   {analysisResult.hasCancer ? "Abnormal" : "Normal"}
                 </Badge>
@@ -288,8 +280,8 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between items-center">
                     <span>Risk Level:</span>
-                    <Badge className={`${getRiskColor(analysisResult.riskLevel)} text-xs`}>
-                      {analysisResult.riskLevel.toUpperCase()}
+                    <Badge className={`${triageClass(analysisResult.riskLevel)} text-xs`}>
+                      {triageLabel(analysisResult.riskLevel)}
                     </Badge>
                   </div>
                   <div className="flex justify-between items-center">

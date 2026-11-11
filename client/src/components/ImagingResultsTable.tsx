@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { triageClass, triageLabel } from '@/lib/triage';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
   Search, 
@@ -53,15 +54,6 @@ export default function ImagingResultsTable({ results, onViewResult, onDeleteRes
   const [filterRisk, setFilterRisk] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
-
-  const getRiskColor = (risk: string) => {
-    switch (risk) {
-      case 'high': return 'bg-red-100 text-red-800';
-      case 'medium': return 'bg-yellow-100 text-yellow-800';
-      case 'low': return 'bg-green-100 text-green-800';
-      default: return 'bg-slate-100 dark:bg-slate-700 text-foreground';
-    }
-  };
 
   const filteredResults = results.filter(result => {
     const matchesSearch = result.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -146,8 +138,8 @@ export default function ImagingResultsTable({ results, onViewResult, onDeleteRes
                     </div>
                   </td>
                   <td className="p-4">
-                    <Badge className={`${getRiskColor(result.riskLevel ?? '')} text-xs font-medium`}>
-                      {result.riskLevel ? result.riskLevel.toUpperCase() : 'NOT ASSESSED'}
+                    <Badge className={`${triageClass(result.riskLevel)} text-xs font-medium`}>
+                      {triageLabel(result.riskLevel)}
                     </Badge>
                   </td>
                   <td className="p-4">
