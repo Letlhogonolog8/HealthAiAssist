@@ -1,7 +1,7 @@
 /**
  * Triage wording for the queue's ordering signal.
  *
- * `riskLevel` on a scan is the level the review queue orders on: HIGH first.
+ * `triageLevel` on a scan is the level the review queue orders on: HIGH first.
  * It is a threshold applied to one probability, and for years of clinical AI
  * it has been rendered as "HIGH RISK" — which reads as a clinical stratum, a
  * claim no image classifier can make. Every badge in the interface now goes

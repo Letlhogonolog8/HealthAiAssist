@@ -386,7 +386,7 @@ router.post('/risk/:patientId', requireAuth, async (req: AuthenticatedRequest, r
       scanId: scan.id,
       flagged: !/no abnormal|no malignancy/i.test(scan.result ?? ''),
       confidence,
-      riskLevel: scan.riskLevel ?? 'low',
+      triageLevel: scan.triageLevel ?? 'low',
     };
   }
 

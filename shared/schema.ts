@@ -70,7 +70,7 @@ export const medicalScans = pgTable("medical_scans", {
   priority: text("priority").default("medium"),
   findings: text("findings").default(""),
   recommendations: text("recommendations").default(""),
-  riskLevel: text("risk_level").default("low"),
+  triageLevel: text("triage_level").default("low"),
   processingTime: integer("processing_time_ms"),
   imageSize: integer("image_size_bytes"),
   /**
@@ -1012,7 +1012,7 @@ export const insertScanSchema = createInsertSchema(medicalScans).pick({
   // band it landed in. Omitted previously, so results were unattributable.
   modelVersion: true,
   processingTime: true,
-  riskLevel: true,
+  triageLevel: true,
 });
 
 export const insertTermSchema = createInsertSchema(medicalTerms).pick({

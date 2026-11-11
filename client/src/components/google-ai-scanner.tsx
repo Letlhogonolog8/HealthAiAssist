@@ -43,7 +43,7 @@ interface AnalysisResult {
   analysis: {
     hasCancer: boolean;
     confidence: number;
-    riskLevel: 'low' | 'medium' | 'high';
+    triageLevel: 'low' | 'medium' | 'high';
     findings: string[];
     recommendations: string[];
     /** Only the modalities with a trained classifier. */
@@ -371,7 +371,7 @@ export default function GoogleAIScannerFixed() {
               title: "Analysis Results",
               subtitle: "Health AI-powered medical image analysis completed",
               confidence: analysisResult.analysis.confidence,
-              riskLevel: analysisResult.analysis.riskLevel,
+              triageLevel: analysisResult.analysis.triageLevel,
               primaryFinding: analysisResult.analysis.hasCancer ? 'Abnormal findings detected' : 'Normal',
               cancerType: analysisResult.analysis.cancerType ? `${analysisResult.analysis.cancerType} Cancer` : 'No abnormal findings detected',
               scanType: analysisResult?.scan?.scanType || scanType || 'mri',

@@ -59,7 +59,7 @@ interface Appointment {
 /**
  * Matches what /api/doctor/patients returns.
  *
- * `condition`, `status` and `riskLevel` are gone. The server set them to the
+ * `condition`, `status` and `triageLevel` are gone. The server set them to the
  * literals 'Regular checkup', 'stable' and 'low' for every patient it returned,
  * and this file rendered the last two as badges — so a doctor was shown a green
  * STABLE / LOW RISK pair on every patient regardless of their scans.
@@ -93,7 +93,7 @@ interface Report {
   radiologist?: string | null;
   /** Null when the scan recorded no confidence. Was defaulted to '85%'. */
   aiConfidence?: string | null;
-  riskLevel?: string | null;
+  triageLevel?: string | null;
   modelVersion?: string | null;
 }
 
@@ -941,7 +941,7 @@ export default function DoctorPortal({ user, setActiveTab, onSectionChange }: { 
                       </div>
                       {/*
                         A scan finding, labelled as one. This badge showed
-                        patient.riskLevel, which the server set to 'low' for every
+                        patient.triageLevel, which the server set to 'low' for every
                         patient, so it read LOW on all of them.
                       */}
                       {patient.highestScanRisk ? (

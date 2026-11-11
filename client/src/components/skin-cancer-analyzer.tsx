@@ -630,7 +630,7 @@ export default function SkinCancerAnalyzer() {
                   scanResult={{
                     hasCancer: analysisResult.malignancyRisk === 'high',
                     confidence: analysisResult.confidence || 0,
-                    riskLevel: analysisResult.malignancyRisk || 'low',
+                    triageLevel: analysisResult.malignancyRisk || 'low',
                     findings: analysisResult.dermatoscopeFindings || [],
                     recommendations: analysisResult.recommendations || [],
                     analysis: {

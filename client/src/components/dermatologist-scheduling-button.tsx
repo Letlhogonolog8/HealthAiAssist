@@ -18,7 +18,7 @@ import { format } from "date-fns";
 interface ScanResult {
   hasCancer: boolean;
   confidence: number;
-  riskLevel: 'low' | 'medium' | 'high';
+  triageLevel: 'low' | 'medium' | 'high';
   findings: string[];
   recommendations: string[];
   analysis?: {

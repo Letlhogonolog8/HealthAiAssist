@@ -20,7 +20,7 @@ import {
 /**
  * One analysed scan, as the imaging views receive it.
  *
- * `confidence`, `riskLevel` and `hasCancer` are nullable because the row they
+ * `confidence`, `triageLevel` and `hasCancer` are nullable because the row they
  * come from can genuinely lack them: a scan queued for manual review has no
  * model output at all, and rows written before those columns existed have none
  * either. They were previously typed as required, which is why every caller
@@ -37,7 +37,7 @@ interface ImagingResult {
   /** Percent, or null when the scan recorded none. Never a default. */
   confidence: number | null;
   /** The band the model assigned, as stored. Null when no model ran. */
-  riskLevel: 'low' | 'medium' | 'high' | 'critical' | null;
+  triageLevel: 'low' | 'medium' | 'high' | 'critical' | null;
   primaryFinding: string | null;
   /** The model's own call. Null means "no prediction", not "negative". */
   hasCancer: boolean | null;
@@ -63,7 +63,7 @@ export default function ImagingResultsList({ results, onViewResult, onDeleteResu
       const matchesSearch = result.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                            result.scanType.toLowerCase().includes(searchTerm.toLowerCase()) ||
                            (result.primaryFinding ?? '').toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesRisk = filterRisk === 'all' || result.riskLevel === filterRisk;
+      const matchesRisk = filterRisk === 'all' || result.triageLevel === filterRisk;
       const matchesScanType = filterScanType === 'all' || result.scanType.toLowerCase() === filterScanType.toLowerCase();
       
       return matchesSearch && matchesRisk && matchesScanType;
@@ -80,7 +80,7 @@ export default function ImagingResultsList({ results, onViewResult, onDeleteResu
           return (b.confidence ?? -1) - (a.confidence ?? -1);
         case 'risk':
           const riskOrder = { high: 3, medium: 2, low: 1 };
-          return (riskOrder[b.riskLevel ?? ''] ?? -1) - (riskOrder[a.riskLevel ?? ''] ?? -1);
+          return (riskOrder[b.triageLevel ?? ''] ?? -1) - (riskOrder[a.triageLevel ?? ''] ?? -1);
         default:
           return 0;
       }
@@ -192,8 +192,8 @@ export default function ImagingResultsList({ results, onViewResult, onDeleteResu
                     <h3 className="font-bold text-foreground truncate">{result.patientName}</h3>
                     <p className="text-sm text-muted-foreground">{result.scanType.toUpperCase()}</p>
                   </div>
-                  <Badge className={`${triageClass(result.riskLevel)} text-xs`}>
-                    {triageLabel(result.riskLevel)}
+                  <Badge className={`${triageClass(result.triageLevel)} text-xs`}>
+                    {triageLabel(result.triageLevel)}
                   </Badge>
                 </div>
               </CardHeader>

@@ -7,7 +7,7 @@ import ImagingResultsTable from './ImagingResultsTable';
 /**
  * One analysed scan, as the imaging views receive it.
  *
- * `confidence`, `riskLevel` and `hasCancer` are nullable because the row they
+ * `confidence`, `triageLevel` and `hasCancer` are nullable because the row they
  * come from can genuinely lack them: a scan queued for manual review has no
  * model output at all, and rows written before those columns existed have none
  * either. They were previously typed as required, which is why every caller
@@ -24,7 +24,7 @@ interface ImagingResult {
   /** Percent, or null when the scan recorded none. Never a default. */
   confidence: number | null;
   /** The band the model assigned, as stored. Null when no model ran. */
-  riskLevel: 'low' | 'medium' | 'high' | 'critical' | null;
+  triageLevel: 'low' | 'medium' | 'high' | 'critical' | null;
   primaryFinding: string | null;
   /** The model's own call. Null means "no prediction", not "negative". */
   hasCancer: boolean | null;

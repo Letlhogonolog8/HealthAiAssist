@@ -41,7 +41,7 @@ interface CancerAnalysisResult {
   cancerType: string;
   hasCancer: boolean;
   confidence: number;
-  riskLevel: 'low' | 'medium' | 'high';
+  triageLevel: 'low' | 'medium' | 'high';
   findings: string[];
   recommendations: string[];
   urgency: 'routine' | 'expedited' | 'urgent' | 'routine_followup';
@@ -233,7 +233,7 @@ export default function MultiCancerDetectionSystem() {
     cancerType: cancerType as any,
     hasCancer: baseResult.hasCancer || baseResult.status === 'abnormal',
     confidence: parseFloat(baseResult.confidence) || 0,
-    riskLevel: baseResult.riskLevel || (baseResult.hasCancer ? 'high' : 'low'),
+    triageLevel: baseResult.triageLevel || (baseResult.hasCancer ? 'high' : 'low'),
     findings: baseResult.findings || [],
     recommendations: baseResult.recommendations || [],
     urgency: baseResult.urgency || (baseResult.hasCancer ? 'urgent' : 'routine'),
@@ -567,8 +567,8 @@ export default function MultiCancerDetectionSystem() {
                       )}
                       {analysisResult.cancerType.charAt(0).toUpperCase() + analysisResult.cancerType.slice(1)} Cancer Analysis
                     </CardTitle>
-                    <Badge className={`${triageClass(analysisResult.riskLevel)} border`}>
-                      {triageLabel(analysisResult.riskLevel)}
+                    <Badge className={`${triageClass(analysisResult.triageLevel)} border`}>
+                      {triageLabel(analysisResult.triageLevel)}
                     </Badge>
                   </div>
                   <CardDescription>

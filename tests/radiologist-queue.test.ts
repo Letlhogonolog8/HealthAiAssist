@@ -62,7 +62,7 @@ async function seedScans(): Promise<void> {
     // see, and it is high risk, so it is also the one a radiologist most needs.
     const analysed = await pool.query(
       `INSERT INTO medical_scans
-         (patient_id, scan_type, result, ai_confidence, risk_level,
+         (patient_id, scan_type, result, ai_confidence, triage_level,
           predicted_positive, model_version, status, created_at)
        VALUES ($1, 'lung', 'Lung Cancer detected - high risk', '91%', 'high',
                true, 'lung-v2', 'pending', now() - interval '3 hours')
@@ -86,7 +86,7 @@ async function seedScans(): Promise<void> {
     // pending queue.
     const done = await pool.query(
       `INSERT INTO medical_scans
-         (patient_id, scan_type, result, ai_confidence, risk_level,
+         (patient_id, scan_type, result, ai_confidence, triage_level,
           predicted_positive, model_version, status, radiologist_id,
           findings, recommendations, created_at, reviewed_at)
        VALUES ($1, 'lung', 'No abnormal findings detected', '77%', 'low',
@@ -222,12 +222,12 @@ describe('the review queue can see what is waiting', { timeout: TIMEOUT }, () =>
 
   test('priority reflects the recorded risk, not the unwritten column', async () => {
     // `priority` defaults to 'medium' and nothing writes it, so reading it gave
-    // every row a MEDIUM badge — including this one, whose risk_level is 'high'.
+    // every row a MEDIUM badge — including this one, whose triage_level is 'high'.
     // The badge, the priority filter and "Sort: Priority" all read this field.
     const res = await radSession.get('/api/radiologist/pending-reviews');
     const row = res.json.find((r: any) => r.id === analysedPendingId);
 
-    assert.equal(row.riskLevel, 'high');
+    assert.equal(row.triageLevel, 'high');
     assert.equal(
       row.priority,
       'high',
@@ -349,7 +349,7 @@ describe('the report is the adjudication', { timeout: TIMEOUT }, () => {
     try {
       const { rows } = await pool.query(
         `INSERT INTO medical_scans
-           (patient_id, scan_type, result, ai_confidence, risk_level,
+           (patient_id, scan_type, result, ai_confidence, triage_level,
             predicted_positive, model_version, status, created_at)
          VALUES ($1, 'lung', $2, '88%', $3, $4, 'lung-v2', 'pending', now())
          RETURNING id`,

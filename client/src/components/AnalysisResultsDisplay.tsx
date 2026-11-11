@@ -22,7 +22,7 @@ interface AnalysisResultsProps {
     title: string;
     subtitle: string;
     confidence: number;
-    riskLevel: 'low' | 'medium' | 'high';
+    triageLevel: 'low' | 'medium' | 'high';
     primaryFinding: string;
     cancerType: string;
     scanType: string;
@@ -77,8 +77,8 @@ export const AnalysisResultsDisplay: React.FC<AnalysisResultsProps> = ({ analysi
               <div className="text-sm text-muted-foreground">Confidence</div>
             </div>
             <div className="p-3 bg-white rounded-lg">
-              <Badge className={`${triageClass(analysisData.riskLevel)} text-sm border`}>
-                {triageLabel(analysisData.riskLevel)}
+              <Badge className={`${triageClass(analysisData.triageLevel)} text-sm border`}>
+                {triageLabel(analysisData.triageLevel)}
               </Badge>
               <div className="text-sm text-muted-foreground mt-1">Triage</div>
             </div>
@@ -166,8 +166,8 @@ export const AnalysisResultsDisplay: React.FC<AnalysisResultsProps> = ({ analysi
                 <Shield className="w-8 h-8 text-white" />
               </div>
             </div>
-            <Badge className={`${triageClass(analysisData.riskLevel)} text-xl px-6 py-3 mb-3 shadow-lg border`}>
-              {triageLabel(analysisData.riskLevel)}
+            <Badge className={`${triageClass(analysisData.triageLevel)} text-xl px-6 py-3 mb-3 shadow-lg border`}>
+              {triageLabel(analysisData.triageLevel)}
             </Badge>
             <p className="text-foreground font-semibold text-lg">Queue position</p>
             <p className="text-xs text-muted-foreground mt-1">A threshold on one probability, not a clinical risk stratum.</p>

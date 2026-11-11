@@ -99,7 +99,7 @@ interface AnalysisResult {
   hasCancer: boolean;
   cancerType: string;
   confidence: number;
-  riskLevel: string;
+  triageLevel: string;
   findings: string[];
   recommendations: string[];
   clinicalGrade: string;
@@ -350,7 +350,7 @@ async function performLungNoduleAnalysis(
       confidence: probability * 100,
       // Triage priority for the review queue, not a clinical risk stratum:
       // the queue orders on it and nothing renders it as a diagnosis.
-      riskLevel: flagged ? 'high' : 'low',
+      triageLevel: flagged ? 'high' : 'low',
       findings,
       recommendations: flagged
         ? ['Priority radiologist review of the marked nodule on the full series', 'Management per the reviewing radiologist; the model contributes an ordering, not a plan']
@@ -489,7 +489,7 @@ async function performLungCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisR
 
     const hasCancer = result.prediction === 'cancer';
     const confidence = result.confidence * 100;
-    const riskLevel = hasCancer ? 'high' : 'low';
+    const triageLevel = hasCancer ? 'high' : 'low';
 
     // The classifier emits a binary label and a probability — nothing more. Findings
     // are limited to what it actually produced. Radiological descriptors
@@ -507,7 +507,7 @@ async function performLungCancerAnalysis(imageBuffer: Buffer): Promise<AnalysisR
       hasCancer,
       cancerType: hasCancer ? 'Lung Cancer' : 'No malignancy detected',
       confidence,
-      riskLevel,
+      triageLevel,
       findings,
       recommendations: hasCancer ? [
         'Priority radiologist review of this scan',
@@ -604,7 +604,7 @@ async function performSkinCancerAnalysis(
     const hasCancer = result.prediction === 'malignant';
     const isUncertain = result.prediction === 'uncertain';
     const confidence = result.confidence;
-    const riskLevel = hasCancer ? 'high' : isUncertain ? 'medium' : 'low';
+    const triageLevel = hasCancer ? 'high' : isUncertain ? 'medium' : 'low';
 
     // Only what the classifier produced. ABCDE criteria and morphological
     // descriptors were previously invented from the binary label — the model does
@@ -623,7 +623,7 @@ async function performSkinCancerAnalysis(
       hasCancer,
       cancerType: hasCancer ? 'Melanoma/Skin Cancer' : 'No malignancy detected',
       confidence,
-      riskLevel,
+      triageLevel,
       findings,
       recommendations: hasCancer ? [
         'Priority dermatologist consultation',
@@ -2841,16 +2841,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
            * which nothing in the codebase ever writes. So every row in the
            * queue carried a MEDIUM badge, the "All priorities" filter had
            * nothing to separate, and "Sort: Priority" was a no-op ordering a
-           * list by a constant -- including for a scan whose risk_level was
+           * list by a constant -- including for a scan whose triage_level was
            * 'high'. A radiologist reading this queue top-down had no signal
            * telling them which patient to open first.
            *
-           * risk_level is what the analysis actually wrote. The same mapping is
+           * triage_level is what the analysis actually wrote. The same mapping is
            * used by /api/doctor/reports, so the two portals rank a given scan
            * the same way.
            */
           priority: (() => {
-            const risk = (scan.riskLevel ?? '').toLowerCase();
+            const risk = (scan.triageLevel ?? '').toLowerCase();
             if (risk === 'critical') return 'urgent';
             if (risk === 'high') return 'high';
             if (risk === 'medium') return 'medium';
@@ -2863,7 +2863,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           hasImage: Boolean(scan.imagePath),
           awaitingManualReview,
           submittedAt: scan.createdAt,
-          riskLevel: scan.riskLevel ?? null,
+          triageLevel: scan.triageLevel ?? null,
           /**
            * What the model actually said.
            *
@@ -3014,7 +3014,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
    * literals written identically for every patient:
    *
    *   status: 'stable'          → rendered as a green STABLE badge
-   *   riskLevel: 'low'          → rendered as a LOW RISK badge, and counted into
+   *   triageLevel: 'low'          → rendered as a LOW RISK badge, and counted into
    *                               the "high / medium / low risk" summary tiles
    *   condition: 'Regular checkup'
    *   lastVisit: new Date()     → every patient appeared to have been seen today
@@ -3137,7 +3137,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
    *
    * `priority` also came from string-matching the prose in `result` for "urgent"
    * and "abnormal", which makes queue ordering depend on how a finding happened
-   * to be worded. It now reads risk_level and priority, which are columns.
+   * to be worded. It now reads triage_level and priority, which are columns.
    */
   app.get("/api/doctor/reports/pending", auditLog('READ_PENDING_REPORTS'), requireAuth, requireMedicalAccess, async (req, res) => {
     try {
@@ -3158,7 +3158,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const reports = pending.map(scan => {
-        const risk = (scan.riskLevel ?? '').toLowerCase();
+        const risk = (scan.triageLevel ?? '').toLowerCase();
         return {
           id: scan.id,
           patientName: scan.patientName,
@@ -3169,7 +3169,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // The clinician who actually holds this scan, or null. Never a name.
           radiologist: scan.radiologistId ? radiologists.get(scan.radiologistId) ?? null : null,
           findings: scan.result,
-          riskLevel: scan.riskLevel ?? null,
+          triageLevel: scan.triageLevel ?? null,
           status: scan.status || 'pending',
           // Null when the scan recorded no confidence, so the UI can say so.
           aiConfidence: scan.aiConfidence || null,
@@ -3197,10 +3197,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         message: `New scan result available for ${scan.patientName ?? 'a patient'}`,
         timestamp: scan.createdAt,
         type: 'scan_result',
-        // Read from the risk_level column rather than by searching the prose in
+        // Read from the triage_level column rather than by searching the prose in
         // `result` for the word "abnormal" — a finding worded "malignancy
         // detected" does not contain it and was being marked normal.
-        priority: ['high', 'critical'].includes((scan.riskLevel ?? '').toLowerCase())
+        priority: ['high', 'critical'].includes((scan.triageLevel ?? '').toLowerCase())
           ? 'high'
           : 'normal'
       }));
@@ -3377,7 +3377,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         aiAnalysis: {
           processed: scan.result !== 'Processing',
           findings: scan.result !== 'Processing' ? [scan.result] : ['Analysis in progress'],
-          riskLevel: (scan.result || '').toLowerCase().includes('normal') ? 'low' : 'medium'
+          triageLevel: (scan.result || '').toLowerCase().includes('normal') ? 'low' : 'medium'
         }
       }));
 
@@ -4174,7 +4174,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         enhancedWsManager?.sendToRole('radiologist', {
           type: 'scan_completed',
-          data: { scanId: (queued as any)?.id, scanType, riskLevel: null, requiresReview: true },
+          data: { scanId: (queued as any)?.id, scanType, triageLevel: null, requiresReview: true },
         });
 
         deliverInBackground(
@@ -4294,7 +4294,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         imagePath,
         imageSize: file.size ?? imageBuffer.length,
         result: analysisResult.resultText ?? (analysisResult.hasCancer ?
-          `${analysisResult.cancerType || 'Abnormal findings'} detected - ${analysisResult.riskLevel} risk` :
+          `${analysisResult.cancerType || 'Abnormal findings'} detected - ${analysisResult.triageLevel} risk` :
           "No abnormal findings detected"),
         aiConfidence: `${Math.round(analysisResult.confidence)}%`,
         // Pin the model that produced this. Models get retrained and thresholds
@@ -4302,7 +4302,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // later.
         modelVersion: analysisResult.advancedMetrics?.modelVersion ?? null,
         processingTime: analysisResult.advancedMetrics?.processingTimeMs ?? null,
-        riskLevel: analysisResult.riskLevel ?? null,
+        triageLevel: analysisResult.triageLevel ?? null,
         // The model's call, recorded as a boolean at the moment it was made.
         // Production performance is a comparison between this and the confirmed
         // outcome, and recovering it later by searching `result` for the word
@@ -4388,7 +4388,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         data: {
           scanId: savedScan.id,
           scanType,
-          riskLevel: analysisResult.riskLevel ?? null,
+          triageLevel: analysisResult.triageLevel ?? null,
           requiresReview: true,
         },
       });
@@ -4438,8 +4438,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // clinical stratum; a threshold applied to one probability is not
           // one, so the field is gone and the level is named for what it does.
           cancerType: analysisResult.cancerType,
-          riskLevel: analysisResult.riskLevel?.toUpperCase() || 'LOW',
-          triageLevel: analysisResult.riskLevel?.toUpperCase() || 'LOW',
+          triageLevel: analysisResult.triageLevel?.toUpperCase() || 'LOW',
 
           // Clinical Details
           urgency: analysisResult.analysis?.urgency,
@@ -4457,7 +4456,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           /**
            * The structured record: probability, threshold, temperature, OOD
            * score, gate, model class, validation status. This is what a
-           * clinician-facing view renders; the `riskLevel` / `riskAssessment`
+           * clinician-facing view renders; the `triageLevel` / `riskAssessment`
            * fields above are the queue's ordering signal and are kept for the
            * views that read them, not a diagnosis.
            */
@@ -4472,12 +4471,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           summary: {
             aiConfidence: `${Math.round(analysisResult.confidence)}%`,
             triagePriority:
-              analysisResult.riskLevel === 'high' ? 'priority review'
-              : analysisResult.riskLevel === 'medium' ? 'indeterminate - review'
+              analysisResult.triageLevel === 'high' ? 'priority review'
+              : analysisResult.triageLevel === 'medium' ? 'indeterminate - review'
               : 'routine review',
             primaryFinding: analysisResult.hasCancer ? 'Flagged by the model' : 'Not flagged by the model',
             cancerType: analysisResult.cancerType,
-            urgentAction: analysisResult.riskLevel === 'high'
+            urgentAction: analysisResult.triageLevel === 'high'
           }
         }
       });
@@ -5438,9 +5437,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const completedScans = patientScans.filter(scan => scan.status === 'completed').length;
       const pendingResults = patientScans.filter(scan => scan.status !== 'completed').length;
 
-      // Read from the risk_level column, not by searching the prose in `result`.
+      // Read from the triage_level column, not by searching the prose in `result`.
       const flaggedForReview = patientScans.filter(scan =>
-        ['high', 'critical'].includes((scan.riskLevel ?? '').toLowerCase())
+        ['high', 'critical'].includes((scan.triageLevel ?? '').toLowerCase())
       ).length;
 
       const now = Date.now();
@@ -5545,11 +5544,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
          *
          * `priority` defaults to 'medium' in the schema and nothing sets it, so
          * every report displayed MEDIUM and the "High Priority" counter above
-         * the list read 0 — including for a scan whose risk_level was 'high'.
-         * The pending-reports endpoint was already reading risk_level; this one
+         * the list read 0 — including for a scan whose triage_level was 'high'.
+         * The pending-reports endpoint was already reading triage_level; this one
          * still trusted a column nobody writes.
          */
-        const risk = (scan.riskLevel ?? '').toLowerCase();
+        const risk = (scan.triageLevel ?? '').toLowerCase();
         const priority =
           risk === 'critical' ? 'urgent'
           : risk === 'high' ? 'high'
@@ -5566,7 +5565,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // branch never matched and every report was labelled 'completed'.
           status: scan.status ?? 'pending',
           priority,
-          riskLevel: scan.riskLevel ?? null,
+          triageLevel: scan.triageLevel ?? null,
           findings: scan.result,
           // Was the literal 'Dr. Johnson' on every row.
           radiologistId: scan.radiologistId,

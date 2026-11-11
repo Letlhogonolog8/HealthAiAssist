@@ -46,7 +46,7 @@ async function main() {
   console.log(`  confidence        : ${analysis?.confidence}`);
   console.log(`  modelVersion      : ${analysis?.modelVersion}`);
   console.log(`  scan.modelVersion : ${scan?.modelVersion}`);
-  console.log(`  scan.riskLevel    : ${scan?.riskLevel}`);
+  console.log(`  scan.triageLevel    : ${scan?.triageLevel}`);
   console.log(`  scan.processingTime: ${scan?.processingTime}`);
   if (!scan?.modelVersion) {
     console.error('\nFAIL: the stored scan has no modelVersion.');

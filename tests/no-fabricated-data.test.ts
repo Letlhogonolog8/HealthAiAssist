@@ -157,7 +157,7 @@ describe("a clinician's patient panel", { timeout: TIMEOUT }, () => {
     // These three were literals — 'stable', 'low', 'Regular checkup' — written
     // for every patient alike and rendered as a green STABLE / LOW RISK pair.
     assert.equal(subject.status, undefined);
-    assert.equal(subject.riskLevel, undefined);
+    assert.equal(subject.triageLevel, undefined);
     assert.equal(subject.condition, undefined);
   });
 

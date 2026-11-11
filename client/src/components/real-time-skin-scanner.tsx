@@ -14,7 +14,7 @@ import { triageLabel, triageClass } from '@/lib/triage';
 interface ScanResult {
   hasCancer: boolean;
   confidence: number;
-  riskLevel: 'low' | 'medium' | 'high';
+  triageLevel: 'low' | 'medium' | 'high';
   findings: string[];
   recommendations: string[];
   analysis?: {
@@ -410,8 +410,8 @@ export default function RealTimeSkinScanner() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               Analysis Results
-              <Badge className={`${triageClass(scanResult?.riskLevel)} border`}>
-                {triageLabel(scanResult?.riskLevel)}
+              <Badge className={`${triageClass(scanResult?.triageLevel)} border`}>
+                {triageLabel(scanResult?.triageLevel)}
               </Badge>
             </CardTitle>
           </CardHeader>
@@ -521,9 +521,9 @@ export default function RealTimeSkinScanner() {
                 <div>
                   <h4 className="font-semibold text-lg">Next Steps</h4>
                   <p className="text-sm text-muted-foreground">
-                    {scanResult.riskLevel === 'high' 
+                    {scanResult.triageLevel === 'high' 
                       ? 'Immediate dermatologist consultation recommended'
-                      : scanResult.riskLevel === 'medium'
+                      : scanResult.triageLevel === 'medium'
                       ? 'Schedule dermatologist appointment for further evaluation'
                       : 'Consider routine dermatologist check-up'
                     }

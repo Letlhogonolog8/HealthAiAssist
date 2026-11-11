@@ -158,7 +158,7 @@ export const EXCLUDED_FIELDS: Array<{ field: string; reason: string }> = [
       'Currently both a clinical statement and a status flag: countCriticalScans ' +
       'matches it with ILIKE, and several handlers test `result = \'Processing\'` ' +
       'even though a `status` column exists. It is encryptable, but only after ' +
-      'those queries move to predicted_positive, risk_level and status. Worth ' +
+      'those queries move to predicted_positive, triage_level and status. Worth ' +
       'doing; not worth doing in the same change as introducing encryption.',
   },
   {

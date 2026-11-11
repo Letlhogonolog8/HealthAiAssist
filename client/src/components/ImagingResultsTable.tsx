@@ -20,7 +20,7 @@ import {
 /**
  * One analysed scan, as the imaging views receive it.
  *
- * `confidence`, `riskLevel` and `hasCancer` are nullable because the row they
+ * `confidence`, `triageLevel` and `hasCancer` are nullable because the row they
  * come from can genuinely lack them: a scan queued for manual review has no
  * model output at all, and rows written before those columns existed have none
  * either. They were previously typed as required, which is why every caller
@@ -37,7 +37,7 @@ interface ImagingResult {
   /** Percent, or null when the scan recorded none. Never a default. */
   confidence: number | null;
   /** The band the model assigned, as stored. Null when no model ran. */
-  riskLevel: 'low' | 'medium' | 'high' | 'critical' | null;
+  triageLevel: 'low' | 'medium' | 'high' | 'critical' | null;
   primaryFinding: string | null;
   /** The model's own call. Null means "no prediction", not "negative". */
   hasCancer: boolean | null;
@@ -58,7 +58,7 @@ export default function ImagingResultsTable({ results, onViewResult, onDeleteRes
   const filteredResults = results.filter(result => {
     const matchesSearch = result.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          result.scanType.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesRisk = filterRisk === 'all' || result.riskLevel === filterRisk;
+    const matchesRisk = filterRisk === 'all' || result.triageLevel === filterRisk;
     return matchesSearch && matchesRisk;
   });
 
@@ -138,8 +138,8 @@ export default function ImagingResultsTable({ results, onViewResult, onDeleteRes
                     </div>
                   </td>
                   <td className="p-4">
-                    <Badge className={`${triageClass(result.riskLevel)} text-xs font-medium`}>
-                      {triageLabel(result.riskLevel)}
+                    <Badge className={`${triageClass(result.triageLevel)} text-xs font-medium`}>
+                      {triageLabel(result.triageLevel)}
                     </Badge>
                   </td>
                   <td className="p-4">

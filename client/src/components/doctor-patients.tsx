@@ -22,7 +22,7 @@ import {
  *
  * The shape below is what /api/doctor/patients actually returns. It previously
  * carried `condition`, `status` ('stable' | 'follow-up' | 'critical') and
- * `riskLevel` ('low' | 'medium' | 'high'), and this component rendered all three
+ * `triageLevel` ('low' | 'medium' | 'high'), and this component rendered all three
  * as prominent badges and as the three counters at the bottom of the page. None
  * of them was ever read from the database: the server wrote the literals
  * 'Regular checkup', 'stable' and 'low' onto every patient it returned, so this
@@ -293,7 +293,7 @@ export default function DoctorPatients({ user, onSectionChange }: { user: any; o
 
       {/*
         The "Risk Assessment Overview" card that stood here is gone.
-        It counted patients by `riskLevel`, a field the server set to 'low' for
+        It counted patients by `triageLevel`, a field the server set to 'low' for
         everyone, so it always read "0 high risk, 0 medium risk, N low risk" and
         described that as an assessment. This platform does not assess patient
         risk; it flags individual scans, and those are summarised above and shown

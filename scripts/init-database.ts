@@ -88,7 +88,7 @@ async function initializeDatabase() {
         priority TEXT DEFAULT 'medium',
         findings TEXT DEFAULT '',
         recommendations TEXT DEFAULT '',
-        risk_level TEXT DEFAULT 'low',
+        triage_level TEXT DEFAULT 'low',
         processing_time_ms INTEGER,
         image_size_bytes INTEGER,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,

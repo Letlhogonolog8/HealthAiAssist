@@ -102,7 +102,7 @@ export const ScanDetailsModal: React.FC<ScanDetailsModalProps> = ({ isOpen, onCl
         : null;
 
   const scanType: string | undefined = scan.type ?? scan.scanType;
-  const riskLevel: string | null = scan.riskLevel ?? null;
+  const triageLevel: string | null = scan.triageLevel ?? null;
   const modelVersion: string | null = scan.modelVersion ?? null;
   const processingTimeMs: number | null =
     typeof scan.processingTime === 'number' ? scan.processingTime : null;
@@ -152,8 +152,8 @@ export const ScanDetailsModal: React.FC<ScanDetailsModalProps> = ({ isOpen, onCl
                     {scanDate ? new Date(scanDate).toLocaleString() : 'Date not recorded'}
                   </p>
                 </div>
-                {riskLevel ? (
-                  <Badge className={`${triageClass(riskLevel)} border`}>{triageLabel(riskLevel)}</Badge>
+                {triageLevel ? (
+                  <Badge className={`${triageClass(triageLevel)} border`}>{triageLabel(triageLevel)}</Badge>
                 ) : null}
               </div>
             </CardHeader>

@@ -85,7 +85,7 @@ export interface ScanStats {
  *
  * Every field is read from a column or counted from rows. The shape this
  * replaces was assembled in the route handler and was almost entirely invented:
- * `condition: 'Regular checkup'`, `status: 'stable'` and `riskLevel: 'low'` were
+ * `condition: 'Regular checkup'`, `status: 'stable'` and `triageLevel: 'low'` were
  * string literals written for every patient in the system, and the doctor's
  * dashboard rendered them as a green STABLE badge and a LOW RISK badge. A
  * clinician reading that screen was told that every one of their patients was
@@ -111,7 +111,7 @@ export interface DoctorPatient {
   /** Scans still awaiting a human read. */
   pendingScans: number;
   /**
-   * Highest `risk_level` across this patient's scans, or null if none carries
+   * Highest `triage_level` across this patient's scans, or null if none carries
    * one. This is the model's band on an image, not a clinical assessment of the
    * patient, and the UI must label it as such.
    */
@@ -130,7 +130,7 @@ export interface ClinicianWorkload {
   appointmentsCompleted: number;
   /** Scans assigned to this clinician that no one has signed off. */
   pendingReports: number;
-  /** This clinician's scans whose recorded risk_level is high or critical. */
+  /** This clinician's scans whose recorded triage_level is high or critical. */
   criticalCases: number;
 }
 
@@ -666,8 +666,8 @@ export class DatabaseStorage implements IStorage {
        * announced to the patient as "completed", on their own activity feed.
        * `rejected` had the same problem.
        *
-       * The band is read from risk_level rather than by searching the prose in
-       * `result`, and is withheld until the scan is complete: risk_level
+       * The band is read from triage_level rather than by searching the prose in
+       * `result`, and is withheld until the scan is complete: triage_level
        * defaults to 'low' in the schema, so an unread scan was being reported
        * as normal.
        */
@@ -687,7 +687,7 @@ export class DatabaseStorage implements IStorage {
         description: s.result || 'Scan updated',
         timestamp: s.createdAt || s.updatedAt || new Date(),
         status: s.status === 'completed'
-          ? (['high', 'critical'].includes((s.riskLevel || '').toLowerCase()) ? 'critical' : 'normal')
+          ? (['high', 'critical'].includes((s.triageLevel || '').toLowerCase()) ? 'critical' : 'normal')
           : 'pending',
         type: 'scan'
       }));
@@ -821,16 +821,16 @@ export class DatabaseStorage implements IStorage {
                   count(*) FILTER (WHERE status <> 'completed')::int AS pending_scans,
                   -- Ranked by clinical severity, not alphabetically. Sorting the
                   -- text would put 'low' above 'high'.
-                  (SELECT risk_level FROM medical_scans m2
-                    WHERE m2.patient_id = u.id AND m2.risk_level IS NOT NULL
-                    ORDER BY CASE lower(m2.risk_level)
+                  (SELECT triage_level FROM medical_scans m2
+                    WHERE m2.patient_id = u.id AND m2.triage_level IS NOT NULL
+                    ORDER BY CASE lower(m2.triage_level)
                                WHEN 'critical' THEN 4 WHEN 'high' THEN 3
                                WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END DESC,
                              m2.created_at DESC
                     LIMIT 1)                                         AS highest_risk,
                   (SELECT created_at FROM medical_scans m3
-                    WHERE m3.patient_id = u.id AND m3.risk_level IS NOT NULL
-                    ORDER BY CASE lower(m3.risk_level)
+                    WHERE m3.patient_id = u.id AND m3.triage_level IS NOT NULL
+                    ORDER BY CASE lower(m3.triage_level)
                                WHEN 'critical' THEN 4 WHEN 'high' THEN 3
                                WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END DESC,
                              m3.created_at DESC
@@ -896,7 +896,7 @@ export class DatabaseStorage implements IStorage {
            WHERE doctor_id = $1 AND status <> 'completed')                 AS pending_reports,
          (SELECT count(*)::int FROM medical_scans
            WHERE doctor_id = $1
-             AND lower(coalesce(risk_level, '')) IN ('high', 'critical'))  AS critical_cases`,
+             AND lower(coalesce(triage_level, '')) IN ('high', 'critical'))  AS critical_cases`,
       [doctorId]
     );
     const row: any = rows[0] ?? {};
@@ -930,7 +930,7 @@ export class DatabaseStorage implements IStorage {
          count(*) FILTER (WHERE status = 'completed'
                             AND reviewed_at >= current_date)::int        AS completed_today,
          count(*) FILTER (WHERE status = 'completed')::int               AS total_reviewed,
-         count(*) FILTER (WHERE lower(coalesce(risk_level, ''))
+         count(*) FILTER (WHERE lower(coalesce(triage_level, ''))
                                 IN ('high', 'critical'))::int            AS critical_cases,
          avg(nullif(replace(ai_confidence, '%', ''), '')::numeric)       AS mean_confidence,
          percentile_cont(0.5) WITHIN GROUP (
@@ -995,7 +995,7 @@ export class DatabaseStorage implements IStorage {
       priority: medicalScans.priority,
       findings: medicalScans.findings,
       recommendations: medicalScans.recommendations,
-      riskLevel: medicalScans.riskLevel,
+      triageLevel: medicalScans.triageLevel,
       processingTime: medicalScans.processingTime,
       imageSize: medicalScans.imageSize,
       modelVersion: medicalScans.modelVersion,
@@ -1339,7 +1339,7 @@ export class DatabaseStorage implements IStorage {
               s.findings,
               s.recommendations,
               s.status,
-              s.risk_level          AS "riskLevel",
+              s.triage_level          AS "triageLevel",
               s.model_version       AS "modelVersion",
               s.predicted_positive  AS "predictedPositive",
               s.created_at          AS "createdAt",

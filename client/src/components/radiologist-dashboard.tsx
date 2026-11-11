@@ -51,7 +51,7 @@ interface ScanReview {
   priority: 'urgent' | 'high' | 'medium' | 'low';
   submittedAt: string;
   /** Clinical risk as recorded by the analysis. Null when none was written. */
-  riskLevel: string | null;
+  triageLevel: string | null;
   aiPrediction: string;
   /**
    * The model's self-reported confidence, or null when nothing scored the scan.

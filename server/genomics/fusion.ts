@@ -33,7 +33,7 @@ export interface ImagingSignal {
   /** Classifier confidence, 0-100. */
   confidence: number;
   /** 'low' | 'medium' | 'high' from the imaging pipeline. */
-  riskLevel: string;
+  triageLevel: string;
 }
 
 export interface ClinicalSignal {
@@ -81,9 +81,9 @@ export function fuseRisk(input: FusionInput): FusionResult {
 
   // ---- Imaging: the primary signal --------------------------------------
   if (input.imaging) {
-    const { flagged, confidence, riskLevel } = input.imaging;
+    const { flagged, confidence, triageLevel } = input.imaging;
     if (flagged) {
-      band = raise(band, riskLevel === 'high' ? 'high' : 'moderate');
+      band = raise(band, triageLevel === 'high' ? 'high' : 'moderate');
       contributions.push({
         source: 'imaging',
         effect: `set band to ${band}`,

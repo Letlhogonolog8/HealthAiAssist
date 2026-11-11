@@ -26,7 +26,7 @@ interface MedicalImageViewerProps {
   analysisResult?: {
     hasCancer: boolean;
     confidence: number;
-    riskLevel: 'low' | 'medium' | 'high';
+    triageLevel: 'low' | 'medium' | 'high';
     findings: string[];
   } | null;
 }
@@ -135,7 +135,7 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
               <div className="flex flex-col items-end gap-2">
                 <Badge 
                   variant={analysisResult.hasCancer ? "destructive" : "default"}
-                  className={`${triageClass(analysisResult.riskLevel)} border-2 text-sm px-3 py-1`}
+                  className={`${triageClass(analysisResult.triageLevel)} border-2 text-sm px-3 py-1`}
                 >
                   {analysisResult.hasCancer ? "Abnormal" : "Normal"}
                 </Badge>
@@ -280,8 +280,8 @@ export default function MedicalImageViewer({ imageFile, analysisResult }: Medica
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between items-center">
                     <span>Risk Level:</span>
-                    <Badge className={`${triageClass(analysisResult.riskLevel)} text-xs`}>
-                      {triageLabel(analysisResult.riskLevel)}
+                    <Badge className={`${triageClass(analysisResult.triageLevel)} text-xs`}>
+                      {triageLabel(analysisResult.triageLevel)}
                     </Badge>
                   </div>
                   <div className="flex justify-between items-center">

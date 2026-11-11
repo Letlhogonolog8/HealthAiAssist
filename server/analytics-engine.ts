@@ -200,7 +200,7 @@ export class AnalyticsEngine {
   private async analyzeRiskPatterns(): Promise<MedicalInsight | null> {
     try {
       const scans = await storage.getScans();
-      const highRiskScans = scans.filter(s => s.riskLevel === 'high' || s.riskLevel === 'critical');
+      const highRiskScans = scans.filter(s => s.triageLevel === 'high' || s.triageLevel === 'critical');
 
       if (highRiskScans.length === 0) return null;
 
@@ -419,7 +419,7 @@ export class AnalyticsEngine {
     };
 
     scans.forEach(scan => {
-      const risk = scan.riskLevel || 'unknown';
+      const risk = scan.triageLevel || 'unknown';
       if (distribution.hasOwnProperty(risk)) {
         distribution[risk as keyof typeof distribution]++;
       } else {
@@ -502,7 +502,7 @@ export class AnalyticsEngine {
   }
 
   private calculateScreeningEffectiveness(scans: any[]): any {
-    const flaggedScans = scans.filter(s => s.riskLevel === 'medium' || s.riskLevel === 'high').length;
+    const flaggedScans = scans.filter(s => s.triageLevel === 'medium' || s.triageLevel === 'high').length;
     const flagRate = scans.length > 0 ? flaggedScans / scans.length : 0;
 
     return {

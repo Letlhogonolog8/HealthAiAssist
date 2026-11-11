@@ -17,7 +17,7 @@ import {
 interface ImagingResult {
   id: string;
   confidence: number;
-  riskLevel: 'low' | 'medium' | 'high';
+  triageLevel: 'low' | 'medium' | 'high';
   analysisDate: string;
   hasCancer: boolean;
   scanType: string;
@@ -32,7 +32,7 @@ export default function ImagingResultsSummary({ results, onViewAll }: ImagingRes
   const recentResults = results.slice(0, 3);
   // Counts the queue's ordering level, not a clinical stratum. A threshold on
   // one probability decides it, so the tile is named for what the level does.
-  const priorityReviewCount = results.filter(r => r.riskLevel === 'high').length;
+  const priorityReviewCount = results.filter(r => r.triageLevel === 'high').length;
   const abnormalCount = results.filter(r => r.hasCancer).length;
   const avgConfidence = results.length > 0 ? Math.round(results.reduce((sum, r) => sum + r.confidence, 0) / results.length) : 0;
 
@@ -125,8 +125,8 @@ export default function ImagingResultsSummary({ results, onViewAll }: ImagingRes
                   <div className="text-sm font-bold text-foreground">{result.confidence}%</div>
                   <div className="text-xs text-muted-foreground">Confidence</div>
                 </div>
-                <Badge className={`${triageClass(result.riskLevel)} text-xs`}>
-                  {triageLabel(result.riskLevel)}
+                <Badge className={`${triageClass(result.triageLevel)} text-xs`}>
+                  {triageLabel(result.triageLevel)}
                 </Badge>
               </div>
             </div>

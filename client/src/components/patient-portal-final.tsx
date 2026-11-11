@@ -253,9 +253,9 @@ export default function PatientPortalFinal({ user }: { user: any }) {
    * was parsed into the risk calculation below it, so the fabricated figure also
    * decided which band the card was painted.
    *
-   * `riskLevel` was then derived in the browser by searching the result text for
+   * `triageLevel` was then derived in the browser by searching the result text for
    * "abnormal", "suspicious", "malignant" or "cancer" and comparing that
-   * confidence against 80. The server records `risk_level` on the row — the band
+   * confidence against 80. The server records `triage_level` on the row — the band
    * the model actually assigned, which is what the clinician sees — so the
    * patient's card and the clinician's queue could disagree about the same scan
    * purely because of how the finding was worded.
@@ -270,7 +270,7 @@ export default function PatientPortalFinal({ user }: { user: any }) {
       /*
         A scan that has not been read carries no finding.
 
-        `risk_level` defaults to 'low' and `ai_confidence` to '0%' in the schema,
+        `triage_level` defaults to 'low' and `ai_confidence` to '0%' in the schema,
         so a scan still in the queue arrived here as LOW risk with 0% confidence
         and the card rendered both — telling the patient their unread scan was
         low risk. Those columns are only meaningful once something has written
@@ -290,7 +290,7 @@ export default function PatientPortalFinal({ user }: { user: any }) {
         date: scan.createdAt ?? null,
         status: scan.status ?? 'pending',
         // The band the model assigned, as stored. Not re-derived from prose.
-        riskLevel: complete ? scan.riskLevel ?? null : null,
+        triageLevel: complete ? scan.triageLevel ?? null : null,
         predictedPositive: complete ? scan.predictedPositive ?? null : null,
         modelVersion: scan.modelVersion ?? null,
       };
@@ -478,10 +478,10 @@ export default function PatientPortalFinal({ user }: { user: any }) {
                               <div className="w-16 h-2 bg-slate-600 rounded-full overflow-hidden">
                                 <div 
                                   className="h-full bg-green-500 rounded-full transition-all duration-300" 
-                                  style={{width: `${processedScans.length > 0 ? (processedScans.filter(s => s.riskLevel === 'low').length / processedScans.length) * 100 : 0}%`}}
+                                  style={{width: `${processedScans.length > 0 ? (processedScans.filter(s => s.triageLevel === 'low').length / processedScans.length) * 100 : 0}%`}}
                                 ></div>
                               </div>
-                              <span className="text-xs text-green-400 font-medium">{processedScans.filter(s => s.riskLevel === 'low').length}</span>
+                              <span className="text-xs text-green-400 font-medium">{processedScans.filter(s => s.triageLevel === 'low').length}</span>
                             </div>
                           </div>
                           <div className="flex justify-between items-center">
@@ -490,10 +490,10 @@ export default function PatientPortalFinal({ user }: { user: any }) {
                               <div className="w-16 h-2 bg-slate-600 rounded-full overflow-hidden">
                                 <div 
                                   className="h-full bg-yellow-500 rounded-full transition-all duration-300" 
-                                  style={{width: `${processedScans.length > 0 ? (processedScans.filter(s => s.riskLevel === 'medium').length / processedScans.length) * 100 : 0}%`}}
+                                  style={{width: `${processedScans.length > 0 ? (processedScans.filter(s => s.triageLevel === 'medium').length / processedScans.length) * 100 : 0}%`}}
                                 ></div>
                               </div>
-                              <span className="text-xs text-yellow-400 font-medium">{processedScans.filter(s => s.riskLevel === 'medium').length}</span>
+                              <span className="text-xs text-yellow-400 font-medium">{processedScans.filter(s => s.triageLevel === 'medium').length}</span>
                             </div>
                           </div>
                           <div className="flex justify-between items-center">
@@ -502,10 +502,10 @@ export default function PatientPortalFinal({ user }: { user: any }) {
                               <div className="w-16 h-2 bg-slate-600 rounded-full overflow-hidden">
                                 <div 
                                   className="h-full bg-red-500 rounded-full transition-all duration-300" 
-                                  style={{width: `${processedScans.length > 0 ? (processedScans.filter(s => s.riskLevel === 'high').length / processedScans.length) * 100 : 0}%`}}
+                                  style={{width: `${processedScans.length > 0 ? (processedScans.filter(s => s.triageLevel === 'high').length / processedScans.length) * 100 : 0}%`}}
                                 ></div>
                               </div>
-                              <span className="text-xs text-red-400 font-medium">{processedScans.filter(s => s.riskLevel === 'high').length}</span>
+                              <span className="text-xs text-red-400 font-medium">{processedScans.filter(s => s.triageLevel === 'high').length}</span>
                             </div>
                           </div>
                         </div>
@@ -598,7 +598,7 @@ export default function PatientPortalFinal({ user }: { user: any }) {
                     /*
                       Straight from the row.
 
-                      This block re-derived `riskLevel` in the browser by
+                      This block re-derived `triageLevel` in the browser by
                       searching the result text for "abnormal", "suspicious",
                       "malignant" or "cancer" and comparing a confidence — which
                       itself defaulted to a literal 85% — against 80. The comment
@@ -608,7 +608,7 @@ export default function PatientPortalFinal({ user }: { user: any }) {
                       patient's card and the clinician's queue came to disagree
                       about the same scan.
 
-                      `hasCancer: riskLevel === 'high'` was the sharpest edge of
+                      `hasCancer: triageLevel === 'high'` was the sharpest edge of
                       it — a cancer determination made in a browser, from a
                       substring match, on a number the server had not supplied.
                       The row records `predictedPositive` for exactly this, and a
@@ -617,7 +617,7 @@ export default function PatientPortalFinal({ user }: { user: any }) {
                     confidence: scan.confidence
                       ? parseInt(String(scan.confidence).replace('%', ''), 10)
                       : null,
-                    riskLevel: scan.riskLevel,
+                    triageLevel: scan.triageLevel,
                     primaryFinding: scan.result,
                     hasCancer: scan.predictedPositive ?? null,
                     imageUrl: scan.imageUrl

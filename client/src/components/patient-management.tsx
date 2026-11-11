@@ -26,7 +26,7 @@ interface Patient {
   /**
    * Highest risk band across this patient's scans, from /api/doctor/patients.
    *
-   * Replaces `condition`, `status` and `riskLevel`, which this component
+   * Replaces `condition`, `status` and `triageLevel`, which this component
    * rendered as a status badge, a coloured risk dot and a "Current Condition"
    * field on the detail panel. The server wrote all three as fixed strings —
    * 'Regular checkup', 'stable' and 'low' — for every patient, so the badge read

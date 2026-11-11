@@ -347,10 +347,10 @@ function prsAt(percentile: number | null, provenance: 'pgs_catalog' | 'synthetic
 }
 
 const FLAGGED: Parameters<typeof fuseRisk>[0]['imaging'] = {
-  scanId: 1, flagged: true, confidence: 95, riskLevel: 'high',
+  scanId: 1, flagged: true, confidence: 95, triageLevel: 'high',
 };
 const CLEAR: Parameters<typeof fuseRisk>[0]['imaging'] = {
-  scanId: 2, flagged: false, confidence: 90, riskLevel: 'low',
+  scanId: 2, flagged: false, confidence: 90, triageLevel: 'low',
 };
 
 test('a flagged high-risk scan sets the band high', () => {
