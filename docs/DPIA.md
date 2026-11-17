@@ -108,7 +108,7 @@ row was written, because it cannot be retrofitted.
 | Field | Why not |
 |---|---|
 | `users.email`, `users.username` | Equality lookups on the authentication path. Randomised encryption makes `WHERE email = ?` impossible; protecting these needs a blind index, which leaks equality by design and is a separate decision. |
-| `medical_scans.result` | Currently doubles as a status flag matched with `ILIKE`. Encryptable only after those queries move to `predicted_positive`, `risk_level` and `status`. **R-10** |
+| `medical_scans.result` | Currently doubles as a status flag matched with `ILIKE`. Encryptable only after those queries move to `predicted_positive`, `triage_level` and `status`. **R-10** |
 | `genomic_variants.genotype` | Wrong tool at this scale — 500k–900k rows of two-character calls against a ~90-character envelope each. Needs volume encryption or a sealed per-profile blob. **R-11** |
 | `audit_events.detail` | Constrained by design to non-identifying context. An audit log containing the data it audits has multiplied the exposure; the fix is keeping it out, not encrypting it in place. |
 | `medical_scans.image_path` | A storage locator, not content. The image is private in both backends and served only through an authorised, audited endpoint. |
@@ -288,7 +288,7 @@ Severity reflects the risk to the **data subject**, not to the project.
 | **R-07** | No MFA on accounts that can read any patient record | **High** | **Mitigated, shadow mode** | `server/mfa.ts`. Enrolment, challenge, single-use recovery codes, secret encrypted at rest. Enforcement is behind `MFA_ENFORCE` and currently **off** so existing clinicians are not locked out mid-deploy. **Not closed until that flag is on.** |
 | **R-08** | No written operator agreement with OpenAI under §20 | Medium | Open | Execute a data processing agreement, or remove the dependency |
 | **R-09** | No incident response or §22 breach notification procedure | High | Open | Written plan with a named responsible person and a defined timeline |
-| **R-10** | `medical_scans.result` holds clinical text and is not encrypted | Medium | Open | Move status queries to `status` / `risk_level` / `predicted_positive`, then encrypt |
+| **R-10** | `medical_scans.result` holds clinical text and is not encrypted | Medium | Open | Move status queries to `status` / `triage_level` / `predicted_positive`, then encrypt |
 | **R-11** | Genomic genotype data unencrypted at rest | **High** | Open | Volume encryption or a sealed per-profile blob. Genomic data cannot be reissued if leaked and implicates relatives. |
 | **R-12** | Redaction cannot catch self-identifying prose sent to the AI assistant | Medium | Partially mitigated | Consent and disclosure. Disclosure text should state the limit explicitly. |
 | **R-13** | Patient data resides in Ireland by provider default, not by decision | Medium | Open | Record the §72(1)(b) assessment, or relocate |
