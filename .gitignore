@@ -88,6 +88,17 @@ dataset/*
 !dataset/data/
 dataset/data/*
 !dataset/data/*.json
+# Except these two, which are only meaningful beside data that stays ignored.
+# skin_tone_performance.json records a measurement of a specific .h5, and
+# ita_reference.json is a reference distribution over specific test images.
+# Tracking them without those files puts a checkout in a state no environment
+# should be in: tests/fairness.test.ts uses their presence as the signal that
+# the data is here, so committing them made CI run assertions against an
+# artifact it does not have (measured fingerprint ed06b8a0468e against a null
+# deployed one) instead of skipping. They are backed up by
+# `npm run backup:models`, like the artifacts they describe.
+dataset/data/skin_tone_performance.json
+dataset/data/ita_reference.json
 !dataset/lung_cancer_MRI_dataset/
 dataset/lung_cancer_MRI_dataset/*
 !dataset/lung_cancer_MRI_dataset/*.json
