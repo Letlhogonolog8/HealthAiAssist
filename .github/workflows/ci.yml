@@ -191,3 +191,109 @@ jobs:
           python -m pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
           python -m pip install --quiet pyyaml scipy
           python -m pytest training/tests -q
+
+  # The inference path, which the `test` job above cannot reach.
+  #
+  # Those tests gate on INFERENCE_URL and skip when it is unset. The `test` job
+  # never sets it, so 34 tests across five files — DICOM ingestion,
+  # de-identification, lung windowing, the nodule crop, the OOD refusals and
+  # the 503 paths — were verified nowhere, behind a green checkmark. This job
+  # exists to close that.
+  #
+  # It runs a subset. The model weights are gitignored (~90 MB each) and are not
+  # available to a runner, so the service here starts with `loaded: false` for
+  # every model and `/healthz` still answers 200 — the failure is caught and
+  # reported rather than fatal (inference/server.py). The two files below do not
+  # need weights: `ingestSeries` never calls a classifier, and detection refuses
+  # because no detector is registered. `lung-nodule` and `scan-explanation` do
+  # need them and stay local, under `npm run test:inference`.
+  #
+  # Measured 2026-11-17 against a deliberately weightless service: 47 tests,
+  # 46 pass, 1 skip, ~6 minutes.
+  #
+  # Kept a separate job on purpose. Running these alongside the other 80 suites
+  # with a resident TensorFlow process made the whole run 3x slower (432s to
+  # 1328s) and produced ECONNRESETs and cancelled suites on a constrained
+  # machine — timing, not defects. Both files pass comfortably on their own.
+  inference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: healthai_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/healthai_test
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/healthai_test
+      SESSION_SECRET: ci_only_not_a_real_secret_0000000000000000000000000000000000000000
+      NODE_ENV: development
+      INFERENCE_URL: http://127.0.0.1:8001
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install inference dependencies
+        run: |
+          python -m pip install --quiet -r requirements.txt -r inference/requirements.txt
+
+      # Started in the background, then waited for. /healthz answers 200 once
+      # the app is up whether or not any model loaded, so the wait is on the
+      # service being reachable; what it is actually serving is printed below.
+      - name: Start the inference service
+        run: |
+          python -m uvicorn inference.server:app --host 127.0.0.1 --port 8001 \
+            > /tmp/inference.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -sf --max-time 3 http://127.0.0.1:8001/healthz > /dev/null; then
+              echo "inference service up after ~${i}s"
+              break
+            fi
+            sleep 1
+          done
+          curl -sf --max-time 5 http://127.0.0.1:8001/healthz || {
+            echo "service did not become healthy"; cat /tmp/inference.log; exit 1; }
+
+      - name: What the service is actually serving
+        run: |
+          curl -s http://127.0.0.1:8001/healthz | python -m json.tool
+
+      # Same order as the `test` job: schema, raw migrations, session table.
+      - name: Create application schema
+        run: npx drizzle-kit push --force < /dev/null
+
+      - name: Apply raw SQL migrations
+        run: npm run db:migrate-all
+
+      - name: Create session table
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f node_modules/connect-pg-simple/table.sql
+
+      - name: Inference-path tests
+        run: npm run test:inference:ci
+
+      - name: Inference service log
+        if: always()
+        run: tail -50 /tmp/inference.log

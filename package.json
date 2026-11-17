@@ -9,6 +9,8 @@
     "start": "cross-env NODE_ENV=production tsx server/index.ts",
     "check": "tsc",
     "test": "node --import tsx --test --test-concurrency=1 --test-timeout=900000 --test-force-exit \"tests/**/*.test.ts\"",
+    "test:inference": "node --import tsx --test --test-concurrency=1 --test-timeout=900000 --test-force-exit tests/dicom-series.test.ts tests/detection-candidates.test.ts tests/lung-nodule.test.ts tests/scan-explanation.test.ts",
+    "test:inference:ci": "node --import tsx --test --test-concurrency=1 --test-timeout=900000 --test-force-exit tests/dicom-series.test.ts tests/detection-candidates.test.ts",
     "db:push": "drizzle-kit push",
     "db:migrate-genomics": "tsx scripts/migrate-genomics.ts",
     "db:migrate-traceability": "tsx scripts/migrate-genomics.ts traceability.sql",
