@@ -47,6 +47,17 @@ interface NoduleSlice {
   patientName: string;
 }
 
+/**
+ * The weights are gitignored, so CI has no artifact to fingerprint. Governance
+ * then cannot bind one, `mayServe` is false, and the capability is reported
+ * DISABLED — "that is what a request will meet" (server/capabilities.ts). The
+ * serving status therefore only means something where the file is present; the
+ * published figures and caveats on the card are checked in both environments.
+ */
+const NODULE_ARTIFACT_PRESENT = fs.existsSync(
+  path.join(process.cwd(), 'dataset', 'lung_nodule_model', 'resnet50v2_lung_nodule_model.h5')
+);
+
 /** A held-out nodule and the object it sits on, or null without the dataset. */
 function resolveNodule(): NoduleSlice | null {
   if (!fs.existsSync(path.join(process.cwd(), 'dataset', 'lidc-labels.csv'))) return null;
@@ -136,7 +147,13 @@ describe('governance', { timeout: TIMEOUT }, () => {
     const card = res.json.models.find((m: any) => m.scanType === 'lung_nodule');
     assert.ok(card, 'lung_nodule is registered');
     assert.equal(card.enabled, true);
-    assert.equal(card.status, 'VALIDATION', 'small evidence base: validation terms, not current');
+    if (NODULE_ARTIFACT_PRESENT) {
+      assert.equal(card.status, 'VALIDATION', 'small evidence base: validation terms, not current');
+    } else {
+      // Enabled in the registry but nothing is bound, so nothing serves and the
+      // card must say so rather than advertise terms it cannot honour.
+      assert.equal(card.status, 'DISABLED', 'no artifact: nothing serves, and the card says so');
+    }
     assert.equal(card.modelClass, 'INTERNAL_VALIDATION');
     assert.equal(card.clinicallyValidated, false);
     assert.equal(card.measurementBinding.verification, 're_measured');
@@ -149,7 +166,7 @@ describe('governance', { timeout: TIMEOUT }, () => {
     assert.match(card.evaluation.caveats, /29/);
     assert.match(card.evaluation.caveats, /not clinically validated/i);
     assert.match(card.evaluation.caveats, /does not check that the marked region is a nodule|not that the marked region is a nodule/i);
-    if (fs.existsSync(path.join(process.cwd(), 'dataset', 'lung_nodule_model', 'resnet50v2_lung_nodule_model.h5'))) {
+    if (NODULE_ARTIFACT_PRESENT) {
       assert.equal(card.figuresDescribeDeployedArtifact, true, 'the artifact on disk is the measured one');
     }
   });
@@ -199,7 +216,15 @@ describe('who may mark', { timeout: TIMEOUT }, () => {
 describe('without the resident inference service', { timeout: TIMEOUT }, () => {
   test(
     'refuses with the variable named, and the scan is stored and queued',
-    { skip: (!nodule && 'LIDC dataset not present') || (INFERENCE_CONFIGURED && 'INFERENCE_URL is set') },
+    {
+      skip:
+        (!nodule && 'LIDC dataset not present') ||
+        (INFERENCE_CONFIGURED && 'INFERENCE_URL is set') ||
+        // With the dataset but no weights, the governance refusal fires first
+        // and names the artifact instead of the variable. Both are correct;
+        // this test is about the transport one.
+        (!NODULE_ARTIFACT_PRESENT && 'model artifacts absent (gitignored)'),
+    },
     async () => {
       const res = await submit(radSession, fs.readFileSync(nodule!.path), 'slice.dcm', {
         patientId: String(patient.id),

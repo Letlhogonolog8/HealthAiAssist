@@ -121,7 +121,11 @@ describe('measurement bindings', { timeout: TIMEOUT }, () => {
     }
   });
 
-  test('a withdrawn modality refuses regardless of its binding', async () => {
+  test('a withdrawn modality refuses regardless of its binding', async (t) => {
+    // Needs the file: with nothing to fingerprint, governanceStatus returns
+    // 'unknown' before it ever reaches the withdrawal check, so the state this
+    // asserts is unreachable rather than wrong.
+    if (!ARTIFACTS_PRESENT) return t.skip('model artifacts absent (gitignored)');
     const { MODEL_REGISTRY } = await import('../server/model-availability.ts');
     const { governanceStatus } = await import('../server/model-governance.ts');
 

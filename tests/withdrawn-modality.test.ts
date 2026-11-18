@@ -35,6 +35,23 @@ const LUNG_OOD_REPORT = path.join(
   'lung_model_ood.json'
 );
 
+/**
+ * The weights are gitignored, so CI has no artifact to fingerprint. Without one
+ * `governanceStatus` sets the deployed fingerprint to 'unknown' and returns
+ * state 'unknown' — "nothing can be concluded" — before it ever reaches the
+ * withdrawal check (server/model-governance.ts). A binding state therefore only
+ * means something where the file is present. What the card *says* about the
+ * withdrawal is registry-driven and is checked in both environments.
+ */
+const LUNG_ARTIFACT_PRESENT = fs.existsSync(
+  path.join(
+    process.cwd(),
+    'dataset',
+    'lung_cancer_MRI_dataset',
+    'resnet50v2_lung_cancer_model.h5'
+  )
+);
+
 before(async () => {
   await startServer();
 });
@@ -61,10 +78,17 @@ describe('the model card', { timeout: TIMEOUT }, () => {
     assert.ok(lung.evaluation, 'the measured figures are not erased by a withdrawal');
     assert.equal(lung.figuresDescribeDeployedArtifact, false);
     assert.ok(lung.measurementBinding);
-    assert.equal(lung.measurementBinding.state, 'withdrawn');
-    assert.equal(lung.measurementBinding.mayServe, false);
-    // A withdrawal is a decision about a specific file, and the record names it.
-    assert.ok(lung.measurementBinding.measuredFingerprint, 'the measured artifact is named');
+    if (LUNG_ARTIFACT_PRESENT) {
+      assert.equal(lung.measurementBinding.state, 'withdrawn');
+      assert.equal(lung.measurementBinding.mayServe, false);
+      // A withdrawal is a decision about a specific file, and the record names it.
+      assert.ok(lung.measurementBinding.measuredFingerprint, 'the measured artifact is named');
+    } else {
+      // Nothing to fingerprint. The binding must say it cannot tell rather than
+      // report a withdrawal it has not verified against a file.
+      assert.equal(lung.measurementBinding.state, 'unknown');
+      assert.equal(lung.measurementBinding.mayServe, false, 'unknown must not serve');
+    }
   });
 
   test('the caveats no longer claim the screen refuses real CT', async () => {

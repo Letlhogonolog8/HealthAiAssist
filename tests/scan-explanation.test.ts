@@ -32,6 +32,21 @@ const TIMEOUT = 300_000;
 const INFERENCE_CONFIGURED = Boolean(process.env.INFERENCE_URL);
 
 /**
+ * Every suite here needs a scan that was actually scored, and the `before`
+ * hooks create one by uploading. The weights are gitignored, so on a checkout
+ * without them that upload is refused with 503 — "the deployed artifact could
+ * not be fingerprinted, so it cannot be confirmed as the one the published
+ * figures describe" — which is the system working. The hook then fails and
+ * takes every test in the suite with it, which reads as a defect and is not
+ * one. The precondition is the file, so the gate is the file.
+ */
+const ARTIFACTS_PRESENT = fs.existsSync(
+  'dataset/lung_cancer_MRI_dataset/resnet50v2_lung_cancer_model.h5'
+) && fs.existsSync('dataset/data/resnet50v2_skin_cancer_model.h5');
+
+const WITHOUT_ARTIFACTS = !ARTIFACTS_PRESENT && 'model artifacts absent (gitignored)';
+
+/**
  * Skin, because skin is the modality that serves. This file used a chest image
  * and the lung model until that model was withdrawn (2026-09-20; MODEL_CARDS.md).
  * Several candidates are kept because the out-of-distribution screen refuses
@@ -61,6 +76,12 @@ async function submit(session: Session, file: string): Promise<{ status: number;
 }
 
 before(async () => {
+  // Every suite below is skipped without the artifacts, and this hook cannot
+  // build their fixture anyway: seeding a scored scan means uploading one, and
+  // that upload is correctly refused with 503 when no artifact can be
+  // fingerprinted. Attempting it only turns a skip into a hook failure.
+  if (!ARTIFACTS_PRESENT) return;
+
   await startServer();
 
   consenting = await registerPatient('explain-yes');
@@ -121,6 +142,9 @@ before(async () => {
 });
 
 after(async () => {
+  // Nothing was started and nothing was created; there is nothing to tear down.
+  if (!ARTIFACTS_PRESENT) return;
+
   const pool = db();
   try {
     const stale = await pool.query('SELECT id FROM users WHERE left(username, $2) = $1', [
@@ -143,7 +167,7 @@ after(async () => {
 
 // ---------------------------------------------------------------------------
 
-describe('who may ask', { timeout: TIMEOUT }, () => {
+describe('who may ask', { timeout: TIMEOUT, skip: WITHOUT_ARTIFACTS }, () => {
   test('a patient cannot request an explanation, even of their own scan', { skip: !haveImage && 'dataset not present' }, async () => {
     const res = await consenting.session.get(`/api/scans/${analysedScanId}/explanation`);
     assert.equal(res.status, 403, res.text.slice(0, 200));
@@ -160,7 +184,7 @@ describe('who may ask', { timeout: TIMEOUT }, () => {
   });
 });
 
-describe('what it refuses to explain', { timeout: TIMEOUT }, () => {
+describe('what it refuses to explain', { timeout: TIMEOUT, skip: WITHOUT_ARTIFACTS }, () => {
   test('a scan the model never scored: 409, and explicitly not a negative', { skip: !haveImage && 'dataset not present' }, async () => {
     const res = await radSession.get(`/api/scans/${unanalysedScanId}/explanation`);
     assert.equal(res.status, 409, res.text.slice(0, 200));
@@ -225,7 +249,7 @@ describe('what it refuses to explain', { timeout: TIMEOUT }, () => {
   );
 });
 
-describe('with the resident inference service', { timeout: TIMEOUT }, () => {
+describe('with the resident inference service', { timeout: TIMEOUT, skip: WITHOUT_ARTIFACTS }, () => {
   test(
     'returns a heatmap, its caveat, and agreement with the stored call',
     { skip: (!haveImage && 'dataset not present') || (!INFERENCE_CONFIGURED && 'INFERENCE_URL not set') },
